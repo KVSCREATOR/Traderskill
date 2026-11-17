@@ -1429,7 +1429,9 @@ class Handler(BaseHTTPRequestHandler):
         o = urllib.parse.urlparse(origin)
         if LOOPBACK:
             return o.hostname in ("127.0.0.1", "localhost")
-        return o.netloc == (self.headers.get("Host") or "")
+        # behind DSM's HTTPS reverse proxy the Host header may lose its port: compare host names
+        host = (self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "").split(",")[0].strip()
+        return (o.hostname or "") == host.rsplit(":", 1)[0].strip("[]")
 
     def _api(self, method, path, q, body):
         try:
