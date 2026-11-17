@@ -388,7 +388,7 @@ async function scanner(_arg, mode) {
       : r.orb.state === 'waiting' ? '<span class="pill">waiting</span>' : '<span class="muted">–</span>';
     view.innerHTML = head(title, `${mode === 'orb' ? '15-minute opening-range breakouts · live trades first · ' : ''}${d.universe} · ${rows.length} of ${d.rows.length} stocks shown · scanned ${d.scanned_at} IST · ${d.rows[0] && d.rows[0].live ? 'live session' : 'last session'}`,
       `<button class="btn" id="rescan">Rescan</button>`) +
-      `<div class="stack">${mode === 'orb' ? '' : `<div class="chips">${chips}</div>`}<div class="card"><div class="tablewrap" style="margin-top:-18px"><table>
+      `<div class="stack">${mode === 'orb' ? '' : `<div class="chips">${chips}</div>`}<div class="card"><div class="row tablebar" style="margin-top:0"><input type="search" data-tfind placeholder="Search stock, name or sector" style="width:240px"><button class="btn sm" data-sortreset>Default order</button><span class="note" style="margin:0">Click a column heading to sort.</span></div><div class="tablewrap"><table>
       <thead><tr><th>Stock</th><th class="num">Price</th><th class="num">Day</th><th>Daily setups</th><th>15-min ORB</th><th class="num">RSI</th><th class="num">Rel vol</th><th>Trend</th><th class="num">Rank</th></tr></thead>
       <tbody>${rows.map(r => `<tr class="click" data-s="${esc(r.symbol)}" tabindex="0">
         <td class="sym"><b>${esc(r.symbol)}</b><small>${esc(r.name)}${r.source !== 'Yahoo' ? ' · ' + esc(r.source) : ''}</small></td><td class="num">${inr(r.price)}</td><td class="num ${cls(r.change_pct)}">${pct(r.change_pct)}</td>
