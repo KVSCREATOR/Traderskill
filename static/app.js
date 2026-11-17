@@ -54,7 +54,7 @@ $('#search').onsubmit = e => {
 };
 
 const VIEWS = { predictor, scanner, orb: a => scanner(a, 'orb'), entry: () => skillPage('entry'), exit: () => skillPage('exit'), odds: () => skillPage('odds'),
-  budget: () => skillPage('budget'), risk: () => skillPage('risk'), news, earnings, alerts, broker, deals, congress: deals, settings: settingsAll };
+  budget: () => skillPage('budget'), risk: () => skillPage('risk'), news, earnings, alerts, broker, deals, congress: deals, settings: settingsAll, journal: journalPage };
 function route() {
   clearInterval(S.timer); S.timer = null; S.nav = (S.nav || 0) + 1;
   const [, name = 'predictor', arg] = location.hash.split('/');

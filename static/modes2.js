@@ -162,6 +162,46 @@ async function brokerLong() {
   S.timer = setInterval(load, 60000);
 }
 
+/* ---------------------------------------------------------------- forward test (live track record) */
+async function journalPage() {
+  const intro = 'Every buy signal the scanner finds is logged once. Its result is worked out from the next open after it was logged, with the same stop, trailing stop and holding limit, so it is a test on days the backtest never saw.';
+  if (!isLong()) {
+    view.innerHTML = head('Forward test', intro) + '<div class="card"><div class="empty">The forward test tracks Trading and Investing signals. Switch mode at the top right.</div></div>';
+    return;
+  }
+  const my = S.nav;
+  view.innerHTML = head('Forward test', intro) + loading(2);
+  let d, err; try { d = await api('/api/journal'); } catch (e) { err = e; }
+  if (my !== S.nav) return;
+  if (err) { view.innerHTML = head('Forward test', intro) + failBox(err); return; }
+  const r2 = v => v == null ? '–' : sgn(v, 2, 'R');
+  const few = d.closed < 30;
+  const verdict = !d.closed ? 'No closed trades yet. Results build up as signals finish (weeks for Trading, months for Investing).'
+    : few ? `Only ${d.closed} closed so far: too few to judge. About 30+ are needed before the average means much.`
+      : d.avg_r_closed >= d.expected_r * 0.5 ? 'Live results are in line with the backtest so far.'
+        : d.avg_r_closed > 0 ? 'Live results are positive but weaker than the backtest. Keep watching.'
+          : 'Live results are below zero. The rules are not working on new data so far; be careful.';
+  const statusPill = r => r.status === 'closed' ? `<span class="pill ${r.r > 0 ? 'pass' : 'fail'}">${esc(r.why)}</span>`
+    : r.status === 'open' ? '<span class="pill">open</span>' : `<span class="pill warn">${esc(r.status)}</span>`;
+  view.innerHTML = head('Forward test', intro, `<span class="pill">${esc(d.label)} · ${esc(d.rules)}</span>`) +
+    `<div class="stack"><div class="kv" style="margin:0">
+      <div><span>Logged since</span><b>${d.since ? fdate(d.since) : '–'}</b></div><div><span>Signals logged</span><b>${d.signals}</b></div>
+      <div><span>Closed / still open</span><b>${d.closed} / ${d.open}</b></div><div><span>Won (closed)</span><b>${d.win_rate != null ? d.win_rate.toFixed(0) + '%' : '–'}</b></div>
+      <div><span>Average per trade (closed)</span><b class="${cls(d.avg_r_closed)}">${r2(d.avg_r_closed)}</b></div>
+      <div><span>Average incl. open trades</span><b class="${cls(d.avg_r_all)}">${r2(d.avg_r_all)}</b></div>
+      <div><span>Backtest expects</span><b>${r2(d.expected_r)}</b></div>
+      <div><span>Higher scanner rank better?</span><b>${d.by_rank ? `rank ≥${d.by_rank.split}: ${r2(d.by_rank.high)} · below: ${r2(d.by_rank.low)}` : 'needs 10+ closed'}</b></div></div>
+    <div class="card"><p style="margin:0">${esc(verdict)}</p></div>
+    <div class="card"><h2>Signals</h2>${d.rows.length ? `<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Signal day</th><th>Logged</th><th class="num">Rank</th><th>Bought</th><th class="num">Entry</th><th class="num">Exit / last</th><th class="num">Days</th><th>Status</th><th class="num">Result</th></tr></thead><tbody>
+      ${d.rows.map(r => `<tr><td class="sym"><a href="#/predictor/${encodeURIComponent(r.symbol)}"><b>${esc(r.symbol)}</b></a><small>${esc(r.setup || '')}${r.regime ? '' : ' · market filter off'}</small></td>
+        <td class="mono">${fdate(r.day)}</td><td class="mono">${fdate(r.logged)}</td><td class="num">${r.rank ?? '–'}</td>
+        <td class="mono">${r.entry_day ? fdate(r.entry_day) : '–'}</td><td class="num">${r.entry ? inr(r.entry) : '–'}</td>
+        <td class="num">${r.exit ? inr(r.exit) : r.last ? inr(r.last) : '–'}</td><td class="num">${r.days ?? '–'}</td>
+        <td>${statusPill(r)}</td><td class="num ${cls(r.r)}">${r.r != null ? r2(r.r) : '–'}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty">Nothing logged yet. Open the Scanner in this mode once a day; every new buy signal it finds is logged here automatically.</div>'}</div>
+    <p class="note">R = profit or loss as a multiple of the amount risked (entry minus first stop), after costs. These are rule results on paper, not advice.</p></div>`;
+}
+
 /* ---------------------------------------------------------------- limits, all modes */
 async function settingsAll() {
   const my = S.nav;

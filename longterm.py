@@ -867,7 +867,7 @@ def scan_long(mode, refresh=False):
                        "from_high": (c / hi - 1) * 100, "up_mid": bool(s50 and s200 and c > s50 > s200),
                        "up_long": bool(s200 and c > s200 and (ind["sma200"][i - 20] or 0) < s200),
                        "setup": stt["setup"][1] if stt["setup"] else None, "setup_detail": stt["setup"][2] if stt["setup"] else "",
-                       "status": stt["status"], "trigger": stt["trigger"],
+                       "setup_day": stt["setup_day"], "status": stt["status"], "trigger": stt["trigger"],
                        "source": {"nse": "NSE end-of-day", "bse": "BSE end-of-day"}.get(h["source"], "Yahoo")}
                 if mode == "invest":
                     try:
@@ -900,7 +900,97 @@ def scan_long(mode, refresh=False):
                 "scanned_at": S.now_ist().strftime("%H:%M:%S"), "universe": "Nifty LargeMidcap 250",
                 "regime": mkt.regime(mkt.ind["d"][-1], mode)}
         _scan[mode] = {"at": time.time(), "data": data}
+        try:
+            log_signals(mode, ok, data["regime"])
+        except Exception:  # noqa: BLE001  (the journal must never break the scanner)
+            pass
         return data
+
+
+# ----------------------------------------------------------------- forward-test journal
+# Every completed-day signal the scanner sees is logged once, with the date it was logged.
+# Its result is simulated from the first open AFTER that date, with the same stop / trail /
+# time rules, so nothing known after the log date can leak in. Over months this shows
+# whether the rules work on days the backtest never saw.
+RULES_VERSION = {"swing": "Trading v2", "invest": "Investing v1"}
+# average result per signal in the all-stocks backtest (Nov 2017 - Nov 2026, after costs)
+EXPECTED_R = {"swing": 0.29, "invest": 0.56}
+
+
+def log_signals(mode, rows, regime):
+    today = S.now_ist().date().isoformat()
+    new = [r for r in rows if r.get("status") in ("confirmed", "recent") and r.get("setup_day")]
+    if not new:
+        return
+    with S._state_lock:
+        st = S.load_state()
+        j = st.setdefault("journal", {}).setdefault(mode, [])
+        seen = {(e["symbol"], e["day"]) for e in j}
+        for r in new:
+            if (r["symbol"], r["setup_day"]) in seen:
+                continue
+            j.append({"symbol": r["symbol"], "day": r["setup_day"], "logged": today, "setup": r["setup"],
+                      "rank": r.get("rank"), "rs_pct": r.get("rs_pct"), "price": r["price"],
+                      "regime": bool(regime), "rules": RULES_VERSION[mode]})
+        S.save_state(st)
+
+
+def _journal_outcome(mode, e):
+    """Simulate one logged signal from the first open after its log date."""
+    h = history(e["symbol"])
+    ind = indicators(h["bars"])
+    n = len(ind["c"]) - (1 if _forming(ind) else 0)   # completed bars only
+    sig_i = ind["idx"].get(e["day"])
+    j = next((k for k in range(n) if ind["d"][k] > e["logged"]), None)
+    if j is None or sig_i is None:
+        return {"status": "waiting", "note": "Buys at the next open"}
+    entry = ind["o"][j]
+    stop = stop_for(mode, entry, ind["atr"][sig_i])
+    R = entry - stop
+    pos = {"entry": entry, "stop": stop, "stop0": stop, "R": R, "target": target_for(mode, entry, stop),
+           "maxc": entry, "bars": 0}
+    for k in range(j, n):
+        out = step(mode, ind, k, pos)
+        if out:
+            px, why = out
+            r = (px - entry) / R - COST_SIDE * (entry + px) / R
+            return {"status": "closed", "entry_day": ind["d"][j], "entry": entry, "stop0": stop, "exit": px,
+                    "exit_day": ind["d"][k], "why": why, "r": r, "pct": (px / entry - 1) * 100, "days": k - j + 1}
+    last = ind["c"][n - 1]
+    return {"status": "open", "entry_day": ind["d"][j], "entry": entry, "stop0": stop, "stop": pos["stop"],
+            "last": last, "r": (last - entry) / R - COST_SIDE * (entry + last) / R, "pct": (last / entry - 1) * 100,
+            "days": n - j}
+
+
+def journal(mode):
+    st = S.load_state()
+    entries = list((st.get("journal") or {}).get(mode) or [])
+
+    def one(e):
+        try:
+            return dict(e, **_journal_outcome(mode, e))
+        except Exception as ex:  # noqa: BLE001
+            return dict(e, status="error", note=str(ex)[:100])
+
+    with ThreadPoolExecutor(8) as ex:
+        rows = list(ex.map(one, entries))
+    rows.sort(key=lambda r: (r["day"], r["symbol"]), reverse=True)
+    closed = [r for r in rows if r["status"] == "closed"]
+    live = [r for r in rows if r["status"] in ("closed", "open")]
+    wins = [r for r in closed if r["r"] > 0]
+
+    def avg(a):
+        return sum(x["r"] for x in a) / len(a) if a else None
+    # does a higher scanner rank go with better results? (needs many closed trades to mean anything)
+    by_rank = None
+    ranked = sorted((r for r in closed if r.get("rank") is not None), key=lambda r: r["rank"])
+    if len(ranked) >= 10:
+        half = len(ranked) // 2
+        by_rank = {"low": avg(ranked[:half]), "high": avg(ranked[half:]), "split": ranked[half]["rank"]}
+    return {"mode": mode, "label": LABEL[mode], "rules": RULES_VERSION[mode], "expected_r": EXPECTED_R[mode],
+            "since": min((r["logged"] for r in rows), default=None), "signals": len(rows), "closed": len(closed),
+            "open": len(live) - len(closed), "win_rate": len(wins) / len(closed) * 100 if closed else None,
+            "avg_r_closed": avg(closed), "avg_r_all": avg(live), "by_rank": by_rank, "rows": rows}
 
 
 # ----------------------------------------------------------------- paper account (positions held for weeks)
