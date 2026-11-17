@@ -1258,9 +1258,14 @@ def api(method, path, q, body):
         return earnings(clean_symbol(q.get("symbol")))
     if path == "/api/news":
         st = load_state()
-        syms = [clean_symbol(q["symbol"])] if q.get("symbol") else st["settings"]["watchlist"]
-        out = []
-        for sym in syms:
+        if q.get("symbol"):
+            syms = [clean_symbol(q["symbol"])]
+        elif q.get("holdings") == "1":
+            syms = [x for x in kite.held()["symbols"] if re.fullmatch(r"[A-Z0-9&\-]{1,20}", x)][:30]
+        else:
+            syms = st["settings"]["watchlist"]
+
+        def one_news(sym):
             row = {"symbol": sym, "name": NAMES.get(sym, sym), "items": [], "error": None}
             try:
                 row.update(news(sym))
@@ -1272,7 +1277,9 @@ def api(method, path, q, body):
                 row["change_pct"] = (qt["price"] / qt["prev_close"] - 1) * 100 if qt["prev_close"] else None
             except Exception:  # noqa: BLE001
                 row["price"] = row["change_pct"] = None
-            out.append(row)
+            return row
+        with ThreadPoolExecutor(8) as ex:
+            out = list(ex.map(one_news, syms))
         return {"watch": out}
     if path == "/api/news/seen" and method == "POST":
         with _state_lock:
@@ -1340,6 +1347,10 @@ def api(method, path, q, body):
         return kite.disconnect()
     if path == "/api/kite/holdings":
         return kite.holdings()
+    if path == "/api/kite/held":
+        return kite.held()
+    if path == "/api/kite/extras":
+        return kite.extras()
     if path == "/api/gtt" and method == "GET":
         return gtt.listing(mode)
     if path == "/api/gtt" and method == "POST":

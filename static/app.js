@@ -61,6 +61,7 @@ function route() {
   const fn = VIEWS[name] || predictor;
   const on = name === 'congress' ? 'deals' : VIEWS[name] ? name : 'predictor';
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.view === on));
+  holdBar(name);
   fn(arg ? decodeURIComponent(arg) : null);
 }
 addEventListener('hashchange', route);
@@ -379,8 +380,8 @@ async function scanner(_arg, mode) {
     }
     const f = mode === 'orb' ? 'orb' : S.scanFilter, ord = r => r.orb.state === 'waiting' ? 1 : ({ open: 0, target: 2, stop: 3 })[r.orb.outcome];
     const rows = mode === 'orb' ? d.rows.filter(r => r.orb.state !== 'none').sort((x, y) => ord(x) - ord(y) || y.rank - x.rank)
-      : d.rows.filter(r => f === 'all' || (f === 'n50' ? r.nifty50 : f === 'orb' ? r.orb.state === 'confirmed' : r.setups.some(s => s.id === f)));
-    const chips = [['all', 'All 250'], ['n50', 'Nifty 50 only'], ['breakout', '20-day breakout'], ['flag', 'Bull flag'], ['bounce', 'Oversold bounce'], ['orb', 'Opening-range breakout']]
+      : d.rows.filter(r => f === 'all' || (f === 'mine' ? heldSyms().includes(r.symbol) : f === 'n50' ? r.nifty50 : f === 'orb' ? r.orb.state === 'confirmed' : r.setups.some(s => s.id === f)));
+    const chips = [['all', 'All 250'], ...(heldSyms().length ? [['mine', '◉ My holdings']] : []), ['n50', 'Nifty 50 only'], ['breakout', '20-day breakout'], ['flag', 'Bull flag'], ['bounce', 'Oversold bounce'], ['orb', 'Opening-range breakout']]
       .map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('');
     const orb = r => r.orb.state === 'confirmed'
       ? `<span class="pill ${r.orb.outcome === 'stop' ? 'fail' : 'pass'}">${r.orb.time}${r.orb.outcome === 'target' ? ' · target hit' : r.orb.outcome === 'stop' ? ' · stopped' : ''}</span>`
@@ -414,13 +415,14 @@ async function scanner(_arg, mode) {
 async function news(sym) {
   view.innerHTML = head('News', 'Fetching headlines…') + loading(2);
   const my = S.nav;
-  let d, err; try { d = await api('/api/news' + (sym ? '?symbol=' + encodeURIComponent(sym) : '')); } catch (e) { err = e; }
+  const mine = !sym && S.newsHoldings && heldSyms().length;
+  let d, err; try { d = await api('/api/news' + (sym ? '?symbol=' + encodeURIComponent(sym) : mine ? '?holdings=1' : '')); } catch (e) { err = e; }
   if (my !== S.nav) return;
   if (err) { view.innerHTML = head('News', 'Could not load headlines') + failBox(err); return; }
   const draw = () => {
     const ids = d.watch.flatMap(w => w.items.filter(i => i.new).map(i => i.id));
-    view.innerHTML = head('News', sym ? `Headlines for ${esc(sym)} from the last 3 days` : 'Your watchlist, with each move from yesterday\'s close',
-      `<label class="row" style="flex-direction:row;font-weight:500"><input type="checkbox" id="onlyNew" ${S.onlyNew ? 'checked' : ''}> Only new</label>
+    view.innerHTML = head('News', sym ? `Headlines for ${esc(sym)} from the last 3 days` : (mine ? 'Your Zerodha holdings' : 'Your watchlist') + ', with each move from yesterday\'s close',
+      `${!sym && heldSyms().length ? `<div class="chips" style="margin:0"><button class="chip ${mine ? '' : 'on'}" data-nw="0">Watchlist</button><button class="chip ${mine ? 'on' : ''}" data-nw="1">◉ My holdings</button></div>` : ''}<label class="row" style="flex-direction:row;font-weight:500"><input type="checkbox" id="onlyNew" ${S.onlyNew ? 'checked' : ''}> Only new</label>
        <button class="btn" id="markRead" ${ids.length ? '' : 'disabled'}>Mark ${ids.length} as read</button>`) +
       `<div class="stack">${d.watch.map(w => {
         const items = w.items.filter(i => !S.onlyNew || i.new);
@@ -435,6 +437,7 @@ async function news(sym) {
       }).join('')}
       ${sym ? '' : '<p class="note">Change the watchlist under Limits. Caution tags are a simple keyword match, not a judgement of the story.</p>'}</div>`;
     $('#onlyNew').onchange = e => { S.onlyNew = e.target.checked; draw(); };
+    view.querySelectorAll('[data-nw]').forEach(b => b.onclick = () => { S.newsHoldings = b.dataset.nw === '1'; news(); });
     $('#markRead').onclick = async () => { await api('/api/news/seen', { ids }); d.watch.forEach(w => w.items.forEach(i => i.new = false)); draw(); };
   };
   draw();
@@ -667,5 +670,6 @@ async function settings() {
   setMode(saved || 'swing', true);
   document.querySelectorAll('#modeSwitch button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
   setMode(await modeChooser(), true);   // ask every time the portal opens
+  await loadHeld();
   route(); pollAlerts();
 })();

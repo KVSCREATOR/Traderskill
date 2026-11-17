@@ -105,10 +105,10 @@ async function scannerLong(_arg, sub) {
     // In the backtest, buying the strongest signals first beat a random pick (Trading ~11.5% vs ~9%/yr);
     // a stock's own past win rate did NOT predict its next trades, so it is not used.
     const best = r => d.regime && ['confirmed', 'recent'].includes(r.status) && r.rs_pct >= 50;
-    let rows = d.rows.filter(r => strength || f === 'all' || (f === 'best' ? best(r) : f === 'n50' ? r.nifty50 : f === 'buy' ? ['confirmed', 'recent', 'provisional'].includes(r.status) : f === 'up' ? (inv ? r.up_long : r.up_mid) : r.rs_pct >= 80));
+    let rows = d.rows.filter(r => strength || f === 'all' || (f === 'mine' ? heldSyms().includes(r.symbol) : f === 'best' ? best(r) : f === 'n50' ? r.nifty50 : f === 'buy' ? ['confirmed', 'recent', 'provisional'].includes(r.status) : f === 'up' ? (inv ? r.up_long : r.up_mid) : r.rs_pct >= 80));
     if (strength || f === 'best') rows = rows.slice().sort((a, b) => (b[inv ? 'rs6' : 'rs3'] ?? -999) - (a[inv ? 'rs6' : 'rs3'] ?? -999));
     const bestNote = f === 'best' ? `<div class="card"><p style="margin:0"><b>Best odds</b> = a confirmed buy signal, stronger than at least half of the 250 stocks vs the Nifty, with the market filter on, strongest first. In the ${inv ? '2017–2026 backtest about 38% of Investing signals made money, averaging +0.56R' : '2017–2026 backtest about 39% of Trading signals made money, averaging +0.29R'} per trade: most trades lose a little, a few winners make the profit. ${d.regime ? '' : '<b>The market filter is off today, so the list is empty.</b>'} Past results do not promise future ones.</p></div>` : '';
-    const chips = [['all', 'All 250'], ['best', '★ Best odds'], ['buy', 'In buy zone'], ['up', 'Uptrend'], ['rs', 'Top 20% strength'], ['n50', 'Nifty 50 only']].map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('');
+    const chips = [['all', 'All 250'], ...(heldSyms().length ? [['mine', '◉ My holdings']] : []), ['best', '★ Best odds'], ['buy', 'In buy zone'], ['up', 'Uptrend'], ['rs', 'Top 20% strength'], ['n50', 'Nifty 50 only']].map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('');
     view.innerHTML = head(title, `${MODES[S.mode].label} mode · ${d.universe} · ${rows.length} of ${d.rows.length} shown · daily prices · scanned ${d.scanned_at} IST`, '<button class="btn" id="rescan">Rescan</button>') +
       `<div class="stack">${d.regime ? '' : '<div class="banner">The Nifty is below its key moving averages. The rules hold off new buys until the market recovers; the list is for watching.</div>'}
       ${strength ? `<p class="note">Stocks ranked by how much they beat the Nifty over ${inv ? '6' : '3'} months. Leaders tend to keep leading; laggards tend to keep lagging.</p>` : `<div class="chips">${chips}</div>${bestNote}`}
@@ -356,7 +356,7 @@ async function holdingsPage() {
   const money = v => (v < 0 ? '−' : '+') + inr(Math.abs(v), 0);
   const tile = (label, v, txt) => `<div class="${v == null ? '' : v >= 0 ? 'tile-up' : 'tile-down'}"><span>${label}</span><b>${txt}</b></div>`;
   const tot = d.total_value || 1;
-  view.innerHTML = head('My holdings', `Zerodha · connected ${esc(d.connected_at || '')} IST · read-only`, '<button class="btn" id="kRefresh">Refresh</button><button class="btn" id="kOff">Disconnect</button>') +
+  view.innerHTML = head('My holdings', `Zerodha · connected ${esc(d.connected_at || '')} IST · read-only`, '<button class="btn" id="kAlerts">Set rule-stop alerts</button><button class="btn" id="kRefresh">Refresh</button><button class="btn" id="kOff">Disconnect</button>') +
     `<div class="stack"><div class="kv" style="margin:0">
       <div><span>Current value</span><b>${inr(d.total_value, 0)}</b></div><div><span>Invested</span><b>${inr(d.total_cost, 0)}</b></div>
       ${tile('Total profit / loss', d.pnl, `${money(d.pnl)} (${d.pnl_pct != null ? sgn(d.pnl_pct) : '–'})`)}
@@ -371,8 +371,50 @@ async function holdingsPage() {
         <td class="num">${r.from_high != null ? sgn(r.from_high) : '–'}</td>
         <td>${r.verdict ? `<span class="pill ${VERDICT[r.verdict][1]}">${VERDICT[r.verdict][0]}</span><small class="muted" style="display:block;max-width:230px">${esc(r.why)}${r.rule_stop ? ` · rule stop ${inr(r.rule_stop)} (${sgn(-r.to_stop)} away)` : ''}</small>` : '–'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No holdings in this Zerodha account.</div>'}</div>
     ${d.sectors.length ? `<div class="card"><h2>By sector</h2><div class="facts">${d.sectors.map(([k, v]) => `<div><span>${esc(k)}</span><b class="mono">${inr(v, 0)} · ${(v / tot * 100).toFixed(1)}%</b></div>`).join('')}</div></div>` : ''}
+    <div id="kExtras"><div class="card"><div class="empty">Loading positions, mutual funds and funds…</div></div></div>
     ${fitBlock(d.fit)}
     <p class="note"><b>What the rules say</b> applies the Investing rules (backtested Nov 2017–Nov 2026, ~11%/yr, 38% of trades won) to each holding: <b>Exit signal</b> = the rules would have sold (closed more than 3% below the 200-day average, or below the trailing stop); <b>Weak</b> = above the stop but the trend has turned down; <b>Hold</b> = uptrend intact; <b>Buy signal</b> = the entry rules fire now. “Rule stop” is the price where the rules would sell. These are mechanical rule results, not personal advice; the rules lose on most trades and still lost money in some years.</p>
     <p class="note">Trend uses the daily 50- and 200-day averages, the same as the Investing rules. This is a screening view of your own holdings, not advice to buy or sell. Prices from Zerodha; Zerodha does not share buy dates here, so the short- or long-term tax status is not shown.</p></div>`;
+  S.held = { connected: true, symbols: d.rows.map(r => r.symbol) }; holdBar('holdings');
+  const ka = $('#kAlerts'); if (ka) ka.onclick = async () => {
+    const a = d.rows.filter(r => r.rule_stop && r.ltp && r.rule_stop < r.ltp).map(r => ({ type: 'below', symbol: r.symbol, level: +r.rule_stop.toFixed(2), label: 'Rule stop' }));
+    if (!a.length) { toast('No holdings above their rule stop to watch.', 'bad'); return; }
+    try { await api('/api/alerts', { alerts: a }); toast(`${a.length} rule-stop alerts set. They ring once when a price falls to its rule stop.`); askNotify(); pollAlerts(); } catch (e) { toast(e.message, 'bad'); }
+  };
+  extrasBox($('#kExtras'));
   bind();
+}
+
+
+/* ---------------------------------------------------------------- Zerodha holdings shown around the portal */
+async function loadHeld() { try { S.held = await api('/api/kite/held'); } catch (e) { S.held = null; } }
+function heldSyms() { return S.held && S.held.connected ? S.held.symbols : []; }
+const PICK_VIEWS = { predictor: 'predictor', entry: 'entry', exit: 'exit', odds: 'odds', budget: 'budget', risk: 'risk', news: 'news', earnings: 'earnings' };
+function holdBar(name) {
+  const bar = $('#holdbar'); if (!bar) return;
+  const syms = heldSyms();
+  if (!syms.length || !PICK_VIEWS[name]) { bar.hidden = true; return; }
+  bar.hidden = false;
+  bar.innerHTML = `<span class="muted">◉ My holdings</span>${syms.map(x => `<button class="chip" data-hp="${esc(x)}">${esc(x)}</button>`).join('')}`;
+  bar.querySelectorAll('[data-hp]').forEach(b => b.onclick = () => {
+    const sym = b.dataset.hp; S.lastSymbol = sym; try { localStorage.setItem('ts.symbol', sym); } catch (e) { /* ignore */ }
+    if (['predictor', 'news', 'earnings'].includes(name)) location.hash = `#/${name}/${encodeURIComponent(sym)}`;
+    else if (location.hash === '#/' + name) route(); else location.hash = '#/' + name;
+  });
+}
+async function extrasBox(box) {
+  if (!box) return;
+  let x; try { x = await api('/api/kite/extras'); } catch (e) { box.innerHTML = failBox(e); return; }
+  const money = v => (v < 0 ? '−' : '+') + inr(Math.abs(v), 0);
+  const f = x.funds, mfv = x.mfs.reduce((a, m) => a + m.value, 0), mfc = x.mfs.reduce((a, m) => a + m.cost, 0);
+  box.innerHTML = `${f ? `<div class="kv" style="margin:0 0 14px"><div><span>Funds available (equity)</span><b>${f.net != null ? inr(f.net, 0) : '–'}</b></div><div><span>Cash balance</span><b>${f.cash != null ? inr(f.cash, 0) : '–'}</b></div>
+      <div><span>Mutual funds value</span><b>${inr(mfv, 0)}</b></div><div class="${mfv - mfc >= 0 ? 'tile-up' : 'tile-down'}"><span>Mutual funds profit / loss</span><b>${money(mfv - mfc)}${mfc ? ' (' + sgn((mfv / mfc - 1) * 100) + ')' : ''}</b></div></div>` : ''}
+    <div class="card"><h2>Open positions · ${x.positions.length}</h2>${x.positions.length ? `<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Product</th><th class="num">Qty</th><th class="num">Avg</th><th class="num">Price</th><th class="num">P&amp;L</th></tr></thead><tbody>
+      ${x.positions.map(p => `<tr><td class="mono"><b>${esc(p.symbol)}</b></td><td>${esc(p.product || '')}</td><td class="num">${p.qty}</td><td class="num">${p.avg != null ? inr(p.avg) : '–'}</td><td class="num">${p.ltp != null ? inr(p.ltp) : '–'}</td><td class="num ${cls(p.pnl)}">${money(p.pnl)}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty">No open intraday or overnight positions.</div>'}</div>
+    <div class="card"><h2>Mutual funds (Coin) · ${x.mfs.length}</h2>${x.mfs.length ? `<div class="tablewrap"><table><thead><tr><th>Fund</th><th class="num">Units</th><th class="num">Avg NAV</th><th class="num">NAV</th><th class="num">Value</th><th class="num">Profit / loss</th></tr></thead><tbody>
+      ${x.mfs.map(m => `<tr><td>${esc(m.fund)}<small class="muted" style="display:block">NAV date ${esc(m.nav_date || '–')}</small></td><td class="num">${m.units.toFixed(3)}</td><td class="num">${inr(m.avg)}</td><td class="num">${inr(m.nav)}</td><td class="num">${inr(m.value, 0)}</td>
+        <td class="num ${cls(m.pnl)}">${money(m.pnl)}<small class="chg" style="display:block">${m.pnl_pct != null ? sgn(m.pnl_pct) : ''}</small></td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty">No mutual funds in Coin.</div>'}</div>
+    ${x.errors.length ? `<p class="note down">${x.errors.map(esc).join(' · ')}</p>` : ''}`;
 }

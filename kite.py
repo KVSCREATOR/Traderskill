@@ -28,7 +28,7 @@ L = None   # longterm module
 BASE = "https://mcp.kite.trade"
 MCP_URL = BASE + "/mcp"
 # tool -> the only modes this portal may use (all read-only). Anything else is refused.
-READ_TOOLS = {"portfolio": {"holdings", "positions", "profile", "margins"}}
+READ_TOOLS = {"portfolio": {"holdings", "positions", "profile", "margins"}, "mutual_funds": {"holdings"}}
 _pending = {}   # state -> {"verifier", "at"}
 _session = {"id": None, "token": None}
 
@@ -369,3 +369,71 @@ def holdings():
             "pnl_pct": (tv / tc - 1) * 100 if tc else None, "day_pnl": sum(x["day_pnl"] or 0 for x in out),
             "sectors": sorted(([k_, v] for k_, v in secs.items()), key=lambda z: -z[1]), "warnings": warn,
             "connected_at": k.get("connected_at"), "clock": S.market_clock()}
+
+
+# ----------------------------------------------------------------- light helpers for other pages
+_held = {"at": 0, "data": None}
+
+
+def held():
+    """Symbols you hold (cached 5 min). Never raises: other pages just hide the extras."""
+    if _held["data"] and time.time() - _held["at"] < 300:
+        return _held["data"]
+    out = {"connected": False, "symbols": []}
+    try:
+        if _kite(S.load_state()).get("token"):
+            r = call("portfolio", {"mode": "holdings", "type": "compact", "limit": 500})
+            rows = r.get("data")
+            if isinstance(rows, dict):
+                rows = rows.get("data") or []
+            if isinstance(rows, list):
+                syms = []
+                for h in rows:
+                    sym = (h.get("tradingsymbol") or h.get("symbol") or "").upper()
+                    if sym and sym not in syms:
+                        syms.append(sym)
+                out = {"connected": True, "symbols": syms}
+    except Exception:  # noqa: BLE001
+        pass
+    _held.update(at=time.time(), data=out)
+    return out
+
+
+def _rows(r):
+    d = r.get("data")
+    if isinstance(d, dict):
+        d = d.get("data") if "data" in d else d.get("net", d)
+    return d if isinstance(d, list) else []
+
+
+def extras():
+    """Positions, mutual funds and funds (all read-only)."""
+    out = {"positions": [], "mfs": [], "funds": None, "errors": []}
+    try:
+        for p in _rows(call("portfolio", {"mode": "positions"})):
+            qty = _num(p.get("quantity")) or 0
+            if not qty and not _num(p.get("pnl")):
+                continue
+            out["positions"].append({"symbol": p.get("tradingsymbol"), "product": p.get("product"), "qty": qty,
+                                     "avg": _num(p.get("average_price")), "ltp": _num(p.get("last_price")),
+                                     "pnl": _num(p.get("pnl")) or 0})
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append("Positions: %s" % str(e)[:100])
+    try:
+        for m in _rows(call("mutual_funds", {"mode": "holdings"})):
+            q, avg, ltp = _num(m.get("quantity")) or 0, _num(m.get("average_price")) or 0, _num(m.get("last_price")) or 0
+            out["mfs"].append({"fund": m.get("fund") or m.get("tradingsymbol"), "units": q, "avg": avg, "nav": ltp,
+                               "nav_date": m.get("last_price_date"), "value": q * ltp, "cost": q * avg, "pnl": q * (ltp - avg),
+                               "pnl_pct": (ltp / avg - 1) * 100 if avg else None})
+        out["mfs"].sort(key=lambda x: -x["value"])
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append("Mutual funds: %s" % str(e)[:100])
+    try:
+        m = call("portfolio", {"mode": "margins"}).get("data") or {}
+        eq = m.get("equity") or {}
+        av = eq.get("available") or {}
+        out["funds"] = {"net": _num(eq.get("net")), "cash": _num(av.get("live_balance") or av.get("cash")),
+                        "used": _num((eq.get("utilised") or {}).get("debits"))}
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append("Funds: %s" % str(e)[:100])
+    return out
