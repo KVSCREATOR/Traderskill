@@ -41,6 +41,11 @@ PORT = int(os.environ.get("PORT", "8765"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 PASSWORD = os.environ.get("PORTAL_PASSWORD", "")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
+try:   # data/public_url.txt (one line) overrides it, so it can change without touching the password file
+    with open(os.path.join(DATA, "public_url.txt"), encoding="utf-8") as _f:
+        PUBLIC_URL = _f.read().strip().rstrip("/") or PUBLIC_URL
+except OSError:
+    pass
 LOOPBACK = HOST in ("127.0.0.1", "localhost", "::1")
 IST = timezone(timedelta(hours=5, minutes=30))
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
