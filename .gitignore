@@ -1,0 +1,9 @@
+# Personal runtime data: paper trades, alerts, limits, cached price files
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# Local editor / tool settings
+.claude/settings.local.json

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tradeskill Portal</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M7 21l5-6 4 3 8-9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="9" r="2.2" fill="#fff"/></svg>
+      <div><b>Tradeskill</b><span>NSE purchase predictor</span></div>
+    </div>
+    <nav id="nav">
+      <a href="#/predictor" data-view="predictor"><i>◎</i><span>Predictor<small>all skills, one score</small></span></a>
+      <h3>Find</h3>
+      <a href="#/scanner" data-view="scanner"><i>▦</i><span>Scanner<small>scanner</small></span></a>
+      <a href="#/orb" data-view="orb"><i>◫</i><span>ORB scanner<small>nse-scanner</small></span></a>
+      <h3>Plan the trade</h3>
+      <a href="#/entry" data-view="entry"><i>→</i><span>Entry<small>entry</small></span></a>
+      <a href="#/exit" data-view="exit"><i>⇥</i><span>Exit<small>exit</small></span></a>
+      <a href="#/odds" data-view="odds"><i>↻</i><span>Time machine<small>timemachine</small></span></a>
+      <a href="#/budget" data-view="budget"><i>₹</i><span>Budget<small>budget</small></span></a>
+      <a href="#/risk" data-view="risk"><i>◈</i><span>Risk<small>risk</small></span></a>
+      <h3>Research</h3>
+      <a href="#/news" data-view="news"><i>✉</i><span>News<small>news</small></span></a>
+      <a href="#/earnings" data-view="earnings"><i>∑</i><span>Earnings<small>analyst</small></span></a>
+      <a href="#/deals" data-view="deals"><i>⚑</i><span>Big deals<small>replaces pelosi</small></span></a>
+      <h3>Act</h3>
+      <a href="#/alerts" data-view="alerts"><i>◔</i><span>Alerts<small>alerts</small></span><em id="alertBadge" hidden></em></a>
+      <a href="#/broker" data-view="broker"><i>⇄</i><span>Paper broker<small>broker</small></span></a>
+      <h3>Settings</h3>
+      <a href="#/settings" data-view="settings"><i>⚙</i><span>Limits<small>your rules</small></span></a>
+    </nav>
+    <p class="side-note">Rule-based screening on free delayed data. Not investment advice. The broker is paper-only; no real orders are sent.</p>
+  </aside>
+
+  <div class="main">
+    <header class="top">
+      <form id="search" autocomplete="off">
+        <input id="symbol" list="symbols" placeholder="NSE symbol, e.g. RELIANCE" aria-label="NSE symbol" spellcheck="false">
+        <datalist id="symbols"></datalist>
+        <button class="btn primary" type="submit">Predict</button>
+      </form>
+      <div class="clock">
+        <span id="mkt" class="pill">…</span>
+        <span id="ist" class="mono"></span>
+        <button id="theme" class="btn ghost icon" type="button" title="Switch light / dark" aria-label="Switch theme">◐</button>
+      </div>
+    </header>
+    <main id="view" tabindex="-1"></main>
+  </div>
+</div>
+
+<dialog id="dlg"><form method="dialog" id="dlgBody"></form></dialog>
+<div id="toasts" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
