@@ -72,10 +72,22 @@ DONE and tested in the browser: three modes, chooser on every open, top-right sw
 mode-aware Predictor / Scanner / Strength ranking / Entry / Exit / Time machine /
 Budget / Risk / Paper broker / Limits; per-mode settings and paper accounts.
 
-First backtest results (Nov 2017 – Nov 2026, ₹2 lakh, owner's limits, after costs):
-- Trading: +58% total, ~5.3%/yr, worst fall −27%, 800 trades, 36% won, profit factor 1.17.
-- Investing: +111% total, ~8.9%/yr, worst fall −28%, 302 trades, 38% won, profit factor 1.70.
-Trading rules are weak; improving them (without over-fitting) is the obvious next step.
+Trading rules v2 (adopted 17 Nov 2026, owner asked to improve them):
+- Changes vs v1: no fixed 2.5R target (trail only), only buy within 10% of the 52-week
+  high, stop to break-even after +2R instead of +1R.
+- Method (to avoid over-fitting): each change tested alone, then combinations, scored
+  separately on Dec 2017–Jun 2022 and Jul 2022–Nov 2026; then every signal on all stocks
+  (no portfolio limits) measured in R: v1 +0.15R/trade → v2 +0.30R (+0.10→+0.16 in
+  period A, +0.20→+0.42 in period B); nudging each setting kept +0.27 to +0.33R.
+- History now starts after any one-day move < −35% or > +60% (unadjusted demerger /
+  split / bonus: MOTILALOFS, TMPV, VEDL).
+
+Backtest results (Nov 2017 – Nov 2026, ₹2 lakh, owner's limits, after costs):
+- Trading v2: ₹5.25 lakh, ~11.5%/yr, worst fall −25%, 535 trades, 39% won, profit factor 1.70
+  (v1 was ~5.3%/yr, PF 1.17).
+- Investing: ₹4.98 lakh, ~11.0%/yr, worst fall −28%, 312 trades, 38% won, profit factor 1.90.
+Both have losing years (e.g. 2018, 2019, 2022); results flatter the past slightly because
+they use today's index members.
 
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).

@@ -3,7 +3,7 @@
 
 const SKILLPAGES_LONG = {
   entry: 'Confirms the buy on a daily close: a base breakout or a pullback bounce, and refuses to chase once price runs away.',
-  exit: 'Sets the stop before you buy, moves it to break-even after +1R, then trails it; also exits on the holding limit.',
+  exit: 'Sets the stop before you buy, moves it to break-even after +2R (Trading) or +1R (Investing), then trails it; also exits on the holding limit.',
   odds: 'Backtests the exact rules: on this stock, and as a full portfolio on all 250 stocks with your capital and limits.',
   budget: 'Sizes the buy so it risks no more than your risk per trade and puts no more than your cap into one stock.',
   risk: 'Checks the buy against your portfolio limits and returns PASS or BLOCK.',
@@ -64,7 +64,7 @@ function skillLong(key, p, h1) {
   } else if (key === 'exit') {
     body = `<div class="card"><h2>Exit plan</h2><div class="facts">
       ${fact('Stop', inr(pl.stop), 'down')}${fact('Risk per share', inr(pl.risk) + ' (' + pl.risk_pct.toFixed(1) + '%)')}
-      ${fact('Target', pl.target ? inr(pl.target) + ' (2.5R)' : 'None: let winners run', pl.target ? 'up' : '')}${fact('After +1R', 'Stop moves to break-even')}
+      ${fact('Target', pl.target ? inr(pl.target) : 'None: let winners run', pl.target ? 'up' : '')}${fact(p.mode === 'swing' ? 'After +2R' : 'After +1R', 'Stop moves to break-even')}
       ${fact('Then', p.mode === 'swing' ? 'Trail 3× daily range below the best close' : 'Trail 5× daily range below the best close')}${fact('Time exit', pl.hold_days + ' trading days (' + fdate(pl.hold_until) + ')')}
       ${p.mode === 'invest' ? fact('Trend exit', 'Close more than 3% below the 200-day average') : ''}${fact('Allowed stop range', p.mode === 'swing' ? '4% – 12% of price' : '8% – 20% of price')}</div></div>${chart}`;
   } else if (key === 'budget') {

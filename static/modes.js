@@ -111,7 +111,7 @@ function renderLong(p) {
         <div class="kv">
           <div><span>${pl.trigger ? 'Buy above' : 'Entry'}</span><b>${inr(pl.entry)}</b></div>
           <div><span>Stop (${pl.risk_pct.toFixed(1)}%)</span><b class="down">${inr(pl.stop)}</b></div>
-          <div><span>${pl.target ? 'Target (2.5R)' : 'Exit'}</span><b class="${pl.target ? 'up' : ''}">${pl.target ? inr(pl.target) : 'Trailing stop'}</b></div>
+          <div><span>${pl.target ? 'Target' : 'Exit'}</span><b class="${pl.target ? 'up' : ''}">${pl.target ? inr(pl.target) : 'Trailing stop'}</b></div>
           <div><span>Hold up to</span><b>${fdate(pl.hold_until)}</b></div>
           <div><span>Shares</span><b>${sz.qty}</b></div>
           <div><span>Capital</span><b>${inr(sz.cost, 0)}</b></div>

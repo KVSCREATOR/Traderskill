@@ -24,10 +24,15 @@ DEFAULTS = {
                "max_open_risk": 25000, "max_per_sector": 2, "dd_pause_pct": 15},
 }
 RULES = {
-    "swing": {"hold": 60, "stop_atr": 2.0, "min_risk": 0.04, "max_risk": 0.12, "target_r": 2.5,
-              "trail_atr": 3.0, "max_ext": 0.05, "rs_days": 63, "recent": 5},
+    # Trading rules v2 (Nov 2026): no fixed target, only buy within 10% of the 52-week high,
+    # stop to break-even only after +2R. Chosen because it improved results in both 2017-22
+    # and 2022-26 and nearby settings gave similar results (see CLAUDE.md).
+    "swing": {"hold": 60, "stop_atr": 2.0, "min_risk": 0.04, "max_risk": 0.12, "target_r": None,
+              "trail_atr": 3.0, "max_ext": 0.05, "rs_days": 63, "recent": 5, "be_at": 2.0,
+              "setups": ("breakout", "pullback"), "vol_x": 1.5, "base_depth": 0.25, "base_len": 40,
+              "rs_margin": 0.0, "near_high": 0.10},
     "invest": {"hold": 250, "stop_atr": 3.0, "min_risk": 0.08, "max_risk": 0.20, "target_r": None,
-               "trail_atr": 5.0, "max_ext": 0.08, "rs_days": 126, "recent": 10},
+               "trail_atr": 5.0, "max_ext": 0.08, "rs_days": 126, "recent": 10, "be_at": 1.0},
 }
 PAUSE_DAYS = {"swing": 20, "invest": 40}   # trading days new buys stop after a drawdown breach
 COST_SIDE = 0.0012  # STT 0.1% + stamp/exchange/GST, per side, delivery
@@ -135,7 +140,16 @@ def history(sym, index=False):
                     for b in bars]
         if not base:
             raise S.ApiError(404, "No daily price history for %s." % sym)
-        ent = {"day": today, "at": time.time(), "bars": base, "source": src}
+        # A one-day move this large is almost always a demerger, split or bonus the data
+        # source did not adjust for. Start the history after it so it cannot fake a stop.
+        cut = 0
+        for k in range(1, len(base)):
+            g = base[k][1] / base[k - 1][4] - 1 if base[k - 1][4] else 0
+            if g < -0.35 or g > 0.6:
+                cut = k
+        if cut:
+            base = base[cut:]
+        ent = {"day": today, "at": time.time(), "bars": base, "source": src, "cut": base[0][0] if cut else None}
         _hist[sym] = ent
         return ent
 
@@ -236,21 +250,25 @@ def signal(mode, ind, i, mkt):
     vol_x = ind["v"][i] / va if va else 0
     bench = mkt.ret(ind["d"][i], RULES[mode]["rs_days"]) if mkt else None
     own = ret(ind, i, RULES[mode]["rs_days"])
-    rs_ok = own is not None and (bench is None or own > bench)
     if mode == "swing":
+        p = RULES["swing"]
+        rs_ok = own is not None and (bench is None or own > bench + p["rs_margin"])
         trend = c[i] > s50 > s200 and ind["sma50"][i - 10] is not None and s50 > ind["sma50"][i - 10]
         if not (trend and rs_ok):
             return None
-        hh, ll = ind["hh40"][i], ind["ll40"][i]
-        if hh and c[i] > hh and (hh - ll) / hh <= 0.25 and vol_x >= 1.5:
+        if p["near_high"] and ind["hh252"][i] and c[i] < ind["hh252"][i] * (1 - p["near_high"]):
+            return None
+        hh, ll = _base(ind, i, p["base_len"])
+        if "breakout" in p["setups"] and hh and c[i] > hh and (hh - ll) / hh <= p["base_depth"] and vol_x >= p["vol_x"]:
             return ("breakout", "Base breakout",
-                    "Closed above the 8-week high %.2f on %.1fx volume; base %.0f%% deep" % (hh, vol_x, (hh - ll) / hh * 100))
+                    "Closed above the %d-week high %.2f on %.1fx volume; base %.0f%% deep" % (p["base_len"] // 5, hh, vol_x, (hh - ll) / hh * 100))
         touched = min(l[i - 3:i + 1]) <= s20 * 1.015 or min(l[i - 3:i + 1]) <= s50 * 1.015
         r = ind["rsi"][i]
-        if touched and c[i] > h[i - 1] and c[i] > s50 and r is not None and 40 <= r <= 65:
+        if "pullback" in p["setups"] and touched and c[i] > h[i - 1] and c[i] > s50 and r is not None and 40 <= r <= 65:
             return ("pullback", "Pullback buy", "Dipped to the 20/50-day average and closed above yesterday's high")
         return None
     # invest
+    rs_ok = own is not None and (bench is None or own > bench)
     s200_old = ind["sma200"][i - 20]
     trend = c[i] > s200 and s200_old is not None and s200 > s200_old and s50 > s200
     if not (trend and rs_ok):
@@ -261,6 +279,15 @@ def signal(mode, ind, i, mkt):
     if hh and min(l[i - 9:i + 1]) <= s50 * 1.02 and c[i] > s50 and c[i] > h[i - 1] and c[i] >= hh * 0.75:
         return ("pullback50", "Pullback to 50-day", "Long uptrend; bounced off the 50-day average")
     return None
+
+
+def _base(ind, i, n):
+    """Highest high and lowest low of the n bars before bar i."""
+    if n == 40:
+        return ind["hh40"][i], ind["ll40"][i]
+    if i < n:
+        return None, None
+    return max(ind["h"][i - n:i]), min(ind["l"][i - n:i])
 
 
 def stop_for(mode, entry, atr_v):
@@ -296,7 +323,7 @@ def step(mode, ind, j, pos, forming=False):
     if pos["bars"] >= r["hold"]:
         return c, "time"
     pos["maxc"] = max(pos["maxc"], c)
-    if pos["maxc"] >= pos["entry"] + pos["R"]:
+    if pos["maxc"] >= pos["entry"] + r["be_at"] * pos["R"]:
         pos["stop"] = max(pos["stop"], pos["entry"])
         a = ind["atr"][j]
         if a:
@@ -344,7 +371,7 @@ def stock_backtest(mode, ind, mkt, upto=None):
             "avg_win_pct": sum(t["pct"] for t in wins) / len(wins) if wins else None,
             "avg_loss_pct": (sum(t["pct"] for t in trades if t["r"] <= 0) / (nt - len(wins))) if nt > len(wins) else None,
             "avg_days": sum(t["days"] for t in trades) / nt if nt else None,
-            "years": round(len(ind["c"]) / 248, 1), "recent": trades[-8:][::-1]}
+            "years": round(len(ind["c"]) / 248, 1), "recent": trades[-8:][::-1], "_all": trades}
 
 
 _bt_cache, _bt_lock = {}, threading.Lock()
@@ -626,6 +653,10 @@ def analyze(sym, mode):
             "Today's bar shows a setup, but it is only confirmed by the 15:30 close.")
     elif stt["status"] == "missed":
         add("entry", "entry", "Entry confirmation", "fail", 0, W["entry"], "Price has run more than %.0f%% past the signal close. Do not chase." % (rules["max_ext"] * 100))
+    elif rules.get("near_high") and price < max(ind["h"][-252:]) * (1 - rules["near_high"]):
+        add("entry", "entry", "Entry confirmation", "fail", 0, W["entry"],
+            "More than %.0f%% below its 52-week high (%.2f). The rules only buy stocks trading near their highs." % (
+                rules["near_high"] * 100, max(ind["h"][-252:])))
     else:
         add("entry", "entry", "Entry confirmation", "warn" if stt["trigger"] and (up_mid or up_long) else "fail", 0, W["entry"],
             ("Waiting: buy only on a daily close above %.2f with strong volume." % stt["trigger"]) if stt["trigger"] else "No entry trigger yet.")
@@ -643,8 +674,9 @@ def analyze(sym, mode):
     add("exit", "exit", "Stop and exit plan", "warn" if clamp == "wide" else "pass", W["exit"] // 2 if clamp == "wide" else W["exit"], W["exit"],
         "Stop %.2f (%.1f%% below entry, %.0fx the daily range%s). %s Exit by %d trading days at the latest." % (
             stop, R / entry * 100, rules["stop_atr"], ", capped: this stock swings a lot" if clamp == "wide" else "",
-            ("Target %.2f (%.1fR); after +1R the stop moves to break-even, then trails." % (target, rules["target_r"])) if target
-            else "No fixed target: after +1R the stop moves to break-even, then trails; also exits on a close well below the 200-day average.",
+            ("Target %.2f (%.1fR); after +%gR the stop moves to break-even, then trails." % (target, rules["target_r"], rules["be_at"])) if target
+            else "No fixed target, so winners can run: after +%gR the stop moves to break-even, then trails %g× the daily range below the best close%s." % (
+                rules["be_at"], rules["trail_atr"], "; also exits on a close well below the 200-day average" if mode == "invest" else ""),
             rules["hold"]))
     # odds = backtest of the same rules on this stock
     bt = stock_backtest(mode, ind, mkt) if not short else None
