@@ -9,10 +9,12 @@ const hm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 6
 const crore = v => v == null ? '–' : '₹' + (v / 1e7).toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' cr';
 const ago = ts => { const s = Date.now() / 1000 - ts; return s < 3600 ? Math.max(1, Math.round(s / 60)) + 'm ago' : s < 86400 ? Math.round(s / 3600) + 'h ago' : Math.round(s / 86400) + 'd ago'; };
 
-let S = { clock: null, settings: null, universe: [], scanFilter: 'all', onlyNew: false, lastSymbol: null, timer: null };
+let S = { mode: null, clock: null, settings: null, universe: [], scanFilter: 'all', onlyNew: false, lastSymbol: null, timer: null };
 try { S.lastSymbol = localStorage.getItem('ts.symbol'); } catch (e) { /* storage blocked */ }
 
 async function api(path, body) {
+  if (body) { if (!('mode' in body)) body = Object.assign({ mode: S.mode }, body); }
+  else path += (path.includes('?') ? '&' : '?') + 'mode=' + encodeURIComponent(S.mode || 'intraday');
   const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
   const j = await r.json().catch(() => ({ error: 'Bad response from server' }));
   if (!r.ok) throw new Error(j.error || 'Request failed');
@@ -52,7 +54,7 @@ $('#search').onsubmit = e => {
 };
 
 const VIEWS = { predictor, scanner, orb: a => scanner(a, 'orb'), entry: () => skillPage('entry'), exit: () => skillPage('exit'), odds: () => skillPage('odds'),
-  budget: () => skillPage('budget'), risk: () => skillPage('risk'), news, earnings, alerts, broker, deals, congress: deals, settings };
+  budget: () => skillPage('budget'), risk: () => skillPage('risk'), news, earnings, alerts, broker, deals, congress: deals, settings: settingsAll };
 function route() {
   clearInterval(S.timer); S.timer = null; S.nav = (S.nav || 0) + 1;
   const [, name = 'predictor', arg] = location.hash.split('/');
@@ -70,7 +72,7 @@ function sourceAlert(p) {
   const was = sourceSeen[p.symbol]; sourceSeen[p.symbol] = p.source;
   if (p.source === 'Yahoo Finance') { if (was) toast(`${p.symbol}: Yahoo Finance data is back. Live prices restored.`); return; }
   const why = p.source.startsWith('BSE') ? 'Yahoo Finance and NSE have no data' : 'Yahoo Finance has no data';
-  toast(`⚠ Data source switched for ${p.symbol}: ${why}, so prices now come from the ${p.source}${p.asof ? ' (as of ' + p.asof + ')' : ''}. Daily data only; no entry, stop, target or odds.`, 'warnmsg');
+  toast(`⚠ Data source switched for ${p.symbol}: ${why}, so prices now come from the ${p.source}${p.asof ? ' (as of ' + p.asof + ')' : ''}. ${p.mode && p.mode !== 'intraday' ? 'Only about 75 days of history, so long-term checks are limited.' : 'Daily data only; no entry, stop, target or odds.'}`, 'warnmsg');
 }
 
 /* stock drop-down: every Nifty 250 stock */
@@ -129,7 +131,7 @@ function candleChart(p) {
 async function predictor(sym) {
   sym = sym || S.lastSymbol;
   if (!sym) {
-    view.innerHTML = head('Purchase predictor', 'Runs every skill on one NSE stock and rolls it into a single score.') +
+    view.innerHTML = head('Purchase predictor', `${MODES[S.mode].label} mode · runs every skill on one NSE stock and rolls it into a single score.`) +
       `<div class="card empty"><p style="font-size:15px;color:var(--text);font-weight:600">Pick a stock to analyse</p>
        <p style="margin:6px 0 16px">Choose any Nifty 250 stock from the list, or start from the scanner's best setups.</p>
        <div class="row" style="justify-content:center;margin-bottom:14px">${stockSelect(null)}</div>
@@ -141,7 +143,7 @@ async function predictor(sym) {
   S.lastSymbol = sym; try { localStorage.setItem('ts.symbol', sym); } catch (e) { /* ignore */ }
   $('#symbol').value = sym;
   const my = S.nav;
-  view.innerHTML = head(esc(sym), 'Running every scoring check on live data…', stockSelect(sym)) + loading(3);
+  view.innerHTML = head(esc(sym), `Running every ${MODES[S.mode].label} check on live data…`, stockSelect(sym)) + loading(3);
   bindStock(goPredict);
   const load = async quiet => {
     let p;
@@ -170,6 +172,7 @@ function oddsCard(od, h) {
 }
 
 function renderPredict(p) {
+  if (p.mode && p.mode !== 'intraday') return renderLong(p);
   const by = Object.fromEntries(p.checks.map(c => [c.id, c])), pl = p.plan, sz = p.size, od = p.odds, h = p.history;
   const verdictText = { qualifies: 'Setup qualifies', wait: 'Wait', skip: 'Skip for now' }[p.verdict];
   const sess = p.session ? new Date(p.session + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '';
@@ -277,6 +280,7 @@ async function skillPage(key) {
   if (my !== S.nav) return;
   if (err) { view.innerHTML = head(h1, blurb) + failBox(err); return; }
   setClock(p.clock); sourceAlert(p);
+  if (p.mode !== 'intraday') return skillLong(key, p, h1);
   const c = p.checks.find(x => x.id === cid), pl = p.plan, sz = p.size, st = p.settings;
   const fact = (k, v, k2 = '') => `<div><span>${k}</span><b class="mono ${k2}">${v}</b></div>`;
   const chart = `<div class="card chart"><h2>${esc(p.session || '')} session · 5-minute candles</h2>${candleChart(p)}</div>`;
@@ -321,6 +325,7 @@ async function skillPage(key) {
 
 /* ---------------------------------------------------------------- scanner */
 async function scanner(_arg, mode) {
+  if (isLong()) return scannerLong(_arg, mode);
   const title = mode === 'orb' ? 'ORB scanner' : 'Scanner';
   const my = S.nav;
   const draw = d => {
@@ -468,6 +473,7 @@ async function alerts() {
 
 /* ---------------------------------------------------------------- broker */
 async function broker() {
+  if (isLong()) return brokerLong();
   const my = S.nav;
   view.innerHTML = head('Paper broker', 'Loading the paper account…') + loading(2);
   const load = async () => {
@@ -573,8 +579,12 @@ async function settings() {
 (async () => {
   try {
     const st = await api('/api/status');
-    setClock(st.clock); S.settings = st.settings; S.universe = st.universe;
+    setClock(st.clock); S.settings = st.settings; S.universe = st.universe; S.modes = st.modes;
     $('#symbols').innerHTML = st.universe.map(u => `<option value="${esc(u.symbol)}">${esc(u.name)}</option>`).join('');
   } catch (e) { toast('Server not reachable. Start it with start.bat.', 'bad'); }
+  let saved = null; try { saved = localStorage.getItem('ts.mode'); } catch (e) { /* ignore */ }
+  setMode(saved || 'swing', true);
+  document.querySelectorAll('#modeSwitch button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+  setMode(await modeChooser(), true);   // ask every time the portal opens
   route(); pollAlerts();
 })();

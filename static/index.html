@@ -45,6 +45,11 @@
         <button class="btn primary" type="submit">Predict</button>
       </form>
       <div class="clock">
+        <div id="modeSwitch" class="seg" role="group" aria-label="Trading style">
+          <button type="button" data-mode="intraday" title="Intraday: buy and sell the same day">Scalping</button>
+          <button type="button" data-mode="swing" title="Hold up to 2–3 months">Trading</button>
+          <button type="button" data-mode="invest" title="Hold 6–12 months">Investing</button>
+        </div>
         <span id="mkt" class="pill">…</span>
         <span id="ist" class="mono"></span>
         <button id="theme" class="btn ghost icon" type="button" title="Switch light / dark" aria-label="Switch theme">◐</button>
@@ -56,6 +61,8 @@
 
 <dialog id="dlg"><form method="dialog" id="dlgBody"></form></dialog>
 <div id="toasts" aria-live="polite"></div>
+<script src="modes.js"></script>
+<script src="modes2.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

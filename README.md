@@ -18,6 +18,20 @@ python server.py
 
 Then open http://127.0.0.1:8765
 
+## Three modes
+
+The portal asks which one you want each time it opens; switch any time at the top right.
+
+| Mode | Holding | How it picks stocks |
+|---|---|---|
+| Scalping | Same day | 15-minute opening-range breakout, 2R target, sold by 15:15 |
+| Trading | Up to 2–3 months | Base breakouts and pullbacks in uptrends, beating the Nifty over 3 months |
+| Investing | 6–12 months | Leaders above a rising 200-day average with growing earnings |
+
+Trading and Investing use daily prices (about 10 years), size each buy by risk per trade and a
+per-stock cap, trail the stop after +1R, and include a portfolio backtest on all 250 stocks.
+Each mode has its own limits and its own paper account.
+
 ## Screens
 
 | Screen | What it does |

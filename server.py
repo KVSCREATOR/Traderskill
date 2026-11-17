@@ -1182,8 +1182,14 @@ def close_position(body):
 
 # ----------------------------------------------------------------- http
 def api(method, path, q, body):
+    mode = q.get("mode") or (body or {}).get("mode") or "intraday"
+    if mode not in longterm.LABEL:
+        raise ApiError(400, "Unknown mode")
+    long_mode = mode != "intraday"
     if path == "/api/status":
-        return {"clock": market_clock(), "settings": load_state()["settings"],
+        st = load_state()
+        return {"clock": market_clock(), "settings": st["settings"],
+                "modes": {m: longterm.settings_for(m, st) for m in ("swing", "invest")}, "labels": longterm.LABEL,
                 "universe": [{"symbol": k, "name": NAMES[k], "nifty50": k in NIFTY,
                               "industry": UNIVERSE[k].get("industry", "")} for k in sorted(NAMES)]}
     if path == "/api/settings" and method == "POST":
@@ -1203,17 +1209,42 @@ def api(method, path, q, body):
                     s[k] = body[k]
             if "watchlist" in body:
                 s["watchlist"] = [clean_symbol(x) for x in body["watchlist"] if str(x).strip()][:15]
+            ms = body.get("mode_settings")
+            if isinstance(ms, dict):
+                for m, vals in ms.items():
+                    if m not in longterm.DEFAULTS or not isinstance(vals, dict):
+                        raise ApiError(400, "Unknown mode")
+                    cur = s.setdefault("modes", {}).setdefault(m, {})
+                    for k, v in vals.items():
+                        if k not in longterm.DEFAULTS[m]:
+                            continue
+                        v = float(v)
+                        if not 0 < v < 1e10:
+                            raise ApiError(400, "%s must be positive" % k.replace("_", " "))
+                        cur[k] = int(v) if k in ("max_positions", "max_per_sector") else v
             if "paper_cash" in body:
                 v = float(body["paper_cash"])
                 if not 0 < v < 1e10:
                     raise ApiError(400, "Paper cash must be positive")
+                if long_mode:
+                    save_state(st)
+                    longterm.reset_paper(mode, v)
+                    return {"settings": load_state()["settings"]}
                 st["paper"] = {"cash": v, "start_cash": v, "positions": [], "trades": []}
             save_state(st)
             return {"settings": s}
     if path == "/api/scan":
-        return scan(q.get("refresh") == "1")
+        return longterm.scan_long(mode, q.get("refresh") == "1") if long_mode else scan(q.get("refresh") == "1")
     if path == "/api/predict":
-        return predict(clean_symbol(q.get("symbol")))
+        if long_mode:
+            return longterm.analyze(clean_symbol(q.get("symbol")), mode)
+        out = predict(clean_symbol(q.get("symbol")))
+        out.update(mode="intraday", mode_label=longterm.LABEL["intraday"])
+        return out
+    if path == "/api/backtest":
+        if not long_mode:
+            raise ApiError(400, "The portfolio backtest is for Trading and Investing modes.")
+        return longterm.portfolio_backtest(mode, q.get("refresh") == "1")
     if path == "/api/earnings":
         return earnings(clean_symbol(q.get("symbol")))
     if path == "/api/news":
@@ -1283,13 +1314,18 @@ def api(method, path, q, body):
             save_state(st)
         return {"ok": True}
     if path == "/api/portfolio":
-        return portfolio()
+        return longterm.portfolio_long(mode) if long_mode else dict(portfolio(), mode="intraday")
     if path == "/api/orders" and method == "POST":
+        if long_mode:
+            return longterm.place_long(mode, clean_symbol(body.get("symbol")), body.get("confirm"))
         return place_order(body)
     if path == "/api/orders/close" and method == "POST":
-        return close_position(body)
+        return longterm.close_long(mode, body.get("id")) if long_mode else close_position(body)
     raise ApiError(404, "Unknown endpoint")
 
+
+import longterm  # noqa: E402  (Trading + Investing engines)
+longterm.S = sys.modules[__name__]
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}

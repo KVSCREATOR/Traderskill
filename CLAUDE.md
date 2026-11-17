@@ -62,8 +62,20 @@ Agreed design for Trading/Investing (daily bars, ~10 years of history):
   (win rate, avg win/loss, expectancy, max drawdown, CAGR, yearly returns, equity curve).
   Note: survivorship bias (uses today's index members).
 - Separate paper accounts per mode (₹2 lakh each); positions held across days.
-- Planned code split: new `longterm.py` (Trading + Investing engines, backtest),
-  wired into `server.py` with a `mode` parameter on the API.
+- Code: `longterm.py` (Trading + Investing engines, backtests, scanner, paper accounts),
+  wired into `server.py`; every API call takes `mode=intraday|swing|invest`.
+  UI: `static/modes.js` (chooser, top-right switch, predictor + daily chart) and
+  `static/modes2.js` (skill pages, scanner, portfolio backtest, broker, limits).
 
-Status: see git log for what has been committed; anything listed above but not in the
-code is still to do.
+## Status (17 Nov 2026)
+DONE and tested in the browser: three modes, chooser on every open, top-right switch,
+mode-aware Predictor / Scanner / Strength ranking / Entry / Exit / Time machine /
+Budget / Risk / Paper broker / Limits; per-mode settings and paper accounts.
+
+First backtest results (Nov 2017 – Nov 2026, ₹2 lakh, owner's limits, after costs):
+- Trading: +58% total, ~5.3%/yr, worst fall −27%, 800 trades, 36% won, profit factor 1.17.
+- Investing: +111% total, ~8.9%/yr, worst fall −28%, 302 trades, 38% won, profit factor 1.70.
+Trading rules are weak; improving them (without over-fitting) is the obvious next step.
+
+Ideas not done: alerts on daily close for held positions; real results-date calendar
+(currently estimated from the last reported quarter).
