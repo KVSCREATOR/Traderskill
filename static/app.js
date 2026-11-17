@@ -242,7 +242,7 @@ function renderPredict(p) {
           <div><span>Max loss</span><b class="down">${sz ? inr(sz.max_loss, 0) : '–'}</b></div>
           <div><span>Reward</span><b class="up">${sz ? inr(sz.reward, 0) : '–'}</b></div></div>
           <div class="row"><button class="btn primary" id="paper" ${canTrade ? '' : 'disabled'}>Paper trade this plan</button>
-          <button class="btn" id="mkAlerts">Set entry, stop &amp; target alerts</button>
+          <button class="btn" id="mkAlerts">Set entry, stop &amp; target alerts</button>${gttBtn(p)}
           <span class="note">${canTrade ? 'Risk check: PASS' : 'Paper order is locked until the risk check passes.'}</span></div>`
         : `<div class="empty">No opening range yet, so there is no trade plan. The range forms 09:15–09:30 IST.</div>`}
       </div>
@@ -334,7 +334,8 @@ async function skillPage(key) {
       ${fact('Opening range low', inr(pl.or_low))}${fact('Opening range high', inr(pl.or_high))}
       ${fact('Status', pl.trigger ? 'Waiting for breakout' : 'Confirmed at ' + pl.entry_time)}${fact(pl.trigger ? 'Entry trigger' : 'Entry price', inr(pl.entry))}
       ${fact('Price now', inr(p.price))}${fact('Distance from entry', (dist >= 0 ? '+' : '') + dist.toFixed(1) + 'R', cls(dist))}
-      ${fact('Entries allowed', esc(st.entry_start) + ' – ' + esc(st.entry_end) + ' IST')}${fact('Session', p.live ? 'Live' : 'Replay · market ' + esc(p.clock.label.toLowerCase()))}</div></div>${chart}`;
+      ${fact('Entries allowed', esc(st.entry_start) + ' – ' + esc(st.entry_end) + ' IST')}${fact('Session', p.live ? 'Live' : 'Replay · market ' + esc(p.clock.label.toLowerCase()))}</div>
+      <div class="row" style="margin-top:12px">${gttBtn(p)}<span class="note">Market closed? Set a GTT for the next session; it buys only inside your entry window.</span></div></div>${chart}`;
   } else if (pl && key === 'exit') {
     body = `<div class="card"><h2>Exit plan</h2><div class="facts">
       ${fact('Stop (range midpoint)', inr(pl.stop), 'down')}${fact('Target (2R)', inr(pl.target), 'up')}
@@ -575,6 +576,8 @@ async function broker() {
           <td class="num ${cls(t.pnl)}">${t.pnl >= 0 ? '+' : '−'}${inr(Math.abs(t.pnl), 0)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No closed trades yet.</div>'}</div>
       <p class="note">This portal has no connection to a real brokerage. To take a trade for real, place it yourself in your own broker app.</p></div>`;
     view.querySelectorAll('[data-close]').forEach(b => b.onclick = async () => { try { await api('/api/orders/close', { id: b.dataset.close }); toast('Position closed at market.'); load(); } catch (e) { toast(e.message, 'bad'); } });
+    if (!$('#gttBox')) view.querySelector('.stack')?.insertAdjacentHTML('beforeend', '<div id="gttBox"></div>');
+    gttCard($('#gttBox'));
   };
   await load();
   S.timer = setInterval(load, 30000);

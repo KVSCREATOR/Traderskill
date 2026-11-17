@@ -60,7 +60,8 @@ function skillLong(key, p, h1) {
     body = `<div class="card"><h2>Entry details</h2><div class="facts">
       ${fact('Setup', esc(pl.setup || 'None right now'))}${fact('Status', esc({ confirmed: 'Confirmed on the close', recent: 'Recent signal, still in buy zone', provisional: 'Today, confirm at 15:30 close', missed: 'Missed: price ran away', none: 'Waiting for a trigger' }[pl.state]))}
       ${fact(pl.trigger ? 'Buy above (daily close)' : 'Entry price', inr(pl.entry))}${fact('Price now', inr(p.price))}
-      ${fact('Buy only if', p.mode === 'swing' ? 'Volume ≥ 1.5× its 50-day average' : 'Volume ≥ 1.3× its 50-day average')}${fact('Do not chase above', p.mode === 'swing' ? '5% over the signal close' : '8% over the signal close')}</div></div>${chart}`;
+      ${fact('Buy only if', p.mode === 'swing' ? 'Volume ≥ 1.5× its 50-day average' : 'Volume ≥ 1.3× its 50-day average')}${fact('Do not chase above', p.mode === 'swing' ? '5% over the signal close' : '8% over the signal close')}</div>
+      <div class="row" style="margin-top:12px">${gttBtn(p)}<span class="note">Market closed? Set a GTT and the paper broker buys when the price reaches your trigger.</span></div></div>${chart}`;
   } else if (key === 'exit') {
     body = `<div class="card"><h2>Exit plan</h2><div class="facts">
       ${fact('Stop', inr(pl.stop), 'down')}${fact('Risk per share', inr(pl.risk) + ' (' + pl.risk_pct.toFixed(1) + '%)')}
@@ -160,8 +161,10 @@ async function brokerLong() {
       <div class="card"><h2>Closed positions</h2>${d.trades.length ? `<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Bought</th><th>Sold</th><th class="num">Days</th><th class="num">Entry</th><th class="num">Exit</th><th>Reason</th><th class="num">Result</th><th class="num">P&amp;L after costs</th><th>Tax</th></tr></thead><tbody>
         ${d.trades.map(t => `<tr><td class="mono"><b>${esc(t.symbol)}</b></td><td class="mono">${fdate(t.opened_date)}</td><td class="mono">${fdate(t.closed_date)}</td><td class="num">${t.held_days}</td><td class="num">${inr(t.entry)}</td><td class="num">${inr(t.exit)}</td>
           <td><span class="pill ${t.reason === 'target' || t.reason === 'trail' ? 'pass' : t.reason === 'stop' ? 'fail' : ''}">${esc(t.reason)}</span></td><td class="num ${cls(t.r)}">${sgn(t.r, 2, 'R')}</td><td class="num ${cls(t.pnl)}">${money(t.pnl)}</td><td>${esc(t.tax_type)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No closed positions yet.</div>'}</div>
+      <div id="gttBox"></div>
       <p class="note">This portal has no connection to a real brokerage. To buy for real, place the order yourself in your own broker app as a delivery (CNC) order.</p></div>`;
     view.querySelectorAll('[data-close]').forEach(b => b.onclick = async () => { try { await api('/api/orders/close', { id: b.dataset.close }); toast('Sold at market (paper).'); load(); } catch (e) { toast(e.message, 'bad'); } });
+    gttCard($('#gttBox'));
   };
   await load();
   S.timer = setInterval(load, 60000);
@@ -245,4 +248,46 @@ async function settingsAll() {
     d.showModal();
     $('#go').onclick = async ev => { ev.preventDefault(); await save({ paper_cash: cash }, 'Paper account reset.'); d.close(); };
   };
+}
+
+/* ---------------------------------------------------------------- GTT (good till triggered) paper orders, all modes */
+function gttBtn(p) {
+  S.gttP = p;
+  return `<button class="btn" data-gtt>Set GTT order</button>`;
+}
+function gttDialog(p) {
+  const pl = p.plan || {}, intra = p.mode === 'intraday' || S.mode === 'intraday', d = $('#dlg');
+  const trig = pl.trigger || pl.entry || p.price, open = p.clock && p.clock.open;
+  const num = (id, label, v, ph = '') => `<label>${label}<input id="${id}" type="number" step="0.05" min="0" value="${v != null ? (+v).toFixed(2) : ''}" placeholder="${ph}"></label>`;
+  $('#dlgBody').innerHTML = `<h3>GTT order · ${esc(p.symbol)} · ${esc(MODES[S.mode].label)}</h3>
+    <p class="note">Good Till Triggered: the paper broker buys automatically when the price reaches your trigger. ${open ? 'The market is open now; the GTT is checked from' : 'Set it now while the market is closed; it is checked from'} ${intra ? 'the next session, inside your entry window, for that one session only' : 'the next session on, for up to 1 year'}. Paper only: nothing is sent to any broker.</p>
+    <div class="grid">${num('gTrig', 'Trigger price (₹)', trig)}
+      ${intra ? num('gStop', 'Stop (₹)', pl.stop) + num('gTgt', 'Target (₹)', pl.target)
+        : num('gStop', 'Stop (₹) · blank = rule stop', null, 'auto: ' + (pl.stop ? pl.stop.toFixed(2) : 'ATR rule'))}</div>
+    <p class="note">Last price ${inr(p.price)}. A trigger above it buys a breakout; below it buys a dip. Shares are sized and risk-checked at the fill with your limits.</p>
+    <div class="row" style="justify-content:flex-end"><button class="btn" value="cancel">Cancel</button><button class="btn primary" id="gGo">Place GTT</button></div>`;
+  d.showModal();
+  $('#gGo').onclick = async e => {
+    e.preventDefault();
+    const v = id => { const x = $('#' + id); return x && x.value !== '' ? +x.value : null; };
+    const body = { symbol: p.symbol, trigger: v('gTrig'), stop: v('gStop'), confirm: true };
+    if (intra) body.target = v('gTgt');
+    $('#gGo').disabled = true;
+    try { await api('/api/gtt', body); d.close(); toast(`GTT set: buy ${p.symbol} at ${inr(body.trigger)}.`); }
+    catch (err) { $('#gGo').disabled = false; toast(err.message, 'bad'); }
+  };
+}
+document.addEventListener('click', e => { if (e.target.closest && e.target.closest('[data-gtt]') && S.gttP) { e.preventDefault(); gttDialog(S.gttP); } });
+
+async function gttCard(box) {
+  if (!box) return;
+  let d; try { d = await api('/api/gtt'); } catch (e) { box.innerHTML = ''; return; }
+  const pill = o => ({ active: '<span class="pill warn">waiting</span>', triggered: '<span class="pill pass">bought</span>', rejected: '<span class="pill fail">rejected</span>' })[o.status] || `<span class="pill">${esc(o.status)}</span>`;
+  box.innerHTML = `<div class="card"><h2>GTT orders</h2>${d.orders.length ? `<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Set</th><th>Buy when price</th><th class="num">Stop</th><th class="num">Target</th><th>Valid till</th><th>Status</th><th></th></tr></thead><tbody>
+    ${d.orders.map(o => `<tr><td class="mono"><b>${esc(o.symbol)}</b></td><td class="mono">${esc(o.created_at.slice(0, 16))}</td>
+      <td class="mono">${o.direction === 'above' ? 'rises to' : 'falls to'} ${inr(o.trigger)}</td><td class="num down">${o.stop ? inr(o.stop) : 'rule'}</td><td class="num up">${o.target ? inr(o.target) : '–'}</td>
+      <td class="mono">${o.expires ? fdate(o.expires) : 'next session'}</td><td>${pill(o)}<small class="muted" style="display:block">${esc(o.note || '')}</small></td>
+      <td class="num">${o.status === 'active' ? `<button class="btn sm" data-gcancel="${o.id}">Cancel</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty">No GTT orders. Use “Set GTT order” on a prediction or the Entry page.</div>'}</div>`;
+  box.querySelectorAll('[data-gcancel]').forEach(b => b.onclick = async () => { try { await api('/api/gtt/cancel', { id: b.dataset.gcancel }); toast('GTT cancelled.'); gttCard(box); } catch (e) { toast(e.message, 'bad'); } });
 }

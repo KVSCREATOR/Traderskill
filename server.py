@@ -1323,6 +1323,10 @@ def api(method, path, q, body):
             save_state(st)
         return {"ok": True}
     if path == "/api/portfolio":
+        try:
+            gtt.check(mode)
+        except Exception:  # noqa: BLE001
+            pass
         return longterm.portfolio_long(mode) if long_mode else dict(portfolio(), mode="intraday")
     if path == "/api/orders" and method == "POST":
         if long_mode:
@@ -1330,11 +1334,19 @@ def api(method, path, q, body):
         return place_order(body)
     if path == "/api/orders/close" and method == "POST":
         return longterm.close_long(mode, body.get("id")) if long_mode else close_position(body)
+    if path == "/api/gtt" and method == "GET":
+        return gtt.listing(mode)
+    if path == "/api/gtt" and method == "POST":
+        return gtt.place(mode, body)
+    if path == "/api/gtt/cancel" and method == "POST":
+        return gtt.cancel(body.get("id"))
     raise ApiError(404, "Unknown endpoint")
 
 
 import longterm  # noqa: E402  (Trading + Investing engines)
 longterm.S = sys.modules[__name__]
+import gtt  # noqa: E402  (paper GTT orders, all modes)
+gtt.S, gtt.L = sys.modules[__name__], longterm
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}

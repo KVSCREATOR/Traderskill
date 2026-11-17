@@ -103,5 +103,11 @@ the order signals are bought moves Trading CAGR 6.6–10.3%, so portfolio gains 
 are noise; judge per-signal R in both periods. Promoter buying and earnings surprise need
 history not freely available — judge them via the forward test instead.
 
+GTT orders (added 17 Nov 2026, `gtt.py`, `/api/gtt`): paper "buy when price reaches X" for all
+modes, set any time (meant for when the market is closed). Trading/Investing: daily bars from the
+next session, fill at trigger or the gapped open, rule stop (ATR) unless given, valid 1 year.
+Scalping: 5-min bars inside the entry window, one session only, user stop + target, 15:15
+square-off. Sized and risk-checked at the fill. Buttons on Predictor and Entry; list on Paper broker.
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).

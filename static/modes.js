@@ -118,7 +118,7 @@ function renderLong(p) {
           <div><span>Capital</span><b>${inr(sz.cost, 0)}</b></div>
           <div><span>Max loss</span><b class="down">${inr(sz.max_loss, 0)}</b></div>
           <div><span>${pl.target ? 'Profit at target' : 'Costs'}</span><b class="${pl.target ? 'up' : ''}">${pl.target ? inr(sz.reward, 0) : inr(sz.costs, 0)}</b></div></div>
-        <div class="row"><button class="btn primary" id="paper" ${canTrade ? '' : 'disabled'}>Paper ${p.mode === 'swing' ? 'trade' : 'invest'}</button>
+        <div class="row"><button class="btn primary" id="paper" ${canTrade ? '' : 'disabled'}>Paper ${p.mode === 'swing' ? 'trade' : 'invest'}</button>${gttBtn(p)}
           <button class="btn" id="mkAlerts">Set ${pl.trigger ? 'trigger, ' : ''}stop${pl.target ? ' &amp; target' : ''} alerts</button>
           <span class="note">${canTrade ? 'Risk check: PASS' : pl.trigger ? 'No confirmed entry yet.' : 'Locked until the risk check passes.'}</span></div>
         ${pl.target ? `<p class="note" style="margin-top:8px">Profit shown after costs; about ${inr(sz.reward_after_tax, 0)} after 20% short-term capital gains tax.</p>` : ''}
