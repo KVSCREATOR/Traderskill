@@ -104,6 +104,46 @@ function gauge(score, verdict) {
     <text class="sub" x="100" y="113" text-anchor="middle">SETUP SCORE / 100</text></svg>`;
 }
 
+/* clickable candles: an invisible strip over each candle carries its prices */
+function candleHits(bars, cx, slot, top, bottom, when) {
+  return bars.map((b, i) => {
+    const prev = i > 0 ? bars[i - 1].c : null;
+    return `<rect class="hit" x="${(cx(i) - slot / 2).toFixed(1)}" y="${top}" width="${slot.toFixed(2)}" height="${bottom - top}" fill="transparent"
+      data-ohlc="${esc(JSON.stringify({ t: when(b), o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, p: prev }))}"/>`;
+  }).join('');
+}
+function showCandle(rect, pin) {
+  const card = rect.closest('.chart'); if (!card) return;
+  const d = JSON.parse(rect.dataset.ohlc);
+  let tip = card.querySelector('.ctip');
+  if (!tip) { tip = document.createElement('div'); tip.className = 'ctip'; card.appendChild(tip); }
+  const chg = d.p ? (d.c / d.p - 1) * 100 : null, col = d.c >= d.o ? 'up' : 'down';
+  tip.innerHTML = `<b>${esc(d.t)}</b><span>Open</span><i>${inr(d.o)}</i><span>High</span><i>${inr(d.h)}</i><span>Low</span><i>${inr(d.l)}</i>
+    <span>Close</span><i class="${col}">${inr(d.c)}</i>${chg != null ? `<span>Change</span><i class="${cls(chg)}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</i>` : ''}${d.v ? `<span>Volume</span><i>${Math.round(d.v).toLocaleString('en-IN')}</i>` : ''}`;
+  card.querySelectorAll('.hit.on').forEach(r => r.classList.remove('on')); rect.classList.add('on');
+  const cr = card.getBoundingClientRect(), rr = rect.getBoundingClientRect();
+  let left = rr.left - cr.left + rr.width + 10; tip.hidden = false;
+  if (left + tip.offsetWidth > cr.width - 8) left = rr.left - cr.left - tip.offsetWidth - 10;
+  tip.style.left = Math.max(8, left) + 'px'; tip.style.top = '44px';
+  tip.classList.toggle('pinned', !!pin);
+}
+document.addEventListener('click', e => {
+  const r = e.target.closest && e.target.closest('rect.hit');
+  if (r) return showCandle(r, true);
+  if (!e.target.closest || !e.target.closest('.ctip')) document.querySelectorAll('.ctip').forEach(t => { t.hidden = true; t.classList.remove('pinned'); });
+});
+document.addEventListener('mouseover', e => {
+  const r = e.target.closest && e.target.closest('rect.hit');
+  if (!r) return;
+  const tip = r.closest('.chart')?.querySelector('.ctip');
+  if (!tip || !tip.classList.contains('pinned')) showCandle(r, false);
+});
+document.addEventListener('mouseout', e => {
+  if (!e.target.closest || !e.target.closest('rect.hit') || (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('rect.hit'))) return;
+  const tip = e.target.closest('.chart')?.querySelector('.ctip');
+  if (tip && !tip.classList.contains('pinned')) { tip.hidden = true; e.target.classList.remove('on'); }
+});
+
 function candleChart(p) {
   const bars = p.bars || []; if (!bars.length) return '<div class="empty">No intraday bars for this session.</div>';
   const W = 960, H = 280, L = 8, R = 92, T = 12, B = 24, pl = p.plan;
@@ -118,6 +158,7 @@ function candleChart(p) {
     const c = b.c >= b.o ? 'var(--pass)' : 'var(--fail)', cx = x(b.m) + (W - L - R) / 150;
     s += `<line x1="${cx}" x2="${cx}" y1="${y(b.h)}" y2="${y(b.l)}" stroke="${c}" stroke-width="1.2"/><rect x="${cx - bw / 2}" y="${y(Math.max(b.o, b.c))}" width="${bw}" height="${Math.max(1.2, Math.abs(y(b.o) - y(b.c)))}" fill="${c}"/>`;
   }
+  s += candleHits(bars, i => x(bars[i].m) + (W - L - R) / 150, (W - L - R) / 75, T, H - B, b => hm(b.m) + ' IST');
   // de-overlap labels
   const lab = lines.map(l => ({ l, yy: y(l[1]) })).sort((a, b) => a.yy - b.yy);
   for (let i = 1; i < lab.length; i++) if (lab[i].yy - lab[i - 1].yy < 13) lab[i].yy = lab[i - 1].yy + 13;
