@@ -89,5 +89,19 @@ Backtest results (Nov 2017 – Nov 2026, ₹2 lakh, owner's limits, after costs)
 Both have losing years (e.g. 2018, 2019, 2022); results flatter the past slightly because
 they use today's index members.
 
+Forward test (added 17 Nov 2026): Research > Forward test (`#/journal`, `/api/journal`).
+The scanner logs each completed-day Trading/Investing signal once (`state.json` → `journal`);
+the result is simulated from the first open after the log date with the same rules, shown in
+R vs the backtest's +0.29R (Trading) / +0.56R (Investing). Needs ~30+ closed trades to judge.
+
+Prediction features tested 17 Nov 2026 and REJECTED (did not help in both periods):
+momentum 12-1 filter (tiny gain, inside noise, bigger drawdown), momentum ranking for
+Investing (12.9%/yr but neighbouring settings 6–11% → luck), Stage 2 (150-day rising),
+VCP / volatility contraction, sector strength, India VIX filter, NSE delivery % (2020–26
+only: better 2020–22, worse Jul 2022–26 in both modes, every threshold). Lesson: shuffling
+the order signals are bought moves Trading CAGR 6.6–10.3%, so portfolio gains of 1–2%/yr
+are noise; judge per-signal R in both periods. Promoter buying and earnings surprise need
+history not freely available — judge them via the forward test instead.
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).
