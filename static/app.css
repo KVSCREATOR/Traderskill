@@ -235,3 +235,7 @@ td small.chg { display: block; font-size: 11px; opacity: .85; }
 .ctip b { grid-column: 1 / -1; margin-bottom: 4px; }
 .ctip span { color: var(--muted); }
 .ctip i { font: 600 12px var(--mono); font-style: normal; text-align: right; }
+
+.brand .credit { display: block; margin-top: 3px; font-size: 10.5px; line-height: 1.35; color: var(--muted); }
+.brand .credit a { color: var(--accent); text-decoration: none; }
+.brand .credit a:hover { text-decoration: underline; }
