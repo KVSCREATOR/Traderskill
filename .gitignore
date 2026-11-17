@@ -7,3 +7,6 @@ __pycache__/
 
 # Local editor / tool settings
 .claude/settings.local.json
+
+# NAS / Docker secrets
+tradeskill.env

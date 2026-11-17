@@ -17,6 +17,7 @@ async function api(path, body) {
   else path += (path.includes('?') ? '&' : '?') + 'mode=' + encodeURIComponent(S.mode || 'intraday');
   const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
   const j = await r.json().catch(() => ({ error: 'Bad response from server' }));
+  if (r.status === 401 && j.login) { location.href = '/login'; throw new Error('Sign in first.'); }
   if (!r.ok) throw new Error(j.error || 'Request failed');
   return j;
 }

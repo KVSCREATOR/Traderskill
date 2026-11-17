@@ -1,0 +1,12 @@
+# Synology Container Manager: Project -> Create -> path /volume1/docker/tradeskill -> use this file.
+services:
+  tradeskill:
+    build: .
+    container_name: tradeskill
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - tradeskill.env

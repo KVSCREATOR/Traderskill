@@ -34,6 +34,8 @@ _session = {"id": None, "token": None}
 
 
 def _cb_url():
+    if S.PUBLIC_URL:   # NAS / home server: Zerodha must send the browser back to that address
+        return S.PUBLIC_URL + "/api/kite/callback"
     return "http://127.0.0.1:%d/api/kite/callback" % S.PORT
 
 

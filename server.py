@@ -10,6 +10,9 @@ The broker is a built-in PAPER ledger. No real orders are ever sent anywhere.
 """
 import csv
 import hashlib
+import hmac
+import html
+import secrets
 import io
 import json
 import math
@@ -32,6 +35,13 @@ STATIC = os.path.join(ROOT, "static")
 DATA = os.path.join(ROOT, "data")
 STATE_FILE = os.path.join(DATA, "state.json")
 PORT = int(os.environ.get("PORT", "8765"))
+# Running on a NAS / home server: HOST=0.0.0.0 accepts other devices on your network (then
+# PORTAL_PASSWORD is required). PUBLIC_URL = the address you open it at, e.g.
+# http://100.x.y.z:8765 (Tailscale) - used for the Zerodha login return address.
+HOST = os.environ.get("HOST", "127.0.0.1")
+PASSWORD = os.environ.get("PORTAL_PASSWORD", "")
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
+LOOPBACK = HOST in ("127.0.0.1", "localhost", "::1")
 IST = timezone(timedelta(hours=5, minutes=30))
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"}
@@ -1388,8 +1398,38 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _local(self):
+        if not LOOPBACK:
+            return True   # network mode: protected by the password instead
         host = (self.headers.get("Host") or "").split(":")[0]
         return host in ("127.0.0.1", "localhost", "[::1]")
+
+    def _authed(self):
+        if not PASSWORD:
+            return True
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == "ts_auth" and hmac.compare_digest(v, _auth_token()):
+                return True
+        return False
+
+    def _login_page(self, msg=""):
+        page = ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+                "<title>Tradeskill · sign in</title><body style='font:15px system-ui;background:#f3f4f7;display:grid;place-items:center;min-height:90vh;margin:0'>"
+                "<form method=post action=/login style='background:#fff;padding:28px;border-radius:12px;box-shadow:0 4px 20px #0001;width:min(320px,90vw)'>"
+                "<h2 style='margin:0 0 6px'>Tradeskill</h2><p style='color:#667085;margin:0 0 16px'>Enter the portal password.</p>"
+                "<input type=password name=password autofocus required style='width:100%%;box-sizing:border-box;padding:10px;font-size:15px;border:1px solid #d0d5dd;border-radius:8px'>"
+                "<p style='color:#d43a4c;min-height:1em'>%s</p><button style='width:100%%;padding:10px;border:0;border-radius:8px;background:#2f5bea;color:#fff;font-size:15px'>Sign in</button></form>"
+                % html.escape(msg))
+        self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
+
+    def _same_origin(self):
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True
+        o = urllib.parse.urlparse(origin)
+        if LOOPBACK:
+            return o.hostname in ("127.0.0.1", "localhost")
+        return o.netloc == (self.headers.get("Host") or "")
 
     def _api(self, method, path, q, body):
         try:
@@ -1403,6 +1443,16 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         if not self._local():
             return self._send(403, {"error": "local access only"})
+        if u.path == "/login":
+            return self._login_page()
+        if not self._authed():
+            if u.path.startswith("/api/"):
+                return self._send(401, {"error": "Sign in first.", "login": True})
+            self.send_response(302)
+            self.send_header("Location", "/login")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
         if u.path == "/api/kite/callback":   # Zerodha sends the browser back here after login
             try:
                 page = kite.callback(dict(urllib.parse.parse_qsl(u.query)))
@@ -1420,9 +1470,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urllib.parse.urlparse(self.path)
-        origin = self.headers.get("Origin")
-        if not self._local() or (origin and urllib.parse.urlparse(origin).hostname not in ("127.0.0.1", "localhost")):
+        if not self._local() or not self._same_origin():
             return self._send(403, {"error": "local access only"})
+        if u.path == "/login" and PASSWORD:
+            n = int(self.headers.get("Content-Length") or 0)
+            pw = urllib.parse.parse_qs((self.rfile.read(min(n, 4096)) or b"").decode("utf-8", "replace")).get("password", [""])[0]
+            if not hmac.compare_digest(pw.encode(), PASSWORD.encode()):
+                time.sleep(1.5)   # slow down guessing
+                return self._login_page("Wrong password.")
+            self.send_response(302)
+            self.send_header("Set-Cookie", "ts_auth=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000" % _auth_token())
+            self.send_header("Location", "/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        if not self._authed():
+            return self._send(401, {"error": "Sign in first.", "login": True})
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}") if n else {}
@@ -1431,9 +1494,28 @@ class Handler(BaseHTTPRequestHandler):
         self._api("POST", u.path, {}, body)
 
 
+def _auth_token():
+    """Cookie value: HMAC of the password with a random key kept in data/ (changes if the password changes)."""
+    key_file = os.path.join(DATA, "auth.key")
+    if not _AUTH["key"]:
+        try:
+            with open(key_file, "rb") as f:
+                _AUTH["key"] = f.read()
+        except OSError:
+            os.makedirs(DATA, exist_ok=True)
+            _AUTH["key"] = secrets.token_bytes(32)
+            with open(key_file, "wb") as f:
+                f.write(_AUTH["key"])
+    return hmac.new(_AUTH["key"], PASSWORD.encode(), hashlib.sha256).hexdigest()
+
+
+_AUTH = {"key": None}
+
 if __name__ == "__main__":
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print("Tradeskill Portal running at http://127.0.0.1:%d  (Ctrl+C to stop)" % PORT)
+    if not LOOPBACK and len(PASSWORD) < 8:
+        sys.exit("Refusing to start: HOST=%s lets other devices in, so set PORTAL_PASSWORD (8+ characters)." % HOST)
+    srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    print("Tradeskill Portal running at %s  (Ctrl+C to stop)" % (PUBLIC_URL or "http://%s:%d" % (HOST, PORT)))
     sys.stdout.flush()
     try:
         srv.serve_forever()
