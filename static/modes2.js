@@ -100,12 +100,17 @@ async function scannerLong(_arg, sub) {
     const alt = d.rows.filter(r => r.source !== 'Yahoo');
     if (alt.length && S.scanAlerted !== d.scanned_at) { S.scanAlerted = d.scanned_at; toast(`⚠ Data source switched for ${alt.length} stock${alt.length === 1 ? '' : 's'}: Yahoo Finance had no data, so exchange end-of-day prices are used for ${alt.slice(0, 6).map(r => r.symbol).join(', ')}.`, 'warnmsg'); }
     const f = S.scanFilterLong || 'all';
-    let rows = d.rows.filter(r => strength || f === 'all' || (f === 'n50' ? r.nifty50 : f === 'buy' ? ['confirmed', 'recent', 'provisional'].includes(r.status) : f === 'up' ? (inv ? r.up_long : r.up_mid) : r.rs_pct >= 80));
-    if (strength) rows = rows.slice().sort((a, b) => (b[inv ? 'rs6' : 'rs3'] ?? -999) - (a[inv ? 'rs6' : 'rs3'] ?? -999));
-    const chips = [['all', 'All 250'], ['buy', 'In buy zone'], ['up', 'Uptrend'], ['rs', 'Top 20% strength'], ['n50', 'Nifty 50 only']].map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('');
+    // Best odds: a completed buy signal, top-half strength vs the Nifty, market filter on, strongest first.
+    // In the backtest, buying the strongest signals first beat a random pick (Trading ~11.5% vs ~9%/yr);
+    // a stock's own past win rate did NOT predict its next trades, so it is not used.
+    const best = r => d.regime && ['confirmed', 'recent'].includes(r.status) && r.rs_pct >= 50;
+    let rows = d.rows.filter(r => strength || f === 'all' || (f === 'best' ? best(r) : f === 'n50' ? r.nifty50 : f === 'buy' ? ['confirmed', 'recent', 'provisional'].includes(r.status) : f === 'up' ? (inv ? r.up_long : r.up_mid) : r.rs_pct >= 80));
+    if (strength || f === 'best') rows = rows.slice().sort((a, b) => (b[inv ? 'rs6' : 'rs3'] ?? -999) - (a[inv ? 'rs6' : 'rs3'] ?? -999));
+    const bestNote = f === 'best' ? `<div class="card"><p style="margin:0"><b>Best odds</b> = a confirmed buy signal, stronger than at least half of the 250 stocks vs the Nifty, with the market filter on, strongest first. In the ${inv ? '2017–2026 backtest about 38% of Investing signals made money, averaging +0.56R' : '2017–2026 backtest about 39% of Trading signals made money, averaging +0.29R'} per trade: most trades lose a little, a few winners make the profit. ${d.regime ? '' : '<b>The market filter is off today, so the list is empty.</b>'} Past results do not promise future ones.</p></div>` : '';
+    const chips = [['all', 'All 250'], ['best', '★ Best odds'], ['buy', 'In buy zone'], ['up', 'Uptrend'], ['rs', 'Top 20% strength'], ['n50', 'Nifty 50 only']].map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('');
     view.innerHTML = head(title, `${MODES[S.mode].label} mode · ${d.universe} · ${rows.length} of ${d.rows.length} shown · daily prices · scanned ${d.scanned_at} IST`, '<button class="btn" id="rescan">Rescan</button>') +
       `<div class="stack">${d.regime ? '' : '<div class="banner">The Nifty is below its key moving averages. The rules hold off new buys until the market recovers; the list is for watching.</div>'}
-      ${strength ? `<p class="note">Stocks ranked by how much they beat the Nifty over ${inv ? '6' : '3'} months. Leaders tend to keep leading; laggards tend to keep lagging.</p>` : `<div class="chips">${chips}</div>`}
+      ${strength ? `<p class="note">Stocks ranked by how much they beat the Nifty over ${inv ? '6' : '3'} months. Leaders tend to keep leading; laggards tend to keep lagging.</p>` : `<div class="chips">${chips}</div>${bestNote}`}
       <div class="card"><div class="tablewrap" style="margin-top:-18px"><table><thead><tr><th>Stock</th><th class="num">Price</th><th class="num">Day</th><th>Setup</th><th>Trend</th><th class="num">vs Nifty 3m</th><th class="num">vs Nifty 6m</th><th class="num">From 52w high</th>${inv ? '<th class="num">Revenue</th><th class="num">Profit</th>' : ''}<th class="num">Rank</th></tr></thead>
       <tbody>${rows.map(r => `<tr class="click" data-s="${esc(r.symbol)}" tabindex="0"><td class="sym"><b>${esc(r.symbol)}</b><small>${esc(r.name)}${r.source !== 'Yahoo' ? ' · ' + esc(r.source) : ''}</small></td>
         <td class="num">${inr(r.price)}</td><td class="num ${cls(r.change_pct)}">${pct(r.change_pct)}</td>
