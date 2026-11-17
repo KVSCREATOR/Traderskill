@@ -109,5 +109,13 @@ next session, fill at trigger or the gapped open, rule stop (ATR) unless given, 
 Scalping: 5-min bars inside the entry window, one session only, user stop + target, 15:15
 square-off. Sized and risk-checked at the fill. Buttons on Predictor and Entry; list on Paper broker.
 
+My holdings (added 17 Nov 2026, `kite.py`, `#/holdings`): read-only link to the owner's real
+Zerodha account via Zerodha's FREE hosted Kite MCP server (https://mcp.kite.trade/mcp), not the
+paid Kite Connect API. OAuth 2.1 + PKCE with dynamic client registration (public client,
+redirect http://127.0.0.1:8765/api/kite/callback); token kept only in data/state.json → "kite".
+Tools are grouped: holdings = tool `portfolio` with mode=holdings. READ_TOOLS allows ONLY
+`portfolio` with modes holdings/positions/profile/margins; `orders`, `gtt`, `alerts` etc. are
+refused in code. Zerodha's login expires about daily → "Connect Zerodha" again.
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).

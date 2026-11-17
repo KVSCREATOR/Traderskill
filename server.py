@@ -1334,6 +1334,12 @@ def api(method, path, q, body):
         return place_order(body)
     if path == "/api/orders/close" and method == "POST":
         return longterm.close_long(mode, body.get("id")) if long_mode else close_position(body)
+    if path == "/api/kite/connect" and method == "POST":
+        return kite.connect_url()
+    if path == "/api/kite/disconnect" and method == "POST":
+        return kite.disconnect()
+    if path == "/api/kite/holdings":
+        return kite.holdings()
     if path == "/api/gtt" and method == "GET":
         return gtt.listing(mode)
     if path == "/api/gtt" and method == "POST":
@@ -1347,6 +1353,8 @@ import longterm  # noqa: E402  (Trading + Investing engines)
 longterm.S = sys.modules[__name__]
 import gtt  # noqa: E402  (paper GTT orders, all modes)
 gtt.S, gtt.L = sys.modules[__name__], longterm
+import kite  # noqa: E402  (read-only Zerodha link via the free Kite MCP server)
+kite.S, kite.L = sys.modules[__name__], longterm
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
@@ -1384,6 +1392,12 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         if not self._local():
             return self._send(403, {"error": "local access only"})
+        if u.path == "/api/kite/callback":   # Zerodha sends the browser back here after login
+            try:
+                page = kite.callback(dict(urllib.parse.parse_qsl(u.query)))
+            except Exception as e:  # noqa: BLE001
+                page = "<p>Zerodha login failed: %s</p>" % str(e)[:200].replace("<", "&lt;")
+            return self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
         if u.path.startswith("/api/"):
             return self._api("GET", u.path, dict(urllib.parse.parse_qsl(u.query)), None)
         rel = "index.html" if u.path in ("/", "") else u.path.lstrip("/")
