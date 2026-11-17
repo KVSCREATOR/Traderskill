@@ -45,21 +45,22 @@ PUBLIC_URL=http://192.168.1.200:8765
    and starts the container. It restarts by itself after a NAS reboot.
 4. Open `http://192.168.1.200:8765` (or your Tailscale address) and sign in with the password.
 
-## 4. Connect Zerodha again
+## 4. HTTPS address for Zerodha (required)
 
-On the NAS the portal has a new address, so on **My holdings** click **Connect Zerodha** once.
-The portal registers the new return address with Zerodha automatically.
+Zerodha only returns to an **HTTPS** address (or 127.0.0.1), so plain
+`http://192.168.1.200:8765` is refused ("invalid_redirect_uri"). Use DSM's reverse proxy:
 
-If Zerodha refuses the address (an error on Zerodha's page right after you click Connect),
-use the one-time tunnel method instead: on your PC run
+1. Control Panel -> Login Portal -> Advanced -> **Reverse Proxy** -> **Create**.
+2. Description `Tradeskill portal`; Source **HTTPS**, hostname `*`, port **8766**;
+   Destination **HTTP**, `localhost`, port **8765**. Save.
+3. Set `PUBLIC_URL=https://192.168.1.200:8766` in `tradeskill.env` (or put that one line in
+   `data/public_url.txt`, which overrides it without touching the password file).
+4. Container Manager -> Project -> `tradeskill` -> **Action -> Build** (recreates the container).
+5. Open **https://192.168.1.200:8766** in Chrome; accept the certificate warning once
+   (Advanced -> Proceed: DSM's certificate is for its Synology name, not the IP).
+6. Sign in -> **My holdings** -> **Connect Zerodha**. The portal registers the new address itself.
 
-```
-ssh -L 8765:127.0.0.1:8765 <your DSM user>@192.168.1.200
-```
-
-set `PUBLIC_URL=http://127.0.0.1:8765` in `tradeskill.env`, restart the project, and connect
-from `http://127.0.0.1:8765` while the tunnel is open. (SSH must be enabled in Control Panel ->
-Terminal & SNMP.)
+Use the https address from then on (bookmark it).
 
 ## 5. Stop the PC copy
 

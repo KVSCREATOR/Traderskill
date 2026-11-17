@@ -125,5 +125,12 @@ the rule's volume test), 20-day avg (Trading), 40-day / 52-week breakout line, s
 Investing shows 270 sessions. My holdings verdict follows the selected mode (Scalping → Investing).
 Holdings extras (quick-pick bar, Scanner chip, News switch) hide whenever Zerodha is not reachable.
 
+Running on the owner's Synology DS925+ (since 17 Nov 2026): Container Manager project
+`tradeskill` at /volume1/docker/tradeskill (built from the Dockerfile, data/ on the volume,
+tradeskill.env holds PORTAL_PASSWORD). Open at https://192.168.1.200:8766 = DSM reverse proxy
+(HTTPS 8766 -> localhost:8765); Zerodha MCP only accepts https or loopback return URLs.
+PUBLIC_URL can also come from data/public_url.txt. The PC copy is stopped: run ONE copy only.
+To update the NAS: copy changed files into the share, then Project -> Build. See NAS.md.
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).
