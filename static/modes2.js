@@ -362,8 +362,10 @@ async function holdingsPage() {
       ${tile('Total profit / loss', d.pnl, `${money(d.pnl)} (${d.pnl_pct != null ? sgn(d.pnl_pct) : '–'})`)}
       ${tile('Today', d.day_pnl, money(d.day_pnl))}</div>
     ${d.warnings.length ? `<div class="banner">${d.warnings.map(esc).join(' · ')}</div>` : ''}
-    <div class="card"><h2>Holdings · ${d.rows.length}</h2>${d.rows.length ? `<div class="tablewrap"><table><thead><tr><th>Stock</th><th class="num">Qty</th><th class="num">Avg cost</th><th class="num">Price</th><th class="num">Today</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Profit / loss</th><th>Trend</th><th class="num">From 52w high</th><th>What the rules say</th></tr></thead><tbody>
-      ${d.rows.map(r => `<tr><td class="sym"><a href="#/predictor/${encodeURIComponent(r.symbol)}"><b>${esc(r.symbol)}</b></a><small>${esc(r.sector || r.exchange || '')}${r.flags.length ? ' · <span class="down">' + r.flags.map(esc).join('; ') + '</span>' : ''}</small></td>
+    <div class="card"><h2>Holdings · <span id="hCount">${d.rows.length}</span></h2>${d.rows.length ? `<div class="row tablebar"><input id="hFind" type="search" placeholder="Search stock or sector" style="width:200px">
+      <div class="chips" style="margin:0">${[['all', 'All'], ['exit', 'Exit signal'], ['weak', 'Weak'], ['hold', 'Hold'], ['buy', 'Buy signal'], ['up', 'In profit'], ['down', 'In loss'], ['cap', 'Over cap']].map(([k, l]) => `<button class="chip ${k === 'all' ? 'on' : ''}" data-hf="${k}">${l}</button>`).join('')}</div>
+      <span class="note" style="margin:0">Click a column heading to sort.</span></div><div class="tablewrap"><table><thead><tr><th>Stock</th><th class="num">Qty</th><th class="num">Avg cost</th><th class="num">Price</th><th class="num">Today</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Profit / loss</th><th>Trend</th><th class="num">From 52w high</th><th>What the rules say</th></tr></thead><tbody>
+      ${d.rows.map(r => `<tr data-v="${esc(r.verdict || '')}" data-pl="${r.pnl >= 0 ? 'up' : 'down'}" data-cap="${r.flags.some(f => f.includes('cap')) ? 1 : 0}" data-txt="${esc((r.symbol + ' ' + (r.sector || '')).toLowerCase())}"><td class="sym"><a href="#/predictor/${encodeURIComponent(r.symbol)}"><b>${esc(r.symbol)}</b></a><small>${esc(r.sector || r.exchange || '')}${r.flags.length ? ' · <span class="down">' + r.flags.map(esc).join('; ') + '</span>' : ''}</small></td>
         <td class="num">${r.qty}</td><td class="num">${r.avg != null ? inr(r.avg) : '–'}</td><td class="num">${r.ltp != null ? inr(r.ltp) : '–'}</td>
         <td class="num ${cls(r.day_pct)}">${r.day_pct != null ? sgn(r.day_pct) : '–'}</td><td class="num">${inr(r.value, 0)}</td><td class="num">${(r.value / tot * 100).toFixed(1)}%</td>
         <td class="num ${cls(r.pnl)}">${money(r.pnl)}<small class="chg" style="display:block">${r.pnl_pct != null ? sgn(r.pnl_pct) : ''}</small></td>
@@ -382,6 +384,17 @@ async function holdingsPage() {
     try { await api('/api/alerts', { alerts: a }); toast(`${a.length} rule-stop alerts set. They ring once when a price falls to its rule stop.`); askNotify(); pollAlerts(); } catch (e) { toast(e.message, 'bad'); }
   };
   extrasBox($('#kExtras'));
+  let hf = 'all';
+  const applyF = () => {
+    const q = ($('#hFind')?.value || '').trim().toLowerCase(); let n = 0;
+    view.querySelectorAll('tr[data-v]').forEach(tr => {
+      const ok = (!q || tr.dataset.txt.includes(q)) && (hf === 'all' || tr.dataset.v === hf || tr.dataset.pl === hf || (hf === 'cap' && tr.dataset.cap === '1'));
+      tr.hidden = !ok; if (ok) n++;
+    });
+    const c = $('#hCount'); if (c) c.textContent = n === d.rows.length ? n : `${n} of ${d.rows.length}`;
+  };
+  view.querySelectorAll('[data-hf]').forEach(b => b.onclick = () => { hf = b.dataset.hf; view.querySelectorAll('[data-hf]').forEach(x => x.classList.toggle('on', x === b)); applyF(); });
+  const hfind = $('#hFind'); if (hfind) hfind.oninput = applyF;
   bind();
 }
 
@@ -418,3 +431,27 @@ async function extrasBox(box) {
       : '<div class="empty">No mutual funds in Coin.</div>'}</div>
     ${x.errors.length ? `<p class="note down">${x.errors.map(esc).join(' · ')}</p>` : ''}`;
 }
+
+
+/* ---------------------------------------------------------------- click a column heading to sort (every table) */
+function cellVal(td) {
+  const t = (td ? td.innerText : '').trim().split('\n')[0].replace(/[₹,\s]/g, '').replace(/−/g, '-').replace(/[%RL]|pts|cr|d$/g, '');
+  const n = parseFloat(t);
+  return /^[+-]?\d/.test(t) && !isNaN(n) ? n : (td ? td.innerText.trim().toLowerCase() : '');
+}
+document.addEventListener('click', e => {
+  const th = e.target.closest && e.target.closest('thead th');
+  if (!th || !th.innerText.trim()) return;
+  const table = th.closest('table'), tbody = table.tBodies[0]; if (!tbody) return;
+  const col = [...th.parentNode.children].indexOf(th);
+  const dir = th.dataset.dir === 'asc' ? 'desc' : 'asc';
+  table.querySelectorAll('thead th').forEach(x => { delete x.dataset.dir; });
+  th.dataset.dir = dir;
+  const rows = [...tbody.rows].filter(r => r.cells.length > col);
+  rows.sort((a, b) => {
+    const x = cellVal(a.cells[col]), y = cellVal(b.cells[col]);
+    const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y));
+    return dir === 'asc' ? c : -c;
+  });
+  rows.forEach(r => tbody.appendChild(r));
+});

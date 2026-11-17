@@ -247,3 +247,10 @@ td small.chg { display: block; font-size: 11px; opacity: .85; }
 
 /* gridlines: vertical lines between columns, all tables */
 th + th, td + td { border-left: 1px solid var(--border); }
+
+/* sortable headings and table toolbar */
+thead th { cursor: pointer; user-select: none; }
+thead th:hover { color: var(--text); }
+thead th[data-dir="asc"]::after { content: " ▲"; color: var(--accent); }
+thead th[data-dir="desc"]::after { content: " ▼"; color: var(--accent); }
+.tablebar { gap: 10px; flex-wrap: wrap; margin: -4px 0 12px; align-items: center; }
