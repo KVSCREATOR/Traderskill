@@ -206,6 +206,64 @@ def call(tool, args=None):
         return {"text": text}
 
 
+# ----------------------------------------------------------------- sector fit
+SECTOR_MAX_PCT = 25.0   # flag a sector above a quarter of the portfolio
+
+
+def _sector_fit(rows, total, cfg):
+    """Sector balance from your limits plus the tested stock rules.
+
+    - Too much in one sector: more than SECTOR_MAX_PCT of the value, or more stocks than
+      your 'max per sector' limit.
+    - Trim first: holdings in those sectors whose rules say Exit / Weak, weakest first.
+    - Sector mood: from the Investing scan of all 250 stocks - share in a long uptrend and
+      average 6-month strength vs the Nifty. NOTE: a sector-strength filter did not improve
+      the backtest (tested Nov 2026), so mood is shown for information only.
+    - Rule buy signals: 'Best odds' Investing signals (confirmed, top-half strength, market
+      filter on) in sectors you are not over the limit in and do not already hold.
+    """
+    scan = L.scan_long("invest")
+    per = {}
+    for r in scan["rows"]:
+        sec = r.get("industry") or "Other"
+        a = per.setdefault(sec, {"n": 0, "up": 0, "rs": []})
+        a["n"] += 1
+        a["up"] += 1 if r.get("up_long") else 0
+        if r.get("rs6") is not None:
+            a["rs"].append(r["rs6"])
+    held = {}
+    for h in rows:
+        sec = h["sector"] or "Other"
+        g = held.setdefault(sec, {"value": 0.0, "stocks": []})
+        g["value"] += h["value"]
+        g["stocks"].append(h)
+    order = {"exit": 0, "weak": 1, "hold": 2, "buy": 3}
+    sectors = []
+    for sec in sorted(set(per) | set(held)):
+        a, g = per.get(sec), held.get(sec, {"value": 0.0, "stocks": []})
+        pct = g["value"] / total * 100 if total else 0
+        mood_up = a["up"] / a["n"] * 100 if a and a["n"] else None
+        mood_rs = sum(a["rs"]) / len(a["rs"]) if a and a["rs"] else None
+        over = sec != "Other" and (pct > SECTOR_MAX_PCT or len(g["stocks"]) > cfg["max_per_sector"])
+        mood = None if mood_up is None else ("Strong" if mood_up >= 60 and (mood_rs or 0) > 0 else
+                                              "Weak" if mood_up < 40 or (mood_rs or 0) < -5 else "Mixed")
+        trim = sorted((x for x in g["stocks"] if x.get("verdict") in ("exit", "weak")),
+                      key=lambda x: (order.get(x.get("verdict"), 9), x.get("pnl_pct") or 0))
+        sectors.append({"sector": sec, "value": g["value"], "pct": pct, "stocks": len(g["stocks"]),
+                        "over": over, "mood": mood, "uptrend_pct": mood_up, "rs6": mood_rs,
+                        "exits": [x["symbol"] for x in g["stocks"] if x.get("verdict") == "exit"],
+                        "trim": [{"symbol": x["symbol"], "verdict": x["verdict"], "why": x.get("why")} for x in trim[:3]] if over else []})
+    sectors.sort(key=lambda z: -z["value"])
+    held_syms = {h["symbol"] for h in rows}
+    over_secs = {z["sector"] for z in sectors if z["over"] or (z["sector"] != "Other" and z["stocks"] >= cfg["max_per_sector"])}
+    buys = [r for r in scan["rows"] if scan.get("regime") and r.get("status") in ("confirmed", "recent")
+            and (r.get("rs_pct") or 0) >= 50 and r["symbol"] not in held_syms and (r.get("industry") or "Other") not in over_secs]
+    buys.sort(key=lambda r: -(r.get("rs6") or -999))
+    return {"sectors": sectors, "limit_pct": SECTOR_MAX_PCT, "max_per_sector": cfg["max_per_sector"], "regime": bool(scan.get("regime")),
+            "buys": [{"symbol": r["symbol"], "name": r["name"], "sector": r.get("industry"), "setup": r.get("setup"),
+                      "rs6": r.get("rs6"), "price": r.get("price")} for r in buys[:6]]}
+
+
 # ----------------------------------------------------------------- holdings view
 def _verdict(ind, mkt):
     """What the Investing rules (backtested Nov 2017 - Nov 2026) say about a stock you already hold.
@@ -303,7 +361,11 @@ def holdings():
     warn = []
     if len(out) > cfg["max_positions"]:
         warn.append("%d holdings vs your limit of %d" % (len(out), cfg["max_positions"]))
-    return {"connected": True, "rows": out, "total_value": tv, "total_cost": tc, "pnl": tv - tc,
+    try:
+        fit = _sector_fit(out, tv, cfg)
+    except Exception as e:  # noqa: BLE001
+        fit = {"error": str(e)[:150]}
+    return {"connected": True, "fit": fit, "rows": out, "total_value": tv, "total_cost": tc, "pnl": tv - tc,
             "pnl_pct": (tv / tc - 1) * 100 if tc else None, "day_pnl": sum(x["day_pnl"] or 0 for x in out),
             "sectors": sorted(([k_, v] for k_, v in secs.items()), key=lambda z: -z[1]), "warnings": warn,
             "connected_at": k.get("connected_at"), "clock": S.market_clock()}

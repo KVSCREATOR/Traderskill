@@ -294,6 +294,30 @@ async function gttCard(box) {
 
 /* ---------------------------------------------------------------- My holdings (Zerodha, read-only via the free Kite MCP server) */
 const VERDICT = { exit: ['Exit signal', 'fail'], weak: ['Weak', 'warn'], hold: ['Hold', 'pass'], buy: ['Buy signal', 'pass'] };
+function fitBlock(f) {
+  if (!f) return '';
+  if (f.error) return `<div class="card"><h2>Sector fit</h2><div class="empty">Could not work out sector fit: ${esc(f.error)}</div></div>`;
+  const over = f.sectors.filter(z => z.over), moodPill = m => m ? `<span class="pill ${m === 'Strong' ? 'pass' : m === 'Weak' ? 'fail' : ''}">${m}</span>` : '–';
+  const vpill = v => `<span class="pill ${VERDICT[v][1]}">${VERDICT[v][0]}</span>`;
+  return `<div class="card"><h2>Sector fit</h2>
+    <h3 style="margin:4px 0 8px;font-size:14px">1 · Too much in one sector</h3>
+    ${over.length ? `<div class="tablewrap"><table><thead><tr><th>Sector</th><th class="num">Share</th><th class="num">Stocks</th><th>Trim first, per the rules</th></tr></thead><tbody>
+      ${over.map(z => `<tr><td><b>${esc(z.sector)}</b></td><td class="num down">${z.pct.toFixed(1)}%</td><td class="num ${z.stocks > f.max_per_sector ? 'down' : ''}">${z.stocks}</td>
+        <td>${z.trim.length ? z.trim.map(t => `<b class="mono">${esc(t.symbol)}</b> ${vpill(t.verdict)}`).join(' &nbsp; ') : '<span class="muted">All holdings here still pass the rules. To rebalance, the smallest gainer is usually trimmed first.</span>'}</td></tr>`).join('')}</tbody></table></div>`
+      : `<p class="note">No sector is over ${f.limit_pct}% of your portfolio or over ${f.max_per_sector} stocks. Balanced by your limits.</p>`}
+    <p class="note">Limits: no sector above ${f.limit_pct}% of the value, and no more than ${f.max_per_sector} stocks per sector (your Investing limit). Change the stock limit on the Limits page.</p>
+    <h3 style="margin:16px 0 8px;font-size:14px">2 · Sector mood (all 250 stocks)</h3>
+    <div class="tablewrap"><table><thead><tr><th>Sector</th><th class="num">Your share</th><th>Mood</th><th class="num">Stocks in long uptrend</th><th class="num">6-month vs Nifty</th><th>Your exit signals here</th></tr></thead><tbody>
+      ${f.sectors.filter(z => z.mood).sort((a, b) => (b.uptrend_pct || 0) - (a.uptrend_pct || 0)).map(z => `<tr><td>${esc(z.sector)}</td><td class="num">${z.pct ? z.pct.toFixed(1) + '%' : '–'}</td><td>${moodPill(z.mood)}</td>
+        <td class="num">${z.uptrend_pct.toFixed(0)}%</td><td class="num ${cls(z.rs6)}">${z.rs6 != null ? sgn(z.rs6) : '–'}</td><td class="mono">${z.exits.length ? '<span class="down">' + z.exits.map(esc).join(', ') + '</span>' : '–'}</td></tr>`).join('')}</tbody></table></div>
+    <p class="note">For information only: in the Nov 2026 backtest, picking stocks by sector strength did <b>not</b> improve results, so mood alone is not a reason to buy or sell.</p>
+    <h3 style="margin:16px 0 8px;font-size:14px">3 · Rule buy signals in sectors you have room for</h3>
+    ${!f.regime ? '<p class="note">The market filter is off (Nifty below its 200-day average), so the Investing rules make no new buys right now.</p>'
+      : f.buys.length ? `<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Sector</th><th>Setup</th><th class="num">Price</th><th class="num">6-month vs Nifty</th></tr></thead><tbody>
+        ${f.buys.map(b => `<tr class="click" onclick="location.hash='#/predictor/${encodeURIComponent(b.symbol)}'"><td class="sym"><b>${esc(b.symbol)}</b><small>${esc(b.name)}</small></td><td>${esc(b.sector || '')}</td><td>${esc(b.setup || '')}</td><td class="num">${inr(b.price)}</td><td class="num ${cls(b.rs6)}">${b.rs6 != null ? sgn(b.rs6) : '–'}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="note">No Investing buy signals right now in sectors you have room for.</p>'}
+    <p class="note">These are the scanner's “Best odds” Investing signals (confirmed, top-half strength vs the Nifty, market filter on), leaving out stocks you hold and sectors you are already over the limit in. Click one for its full plan, stop and size. Rule results, not personal advice: about 38% of these signals made money in the backtest.</p></div>`;
+}
 async function holdingsPage() {
   const intro = 'Your real Zerodha holdings, read-only through Zerodha\'s free Kite MCP server. You sign in on Zerodha\'s own page; this portal never sees your password and cannot place orders.';
   const my = S.nav;
@@ -347,6 +371,7 @@ async function holdingsPage() {
         <td class="num">${r.from_high != null ? sgn(r.from_high) : '–'}</td>
         <td>${r.verdict ? `<span class="pill ${VERDICT[r.verdict][1]}">${VERDICT[r.verdict][0]}</span><small class="muted" style="display:block;max-width:230px">${esc(r.why)}${r.rule_stop ? ` · rule stop ${inr(r.rule_stop)} (${sgn(-r.to_stop)} away)` : ''}</small>` : '–'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No holdings in this Zerodha account.</div>'}</div>
     ${d.sectors.length ? `<div class="card"><h2>By sector</h2><div class="facts">${d.sectors.map(([k, v]) => `<div><span>${esc(k)}</span><b class="mono">${inr(v, 0)} · ${(v / tot * 100).toFixed(1)}%</b></div>`).join('')}</div></div>` : ''}
+    ${fitBlock(d.fit)}
     <p class="note"><b>What the rules say</b> applies the Investing rules (backtested Nov 2017–Nov 2026, ~11%/yr, 38% of trades won) to each holding: <b>Exit signal</b> = the rules would have sold (closed more than 3% below the 200-day average, or below the trailing stop); <b>Weak</b> = above the stop but the trend has turned down; <b>Hold</b> = uptrend intact; <b>Buy signal</b> = the entry rules fire now. “Rule stop” is the price where the rules would sell. These are mechanical rule results, not personal advice; the rules lose on most trades and still lost money in some years.</p>
     <p class="note">Trend uses the daily 50- and 200-day averages, the same as the Investing rules. This is a screening view of your own holdings, not advice to buy or sell. Prices from Zerodha; Zerodha does not share buy dates here, so the short- or long-term tax status is not shown.</p></div>`;
   bind();
