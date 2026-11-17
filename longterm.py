@@ -662,7 +662,9 @@ def analyze(sym, mode):
             ("Waiting: buy only on a daily close above %.2f with strong volume." % stt["trigger"]) if stt["trigger"] else "No entry trigger yet.")
     # plan
     entry = price if entry_ok or stt["status"] == "provisional" else (stt["trigger"] or price)
-    a = ind["atr"][i - 1 if stt["forming"] else i]
+    # same as the backtest: the stop uses the daily range (ATR) of the signal day
+    sig_i = ind["idx"].get(stt["setup_day"]) if stt["setup_day"] and stt["status"] in ("confirmed", "recent", "provisional") else None
+    a = ind["atr"][sig_i] if sig_i is not None and ind["atr"][sig_i] else ind["atr"][i - 1 if stt["forming"] else i]
     stop = stop_for(mode, entry, a)
     R = entry - stop
     target = target_for(mode, entry, stop)
@@ -737,9 +739,17 @@ def analyze(sym, mode):
         verdict, why = "wait", "Strong stock but no confirmed entry right now. Set an alert on the trigger price."
     else:
         verdict, why = "skip", "Too few checks pass for this to be a rule-based %s." % ("trade" if mode == "swing" else "investment")
-    start = max(0, n - 160)
-    bars = [{"d": ind["d"][k], "o": ind["o"][k], "h": ind["h"][k], "l": ind["l"][k], "c": ind["c"][k],
-             "s20": ind["sma20"][k], "s50": ind["sma50"][k], "s200": ind["sma200"][k]} for k in range(start, n)]
+    # Trading looks at ~8 months, Investing at ~13 months so the 52-week high is on screen
+    start = max(0, n - (160 if mode == "swing" else 270))
+    bars = [{"d": ind["d"][k], "o": ind["o"][k], "h": ind["h"][k], "l": ind["l"][k], "c": ind["c"][k], "v": ind["v"][k],
+             "va": ind["vavg50"][k], "s20": ind["sma20"][k], "s50": ind["sma50"][k], "s200": ind["sma200"][k]} for k in range(start, n)]
+    # the level a breakout must close above (40-day high for Trading, 52-week high for Investing)
+    lvl_i = i - 1 if stt["forming"] else i
+    level = ind["hh40"][lvl_i] if mode == "swing" else ind["hh252"][lvl_i]
+    plan["level"] = level
+    plan["level_label"] = "40-day high" if mode == "swing" else "52-week high"
+    plan["signal_day"] = stt["setup_day"] if sg else None
+    plan["vol_x"] = 1.5 if mode == "swing" else 1.3
     src = {"yahoo": "Yahoo Finance", "nse": "NSE end-of-day file", "bse": "BSE end-of-day file"}.get(h["source"], "Yahoo Finance")
     return {"mode": mode, "mode_label": LABEL[mode], "symbol": sym, "name": name, "price": price, "prev_close": prev,
             "change_pct": (price / prev - 1) * 100 if prev else None, "session": ind["d"][i], "live": stt["forming"],

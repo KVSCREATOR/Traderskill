@@ -1346,7 +1346,7 @@ def api(method, path, q, body):
     if path == "/api/kite/disconnect" and method == "POST":
         return kite.disconnect()
     if path == "/api/kite/holdings":
-        return kite.holdings()
+        return kite.holdings(mode)
     if path == "/api/kite/held":
         return kite.held()
     if path == "/api/kite/extras":

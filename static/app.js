@@ -61,7 +61,7 @@ function route() {
   const fn = VIEWS[name] || predictor;
   const on = name === 'congress' ? 'deals' : VIEWS[name] ? name : 'predictor';
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.view === on));
-  holdBar(name);
+  holdBar(name); refreshHeld(name);
   fn(arg ? decodeURIComponent(arg) : null);
 }
 addEventListener('hashchange', route);

@@ -264,7 +264,7 @@ function gttDialog(p) {
     <div class="grid">${num('gTrig', 'Trigger price (₹)', trig)}
       ${intra ? num('gStop', 'Stop (₹)', pl.stop) + num('gTgt', 'Target (₹)', pl.target)
         : num('gStop', 'Stop (₹) · blank = rule stop', null, 'auto: ' + (pl.stop ? pl.stop.toFixed(2) : 'ATR rule'))}</div>
-    <p class="note">Last price ${inr(p.price)}. A trigger above it buys a breakout; below it buys a dip. Shares are sized and risk-checked at the fill with your limits.</p>
+    <p class="note">Last price ${inr(p.price)}. <b>Trigger above the price</b> = breakout, filled the way the rules trade it: ${intra ? 'on the first completed 5-minute bar that closes at or above the trigger' : 'at the next day’s open after a daily close at or above the trigger, skipped if that open has run too far'}. <b>Trigger below the price</b> = dip buy, filled when the price touches it. Shares are sized and risk-checked at the fill with your limits.</p>
     <div class="row" style="justify-content:flex-end"><button class="btn" value="cancel">Cancel</button><button class="btn primary" id="gGo">Place GTT</button></div>`;
   d.showModal();
   $('#gGo').onclick = async e => {
@@ -331,9 +331,10 @@ async function holdingsPage() {
       try { const r = await api('/api/kite/connect', {}); location.href = r.url; }
       catch (e) { c.disabled = false; toast(e.message, 'bad'); }
     };
-    const x = $('#kOff'); if (x) x.onclick = async () => { await api('/api/kite/disconnect', {}); toast('Disconnected from Zerodha.'); holdingsPage(); };
+    const x = $('#kOff'); if (x) x.onclick = async () => { await api('/api/kite/disconnect', {}); dropHeld(); toast('Disconnected from Zerodha.'); holdingsPage(); };
     const r = $('#kRefresh'); if (r) r.onclick = () => holdingsPage();
   };
+  if (err || !d.connected || d.kite_login || d.error) dropHeld();
   if (err) {
     const expired = /expired|Not connected|401/i.test(err.message);
     view.innerHTML = head('My holdings', intro, connectBtn(expired ? 'Connect Zerodha again' : 'Connect Zerodha')) + failBox(err);
@@ -364,7 +365,7 @@ async function holdingsPage() {
     ${d.warnings.length ? `<div class="banner">${d.warnings.map(esc).join(' · ')}</div>` : ''}
     <div class="card"><h2>Holdings · <span id="hCount">${d.rows.length}</span></h2>${d.rows.length ? `<div class="row tablebar"><input id="hFind" type="search" placeholder="Search stock or sector" style="width:200px">
       <div class="chips" style="margin:0">${[['all', 'All'], ['exit', 'Exit signal'], ['weak', 'Weak'], ['hold', 'Hold'], ['buy', 'Buy signal'], ['up', 'In profit'], ['down', 'In loss'], ['cap', 'Over cap']].map(([k, l]) => `<button class="chip ${k === 'all' ? 'on' : ''}" data-hf="${k}">${l}</button>`).join('')}</div>
-      <button class="btn sm" data-sortreset>Default order</button><span class="note" style="margin:0">Click a column heading to sort.</span></div><div class="tablewrap"><table><thead><tr><th>Stock</th><th class="num">Qty</th><th class="num">Avg cost</th><th class="num">Price</th><th class="num">Today</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Profit / loss</th><th>Trend</th><th class="num">From 52w high</th><th>What the rules say</th></tr></thead><tbody>
+      <button class="btn sm" data-sortreset>Default order</button><span class="note" style="margin:0">Click a column heading to sort.</span></div><div class="tablewrap"><table><thead><tr><th>Stock</th><th class="num">Qty</th><th class="num">Avg cost</th><th class="num">Price</th><th class="num">Today</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Profit / loss</th><th>Trend</th><th class="num">From 52w high</th><th>What the ${esc(d.rules_label)} rules say</th></tr></thead><tbody>
       ${d.rows.map(r => `<tr data-v="${esc(r.verdict || '')}" data-pl="${r.pnl >= 0 ? 'up' : 'down'}" data-cap="${r.flags.some(f => f.includes('cap')) ? 1 : 0}" data-txt="${esc((r.symbol + ' ' + (r.sector || '')).toLowerCase())}"><td class="sym"><a href="#/predictor/${encodeURIComponent(r.symbol)}"><b>${esc(r.symbol)}</b></a><small>${esc(r.sector || r.exchange || '')}${r.flags.length ? ' · <span class="down">' + r.flags.map(esc).join('; ') + '</span>' : ''}</small></td>
         <td class="num">${r.qty}</td><td class="num">${r.avg != null ? inr(r.avg) : '–'}</td><td class="num">${r.ltp != null ? inr(r.ltp) : '–'}</td>
         <td class="num ${cls(r.day_pct)}">${r.day_pct != null ? sgn(r.day_pct) : '–'}</td><td class="num">${inr(r.value, 0)}</td><td class="num">${(r.value / tot * 100).toFixed(1)}%</td>
@@ -375,7 +376,7 @@ async function holdingsPage() {
     ${d.sectors.length ? `<div class="card"><h2>By sector</h2><div class="facts">${d.sectors.map(([k, v]) => `<div><span>${esc(k)}</span><b class="mono">${inr(v, 0)} · ${(v / tot * 100).toFixed(1)}%</b></div>`).join('')}</div></div>` : ''}
     <div id="kExtras"><div class="card"><div class="empty">Loading positions, mutual funds and funds…</div></div></div>
     ${fitBlock(d.fit)}
-    <p class="note"><b>What the rules say</b> applies the Investing rules (backtested Nov 2017–Nov 2026, ~11%/yr, 38% of trades won) to each holding: <b>Exit signal</b> = the rules would have sold (closed more than 3% below the 200-day average, or below the trailing stop); <b>Weak</b> = above the stop but the trend has turned down; <b>Hold</b> = uptrend intact; <b>Buy signal</b> = the entry rules fire now. “Rule stop” is the price where the rules would sell. These are mechanical rule results, not personal advice; the rules lose on most trades and still lost money in some years.</p>
+    <p class="note"><b>What the rules say</b> applies the ${esc(d.rules_label)} rules${S.mode === 'intraday' ? ' (Scalping is same-day only, so long-held stocks are judged by the Investing rules; switch to Trading or Investing at the top right)' : ''} to each holding. ${d.rules_mode === 'swing' ? 'Trading rules: backtested ~11.5%/yr, 39% of trades won; <b>Exit signal</b> = below the trailing stop (60-day high close minus 3× the daily range);' : 'Investing rules: backtested ~11%/yr, 38% of trades won; <b>Exit signal</b> = closed more than 3% below the 200-day average, or below the trailing stop (60-day high close minus 5× the daily range);'} <b>Weak</b> = above the stop but the trend has turned down; <b>Hold</b> = uptrend intact; <b>Buy signal</b> = the entry rules fire now. “Rule stop” is the price where the rules would sell. These are mechanical rule results, not personal advice; the rules lose on most trades and still lost money in some years.</p>
     <p class="note">Trend uses the daily 50- and 200-day averages, the same as the Investing rules. This is a screening view of your own holdings, not advice to buy or sell. Prices from Zerodha; Zerodha does not share buy dates here, so the short- or long-term tax status is not shown.</p></div>`;
   S.held = { connected: true, symbols: d.rows.map(r => r.symbol) }; holdBar('holdings');
   const ka = $('#kAlerts'); if (ka) ka.onclick = async () => {
@@ -400,7 +401,15 @@ async function holdingsPage() {
 
 
 /* ---------------------------------------------------------------- Zerodha holdings shown around the portal */
-async function loadHeld() { try { S.held = await api('/api/kite/held'); } catch (e) { S.held = null; } }
+async function loadHeld() { try { S.held = await api('/api/kite/held'); } catch (e) { S.held = null; } S.heldAt = Date.now(); }
+// Zerodha not reachable (disconnected, login expired, server down): hide every holdings extra
+function dropHeld() { S.held = null; S.heldAt = Date.now(); const b = $('#holdbar'); if (b) b.hidden = true; }
+// re-check on page changes (at most every 60 s); hide the bar at once if access is lost
+async function refreshHeld(name) {
+  if (Date.now() - (S.heldAt || 0) < 60000) return;
+  const had = heldSyms().length; await loadHeld();
+  if (had !== heldSyms().length) holdBar(name);   // lost access: hide; regained: show
+}
 function heldSyms() { return S.held && S.held.connected ? S.held.symbols : []; }
 const PICK_VIEWS = { predictor: 'predictor', entry: 'entry', exit: 'exit', odds: 'odds', budget: 'budget', risk: 'risk', news: 'news', earnings: 'earnings' };
 function holdBar(name) {

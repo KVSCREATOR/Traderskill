@@ -111,6 +111,7 @@ def callback(q):
         k["connected_at"] = S.market_clock()["ist"]
         S.save_state(st)
     _session.update(id=None, token=None)
+    _held.update(at=0, data=None)
     return _page("Zerodha connected (read-only). Loading your holdings…", True)
 
 
@@ -126,6 +127,7 @@ def disconnect():
             _kite(st).pop(key, None)
         S.save_state(st)
     _session.update(id=None, token=None)
+    _held.update(at=0, data=None)
     return {"ok": True}
 
 
@@ -144,6 +146,7 @@ def _rpc(token, method, params=None, rid=1):
     if sid:
         _session.update(id=sid, token=token)
     if code == 401:
+        _held.update(at=time.time(), data={"connected": False, "symbols": []})
         raise S.ApiError(401, "Zerodha login has expired. Click Connect Zerodha.")
     if code >= 300:
         raise S.ApiError(502, "Kite MCP error %d: %s" % (code, body[:200]))
@@ -265,7 +268,7 @@ def _sector_fit(rows, total, cfg):
 
 
 # ----------------------------------------------------------------- holdings view
-def _verdict(ind, mkt):
+def _verdict(ind, mkt, mode="invest"):
     """What the Investing rules (backtested Nov 2017 - Nov 2026) say about a stock you already hold.
 
     Exit signal: the rules' own exit fired (close more than 3% below the 200-day average, or
@@ -276,17 +279,17 @@ def _verdict(ind, mkt):
     """
     i = len(ind["c"]) - 1
     c, s50, s200, atr = ind["c"][i], ind["sma50"][i], ind["sma200"][i], ind["atr"][i]
-    r = L.RULES["invest"]
+    r = L.RULES[mode]
     trail = max(ind["c"][max(0, i - 59):i + 1]) - r["trail_atr"] * atr if atr else None
-    floor200 = s200 * 0.97 if s200 else None
+    floor200 = s200 * 0.97 if s200 and mode == "invest" else None   # the 200-day exit is an Investing rule only
     stop = max(x for x in (trail, floor200) if x is not None) if (trail or floor200) else None
     s200_old = ind["sma200"][i - 20] if i >= 20 else None
     out = {"rule_stop": stop, "to_stop": (c / stop - 1) * 100 if stop else None}
     if floor200 and c < floor200:
         return dict(out, verdict="exit", why="Closed more than 3% below the 200-day average")
     if trail and c < trail:
-        return dict(out, verdict="exit", why="Below the trailing stop (60-day high close minus 5 ATR)")
-    sig = L.state_at("invest", ind, mkt)
+        return dict(out, verdict="exit", why="Below the trailing stop (60-day high close minus %g ATR)" % r["trail_atr"])
+    sig = L.state_at(mode, ind, mkt)
     if sig["status"] in ("confirmed", "recent", "provisional"):
         return dict(out, verdict="buy", why="Entry rule active: " + (sig["setup"][1] if sig["setup"] else ""))
     if (s50 and c < s50) or (s200 and s200_old and s200 < s200_old):
@@ -307,7 +310,7 @@ def _login_needed(r):
     return m.group(0).rstrip(").,") if m else (t if "login" in t.lower() else None)
 
 
-def holdings():
+def holdings(mode="invest"):
     st = S.load_state()
     k = _kite(st)
     if not k.get("token"):
@@ -324,7 +327,8 @@ def holdings():
         rows = rows.get("data") or rows.get("holdings") or []
     if not isinstance(rows, list):
         return {"connected": True, "error": (r.get("error") or r.get("text") or "Unexpected answer")[:300]}
-    cfg = L.settings_for("invest", st)
+    rmode = mode if mode in ("swing", "invest") else "invest"   # Scalping is same-day: judge holdings by Investing rules
+    cfg = L.settings_for(rmode, st)
     mkt = L.market()
     out = []
     for h in rows:
@@ -347,7 +351,7 @@ def holdings():
                             else "Below 200-day" if s200 else "–")
             row["from_high"] = (c / hh - 1) * 100
             row["vs_50"] = (c / s50 - 1) * 100 if s50 else None
-            row.update(_verdict(ind, mkt))
+            row.update(_verdict(ind, mkt, rmode))
         except Exception:  # noqa: BLE001
             row["trend"] = "–"
         if value > cfg["max_per_stock"]:
@@ -365,7 +369,7 @@ def holdings():
         fit = _sector_fit(out, tv, cfg)
     except Exception as e:  # noqa: BLE001
         fit = {"error": str(e)[:150]}
-    return {"connected": True, "fit": fit, "rows": out, "total_value": tv, "total_cost": tc, "pnl": tv - tc,
+    return {"connected": True, "rules_mode": rmode, "rules_label": L.LABEL[rmode], "fit": fit, "rows": out, "total_value": tv, "total_cost": tc, "pnl": tv - tc,
             "pnl_pct": (tv / tc - 1) * 100 if tc else None, "day_pnl": sum(x["day_pnl"] or 0 for x in out),
             "sectors": sorted(([k_, v] for k_, v in secs.items()), key=lambda z: -z[1]), "warnings": warn,
             "connected_at": k.get("connected_at"), "clock": S.market_clock()}
@@ -377,8 +381,10 @@ _held = {"at": 0, "data": None}
 
 def held():
     """Symbols you hold (cached 5 min). Never raises: other pages just hide the extras."""
-    if _held["data"] and time.time() - _held["at"] < 300:
-        return _held["data"]
+    d = _held["data"]
+    # re-check every 2 min while connected, every 30 s while not, so an expired login hides the extras quickly
+    if d and time.time() - _held["at"] < (120 if d["connected"] else 30):
+        return d
     out = {"connected": False, "symbols": []}
     try:
         if _kite(S.load_state()).get("token"):

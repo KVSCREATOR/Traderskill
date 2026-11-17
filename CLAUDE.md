@@ -117,5 +117,13 @@ Tools are grouped: holdings = tool `portfolio` with mode=holdings. READ_TOOLS al
 `portfolio` with modes holdings/positions/profile/margins; `orders`, `gtt`, `alerts` etc. are
 refused in code. Zerodha's login expires about daily → "Connect Zerodha" again.
 
+Rule-consistency audit (17 Nov 2026): live Trading/Investing stop now uses the signal day's ATR
+(as the backtest); GTT breakouts fill like the rules (Trading/Investing: next open after a daily
+close above the trigger, skipped if the open runs > max_ext; Scalping: on a completed 5-min close
+above); dip GTTs (trigger below price) fill on touch. Daily chart: volume panel (solid bars pass
+the rule's volume test), 20-day avg (Trading), 40-day / 52-week breakout line, signal-day marker;
+Investing shows 270 sessions. My holdings verdict follows the selected mode (Scalping → Investing).
+Holdings extras (quick-pick bar, Scanner chip, News switch) hide whenever Zerodha is not reachable.
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).

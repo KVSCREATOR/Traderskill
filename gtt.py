@@ -101,15 +101,32 @@ def _check_long(st, o, clk):
         o["status"], o["note"] = "expired", "Not triggered within a year"
         return
     ind = L.indicators(L.history(o["symbol"])["bars"])
-    for j in range(1, len(ind["d"])):
-        if ind["d"][j] <= o["created_date"]:
+    n = len(ind["d"])
+    for k in range(1, n):
+        if ind["d"][k] <= o["created_date"]:
             continue
-        fill = _hit(o, ind["o"][j], ind["h"][j], ind["l"][j])
-        if fill is None:
-            continue
+        if o["direction"] == "above":
+            # the rules' breakout: a DAILY CLOSE at or above the trigger, bought at the NEXT open
+            # (exactly how the backtest trades), and not if that open has run too far
+            if ind["c"][k] < o["trigger"] or (clk["open"] and ind["d"][k] == clk["date"]):
+                continue
+            if k + 1 >= n:
+                o["note"] = "Closed above %.2f on %s; buys at the next open" % (o["trigger"], ind["d"][k])
+                return
+            j, fill, atr_i = k + 1, ind["o"][k + 1], k
+            if fill > ind["c"][k] * (1 + L.RULES[mode]["max_ext"]):
+                o.update(status="rejected", triggered_date=ind["d"][j],
+                         note="Opened %.2f on %s, more than %.0f%% above the signal close: the rules do not chase" % (
+                             fill, ind["d"][j], L.RULES[mode]["max_ext"] * 100))
+                return
+        else:
+            fill = _hit(o, ind["o"][k], ind["h"][k], ind["l"][k])   # dip buy: a price order, fills on touch
+            if fill is None:
+                continue
+            j, atr_i = k, k - 1
         day = ind["d"][j]
         cfg = L.settings_for(mode, st)
-        stop = o["stop"] if o["stop"] is not None else L.stop_for(mode, fill, ind["atr"][j - 1])
+        stop = o["stop"] if o["stop"] is not None else L.stop_for(mode, fill, ind["atr"][atr_i])
         if fill <= stop:
             o.update(status="rejected", note="Opened at or below the stop on %s" % day, triggered_date=day)
             return
@@ -149,9 +166,15 @@ def _check_intraday(st, o, clk):
             o["session"] = day
         if day != o["session"] or m < a or m > b:
             continue
-        fill = _hit(o, bar["o"], bar["h"], bar["l"])
-        if fill is None:
-            continue
+        if o["direction"] == "above":
+            # the opening-range rule: a completed 5-minute bar must CLOSE at or above the trigger
+            if bar["c"] < o["trigger"] or bar["t"] + 300 > time.time():
+                continue
+            fill = bar["c"]
+        else:
+            fill = _hit(o, bar["o"], bar["h"], bar["l"])
+            if fill is None:
+                continue
         if fill <= o["stop"] or fill >= o["target"]:
             o.update(status="rejected", note="Gapped past the stop or target at %s" % S.hm(m), triggered_date=day)
             return

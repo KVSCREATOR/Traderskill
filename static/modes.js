@@ -42,18 +42,33 @@ function modeChooser() {
 /* ---------------------------------------------------------------- daily chart */
 function dailyChart(p) {
   const bars = p.daily_bars || []; if (!bars.length) return '<div class="empty">No daily bars.</div>';
-  const W = 960, H = 300, L = 8, R = 96, T = 12, B = 24, pl = p.plan, n = bars.length;
+  const swing = p.mode === 'swing', pl = p.plan, n = bars.length;
+  const W = 960, R = 104, L = 8, T = 12, PH = 300, GAP = 8, VH = 70, B = 22, H = T + PH + GAP + VH + B;
   const lines = [['Entry', pl.entry, 'var(--accent)'], ['Stop', pl.stop, 'var(--fail)']];
   if (pl.target) lines.unshift(['Target', pl.target, 'var(--pass)']);
+  if (pl.level && Math.abs(pl.level - pl.entry) / pl.entry > 0.004) lines.push([pl.level_label === '40-day high' ? '40d high' : '52w high', pl.level, 'var(--warn)']);
   const vals = bars.flatMap(b => [b.h, b.l]).concat(lines.map(l => l[1]));
   let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.05 || 1; lo -= pad; hi += pad;
-  const x = i => L + (i + 0.5) / n * (W - L - R), y = v => T + (hi - v) / (hi - lo) * (H - T - B), bw = (W - L - R) / n * 0.62;
+  const x = i => L + (i + 0.5) / n * (W - L - R), y = v => T + (hi - v) / (hi - lo) * PH, bw = Math.max(1.5, (W - L - R) / n * 0.62);
+  const vTop = T + PH + GAP, vMax = Math.max(...bars.map(b => b.v || 0), 1), vy = v => vTop + VH - (v / vMax) * VH;
   let s = '', lastM = '';
   bars.forEach((b, i) => {
     const m = b.d.slice(0, 7);
-    if (m !== lastM) { lastM = m; s += `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H - B}" stroke="var(--border)"/><text x="${x(i)}" y="${H - 7}" text-anchor="middle">${new Date(b.d + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short' })}</text>`; }
+    if (m !== lastM) { lastM = m; s += `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${vTop + VH}" stroke="var(--border)"/><text x="${x(i)}" y="${H - 6}" text-anchor="middle">${new Date(b.d + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short' })}${b.d.slice(5, 7) === '01' ? ' ' + b.d.slice(2, 4) : ''}</text>`; }
   });
-  for (const [k, col, dash] of [['s50', 'var(--warn)', ''], ['s200', 'var(--muted)', '5 4']]) {
+  s += `<line x1="${L}" x2="${W - R}" y1="${vTop - GAP / 2}" y2="${vTop - GAP / 2}" stroke="var(--border)"/><text x="${W - R + 6}" y="${vTop + 10}">Volume</text>`;
+  // volume: bars that clear the rule's volume test are drawn solid
+  bars.forEach((b, i) => {
+    if (!b.v) return;
+    const spike = b.va && b.v >= pl.vol_x * b.va, c = b.c >= b.o ? 'var(--pass)' : 'var(--fail)';
+    s += `<rect x="${x(i) - bw / 2}" y="${vy(b.v)}" width="${bw}" height="${vTop + VH - vy(b.v)}" fill="${c}" opacity="${spike ? 0.95 : 0.3}"/>`;
+  });
+  const va = bars.map((b, i) => b.va ? `${x(i).toFixed(1)},${vy(b.va).toFixed(1)}` : null).filter(Boolean);
+  if (va.length > 1) s += `<polyline points="${va.join(' ')}" fill="none" stroke="var(--muted)" stroke-width="1.2"/>`;
+  // moving averages (20-day only matters for Trading pullbacks)
+  const avgs = [['s50', 'var(--warn)', ''], ['s200', 'var(--muted)', '5 4']];
+  if (swing) avgs.unshift(['s20', 'var(--accent)', '2 3']);
+  for (const [k, col, dash] of avgs) {
     const pts = bars.map((b, i) => b[k] != null ? `${x(i).toFixed(1)},${y(b[k]).toFixed(1)}` : null).filter(Boolean);
     if (pts.length > 1) s += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="1.6" stroke-dasharray="${dash}"/>`;
   }
@@ -61,12 +76,17 @@ function dailyChart(p) {
     const c = b.c >= b.o ? 'var(--pass)' : 'var(--fail)';
     s += `<line x1="${x(i)}" x2="${x(i)}" y1="${y(b.h)}" y2="${y(b.l)}" stroke="${c}"/><rect x="${x(i) - bw / 2}" y="${y(Math.max(b.o, b.c))}" width="${bw}" height="${Math.max(1, Math.abs(y(b.o) - y(b.c)))}" fill="${c}"/>`;
   });
-  s += candleHits(bars, i => x(i), (W - L - R) / n, T, H - B, b => fdate(b.d));
+  // signal day marker
+  const si = pl.signal_day ? bars.findIndex(b => b.d === pl.signal_day) : -1;
+  if (si >= 0) { const sx = x(si), sy = y(bars[si].l) + 12; s += `<path d="M${sx} ${sy - 7} l6 10 h-12 z" fill="var(--accent)"><title>Signal: ${esc(pl.setup || '')} on ${fdate(pl.signal_day)}</title></path>`; }
+  s += candleHits(bars, i => x(i), (W - L - R) / n, T, T + PH, b => fdate(b.d) + (b.va && b.v ? ` · vol ${(b.v / b.va).toFixed(1)}× avg` : ''));
   const lab = lines.map(l => ({ l, yy: y(l[1]) })).sort((a, b) => a.yy - b.yy);
   for (let i = 1; i < lab.length; i++) if (lab[i].yy - lab[i - 1].yy < 13) lab[i].yy = lab[i - 1].yy + 13;
-  for (const { l, yy } of lab) s += `<line x1="${L}" x2="${W - R}" y1="${y(l[1])}" y2="${y(l[1])}" stroke="${l[2]}" stroke-width="1.2" stroke-dasharray="6 4"/><text x="${W - R + 6}" y="${yy + 3.5}" style="fill:${l[2]}">${l[0]} ${l[1].toFixed(1)}</text>`;
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily candles with 50- and 200-day averages, entry, stop and target">${s}</svg>
-    <div class="legend"><span><i style="background:var(--warn)"></i>50-day average</span><span><i style="background:var(--muted)"></i>200-day average</span></div>`;
+  for (const { l, yy } of lab) s += `<line x1="${L}" x2="${W - R}" y1="${y(l[1])}" y2="${y(l[1])}" stroke="${l[2]}" stroke-width="1.2" stroke-dasharray="${l[0].includes('high') ? '2 3' : '6 4'}"/><text x="${W - R + 6}" y="${yy + 3.5}" style="fill:${l[2]}">${l[0]} ${l[1].toFixed(1)}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily candles with averages, rule levels and volume">${s}</svg>
+    <div class="legend">${swing ? '<span><i style="background:var(--accent)"></i>20-day average</span>' : ''}<span><i style="background:var(--warn)"></i>50-day average</span><span><i style="background:var(--muted)"></i>200-day average</span>
+    <span><i style="background:var(--warn);height:2px"></i>${esc(pl.level_label || 'breakout level')} (buy on a close above)</span>${si >= 0 ? '<span style="color:var(--accent)">▲ signal day</span>' : ''}
+    <span>Solid volume bars = at least ${pl.vol_x}× the 50-day average (the rule's volume test)</span></div>`;
 }
 
 /* ---------------------------------------------------------------- predictor, Trading / Investing */
@@ -123,7 +143,7 @@ function renderLong(p) {
           <span class="note">${canTrade ? 'Risk check: PASS' : pl.trigger ? 'No confirmed entry yet.' : 'Locked until the risk check passes.'}</span></div>
         ${pl.target ? `<p class="note" style="margin-top:8px">Profit shown after costs; about ${inr(sz.reward_after_tax, 0)} after 20% short-term capital gains tax.</p>` : ''}
       </div></div>
-    <div class="card chart"><h2>Daily chart · last ${p.daily_bars.length} sessions</h2>${dailyChart(p)}</div>
+    <div class="card chart"><h2>Daily chart · last ${p.daily_bars.length} sessions · ${p.mode === 'swing' ? 'Trading' : 'Investing'} rules</h2>${dailyChart(p)}</div>
     <div class="card"><h2>Why this score</h2><div class="checks">${p.checks.map(checkRow).join('')}</div></div>
     <div class="grid2">${stockBacktestCard(p)}
       <div class="card"><h2>Trend and strength</h2>
