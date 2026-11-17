@@ -103,7 +103,7 @@ a.skill:hover { border-color: var(--accent); text-decoration: none; }
 .quote .px { font: 600 26px var(--mono); letter-spacing: -.02em; }
 .kv { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 14px 0; }
 .kv div { background: var(--surface); padding: 10px 12px; min-width: 0; }
-.kv span { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.kv > div > span { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .kv b { font: 600 15px var(--mono); white-space: nowrap; }
 
 /* checklist */
@@ -210,3 +210,16 @@ dialog .facts { grid-template-columns: 1fr; margin: 14px 0; }
 .years div { background: var(--surface-2); border-radius: 8px; padding: 7px 9px; display: flex; flex-direction: column; }
 .years span { font-size: 11px; color: var(--muted); } .years b { font: 600 14px var(--mono); }
 @media (max-width: 900px) { .clock { flex-wrap: wrap; } .seg { order: -1; width: 100%; } .seg button { flex: 1; } }
+
+/* earnings: profit / loss colours and bar charts */
+.kv div.tile-up { background: var(--pass-soft); } .kv div.tile-down { background: var(--fail-soft); }
+.kv div.tile-up b { color: var(--pass); } .kv div.tile-down b { color: var(--fail); }
+.kv b .arrow { font-size: 12px; margin-right: 4px; }
+td.cell-up { color: var(--pass); } td.cell-down { color: var(--fail); }
+td small.chg { display: block; font-size: 11px; opacity: .85; }
+.echarts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.echarts .card h2 { margin: 0 0 8px; font-size: 14px; }
+.echarts svg { width: 100%; height: auto; display: block; }
+.echarts svg text { font: 11px var(--mono); fill: var(--muted); }
+.echarts .legend { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.echarts .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: -1px; }

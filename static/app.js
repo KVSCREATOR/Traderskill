@@ -409,13 +409,50 @@ async function earnings(sym) {
   const c = d.compare, g = (v, unit = '%') => v == null ? '–' : `<span class="${cls(v)}">${v >= 0 ? '+' : ''}${v.toFixed(1)}${unit}</span>`;
   function pick() { return `<form class="row" id="epick" style="margin-top:14px"><input id="esym" placeholder="Symbol" list="symbols" style="text-transform:uppercase;width:170px"><button class="btn">Load</button></form>`; }
   function bind() { $('#epick').onsubmit = e => { e.preventDefault(); const v = $('#esym').value.trim().toUpperCase(); if (v) location.hash = '#/earnings/' + encodeURIComponent(v); }; }
+  // green = up / profit, red = down / loss
+  const tile = (label, v, unit = '%') => `<div class="${v == null ? '' : v >= 0 ? 'tile-up' : 'tile-down'}"><span>${label}</span><b>${v == null ? '–'
+    : `<span class="arrow">${v >= 0 ? '▲' : '▼'}</span>${v >= 0 ? '+' : ''}${v.toFixed(1)}${unit}`}</b></div>`;
+  const qs = d.quarters;   // oldest first
+  const cell = (q, i, key, fmt, isMoney) => {
+    const v = q[key], p = i > 0 ? qs[i - 1][key] : null;
+    if (v == null) return '<td class="num">–</td>';
+    let c = '', chg = '';
+    if (isMoney && v < 0) c = 'cell-down';                                  // a loss is always red
+    if (p != null) {
+      const diff = key === 'net_margin' ? v - p : (p !== 0 ? (v - p) / Math.abs(p) * 100 : null);
+      if (diff != null) {
+        if (!c) c = diff >= 0 ? 'cell-up' : 'cell-down';
+        chg = `<small class="chg">${diff >= 0 ? '▲ +' : '▼ '}${diff.toFixed(1)}${key === 'net_margin' ? ' pts' : '%'}</small>`;
+      }
+    }
+    return `<td class="num ${c}">${fmt(v)}${chg}</td>`;
+  };
+  const pctf = v => v.toFixed(1) + '%', epsf = v => '₹' + v.toFixed(2);
+  const bars = (title, key, fmt) => {
+    const pts = qs.map((q, i) => ({ d: q.date, v: q[key], p: i > 0 ? qs[i - 1][key] : null })).filter(x => x.v != null);
+    if (pts.length < 2) return '';
+    const W = 420, H = 190, L = 8, R = 8, T = 18, B = 26;
+    const hi = Math.max(0, ...pts.map(x => x.v)), lo = Math.min(0, ...pts.map(x => x.v)), span = (hi - lo) || 1;
+    const y = v => T + (hi - v) / span * (H - T - B), bw = (W - L - R) / pts.length;
+    let s = `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--border)"/>`;
+    pts.forEach((x, i) => {
+      const col = x.v < 0 || (x.p != null && x.v < x.p) ? 'var(--fail)' : x.p == null ? 'var(--na)' : 'var(--pass)';
+      const x0 = L + i * bw + bw * 0.18, w = bw * 0.64, top = Math.min(y(x.v), y(0)), h = Math.max(2, Math.abs(y(x.v) - y(0)));
+      s += `<rect x="${x0}" y="${top}" width="${w}" height="${h}" rx="3" fill="${col}"><title>${x.d}: ${fmt(x.v)}</title></rect>`;
+      s += `<text x="${x0 + w / 2}" y="${x.v >= 0 ? top - 4 : top + h + 12}" text-anchor="middle">${fmt(x.v).replace(' cr', '')}</text>`;
+      s += `<text x="${x0 + w / 2}" y="${H - 8}" text-anchor="middle">${x.d.slice(2, 7)}</text>`;
+    });
+    return `<div class="card"><h2>${title}</h2><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${title} by quarter">${s}</svg></div>`;
+  };
   view.innerHTML = head(`Earnings <span class="muted" style="font-weight:400;font-size:15px">${esc(sym)}</span>`, 'Reported numbers only. No stock call.', pick()) +
     `<div class="stack">${c ? `<div class="kv" style="margin:0">
-      <div><span>Revenue ${esc(c.basis)}</span><b>${g(c.revenue)}</b></div><div><span>Net profit ${esc(c.basis)}</span><b>${g(c.net_income)}</b></div>
-      <div><span>EPS ${esc(c.basis)}</span><b>${g(c.eps)}</b></div><div><span>Net margin change</span><b>${g(c.margin_delta, ' pts')}</b></div></div>` : ''}
+      ${tile('Revenue ' + esc(c.basis), c.revenue)}${tile('Net profit ' + esc(c.basis), c.net_income)}
+      ${tile('EPS ' + esc(c.basis), c.eps)}${tile('Net margin change', c.margin_delta, ' pts')}</div>` : ''}
+    <div class="echarts">${bars('Revenue', 'revenue', crore)}${bars('Net profit', 'net_income', crore)}${bars('Net margin', 'net_margin', pctf)}${bars('Diluted EPS', 'eps', epsf)}</div>
+    <p class="legend muted" style="margin:0;font-size:12px"><span style="color:var(--pass)">■</span> up on the previous quarter &nbsp; <span style="color:var(--fail)">■</span> down, or a loss &nbsp; <span style="color:var(--na)">■</span> first quarter shown</p>
     <div class="card"><div class="tablewrap" style="margin-top:-18px"><table><thead><tr><th>Quarter ending</th><th class="num">Revenue</th><th class="num">Operating profit</th><th class="num">Net profit</th><th class="num">Net margin</th><th class="num">Diluted EPS</th></tr></thead>
-    <tbody>${d.quarters.slice().reverse().map(q => `<tr><td class="mono">${q.date}</td><td class="num">${crore(q.revenue)}</td><td class="num">${crore(q.op_income)}</td><td class="num">${crore(q.net_income)}</td>
-      <td class="num">${q.net_margin != null ? q.net_margin.toFixed(1) + '%' : '–'}</td><td class="num">${q.eps != null ? '₹' + q.eps.toFixed(2) : '–'}</td></tr>`).join('')}</tbody></table></div></div>
+    <tbody>${qs.map((q, i) => `<tr><td class="mono">${q.date}</td>${cell(q, i, 'revenue', crore, true)}${cell(q, i, 'op_income', crore, true)}${cell(q, i, 'net_income', crore, true)}
+      ${cell(q, i, 'net_margin', pctf, true)}${cell(q, i, 'eps', epsf, true)}</tr>`).reverse().join('')}</tbody></table></div></div>
     <p class="note">Source: ${esc(d.source)}. Comparison is ${c ? esc(c.basis) + ' against the quarter ending ' + c.vs : 'unavailable'}; year-on-year is used when the year-ago quarter is published, otherwise the nearest earlier quarter.</p></div>`;
   bind();
 }
