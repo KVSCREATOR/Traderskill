@@ -293,6 +293,7 @@ async function gttCard(box) {
 }
 
 /* ---------------------------------------------------------------- My holdings (Zerodha, read-only via the free Kite MCP server) */
+const VERDICT = { exit: ['Exit signal', 'fail'], weak: ['Weak', 'warn'], hold: ['Hold', 'pass'], buy: ['Buy signal', 'pass'] };
 async function holdingsPage() {
   const intro = 'Your real Zerodha holdings, read-only through Zerodha\'s free Kite MCP server. You sign in on Zerodha\'s own page; this portal never sees your password and cannot place orders.';
   const my = S.nav;
@@ -337,14 +338,16 @@ async function holdingsPage() {
       ${tile('Total profit / loss', d.pnl, `${money(d.pnl)} (${d.pnl_pct != null ? sgn(d.pnl_pct) : '–'})`)}
       ${tile('Today', d.day_pnl, money(d.day_pnl))}</div>
     ${d.warnings.length ? `<div class="banner">${d.warnings.map(esc).join(' · ')}</div>` : ''}
-    <div class="card"><h2>Holdings · ${d.rows.length}</h2>${d.rows.length ? `<div class="tablewrap"><table><thead><tr><th>Stock</th><th class="num">Qty</th><th class="num">Avg cost</th><th class="num">Price</th><th class="num">Today</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Profit / loss</th><th>Trend</th><th class="num">From 52w high</th></tr></thead><tbody>
+    <div class="card"><h2>Holdings · ${d.rows.length}</h2>${d.rows.length ? `<div class="tablewrap"><table><thead><tr><th>Stock</th><th class="num">Qty</th><th class="num">Avg cost</th><th class="num">Price</th><th class="num">Today</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Profit / loss</th><th>Trend</th><th class="num">From 52w high</th><th>What the rules say</th></tr></thead><tbody>
       ${d.rows.map(r => `<tr><td class="sym"><a href="#/predictor/${encodeURIComponent(r.symbol)}"><b>${esc(r.symbol)}</b></a><small>${esc(r.sector || r.exchange || '')}${r.flags.length ? ' · <span class="down">' + r.flags.map(esc).join('; ') + '</span>' : ''}</small></td>
         <td class="num">${r.qty}</td><td class="num">${r.avg != null ? inr(r.avg) : '–'}</td><td class="num">${r.ltp != null ? inr(r.ltp) : '–'}</td>
         <td class="num ${cls(r.day_pct)}">${r.day_pct != null ? sgn(r.day_pct) : '–'}</td><td class="num">${inr(r.value, 0)}</td><td class="num">${(r.value / tot * 100).toFixed(1)}%</td>
         <td class="num ${cls(r.pnl)}">${money(r.pnl)}<small class="chg" style="display:block">${r.pnl_pct != null ? sgn(r.pnl_pct) : ''}</small></td>
         <td><span class="pill ${r.trend === 'Strong up' ? 'pass' : r.trend === 'Below 200-day' ? 'fail' : ''}">${esc(r.trend)}</span></td>
-        <td class="num">${r.from_high != null ? sgn(r.from_high) : '–'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No holdings in this Zerodha account.</div>'}</div>
+        <td class="num">${r.from_high != null ? sgn(r.from_high) : '–'}</td>
+        <td>${r.verdict ? `<span class="pill ${VERDICT[r.verdict][1]}">${VERDICT[r.verdict][0]}</span><small class="muted" style="display:block;max-width:230px">${esc(r.why)}${r.rule_stop ? ` · rule stop ${inr(r.rule_stop)} (${sgn(-r.to_stop)} away)` : ''}</small>` : '–'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No holdings in this Zerodha account.</div>'}</div>
     ${d.sectors.length ? `<div class="card"><h2>By sector</h2><div class="facts">${d.sectors.map(([k, v]) => `<div><span>${esc(k)}</span><b class="mono">${inr(v, 0)} · ${(v / tot * 100).toFixed(1)}%</b></div>`).join('')}</div></div>` : ''}
+    <p class="note"><b>What the rules say</b> applies the Investing rules (backtested Nov 2017–Nov 2026, ~11%/yr, 38% of trades won) to each holding: <b>Exit signal</b> = the rules would have sold (closed more than 3% below the 200-day average, or below the trailing stop); <b>Weak</b> = above the stop but the trend has turned down; <b>Hold</b> = uptrend intact; <b>Buy signal</b> = the entry rules fire now. “Rule stop” is the price where the rules would sell. These are mechanical rule results, not personal advice; the rules lose on most trades and still lost money in some years.</p>
     <p class="note">Trend uses the daily 50- and 200-day averages, the same as the Investing rules. This is a screening view of your own holdings, not advice to buy or sell. Prices from Zerodha; Zerodha does not share buy dates here, so the short- or long-term tax status is not shown.</p></div>`;
   bind();
 }

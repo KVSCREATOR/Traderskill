@@ -207,6 +207,35 @@ def call(tool, args=None):
 
 
 # ----------------------------------------------------------------- holdings view
+def _verdict(ind, mkt):
+    """What the Investing rules (backtested Nov 2017 - Nov 2026) say about a stock you already hold.
+
+    Exit signal: the rules' own exit fired (close more than 3% below the 200-day average, or
+    below the trailing stop = highest close of the last 60 sessions minus 5 x ATR).
+    Weak: still above both exits but the trend is not up (below the 50-day or 200-day falling).
+    Buy signal: the entry rules fire now (52-week-high breakout or pullback to the 50-day).
+    Hold: uptrend intact, above the rule stop.
+    """
+    i = len(ind["c"]) - 1
+    c, s50, s200, atr = ind["c"][i], ind["sma50"][i], ind["sma200"][i], ind["atr"][i]
+    r = L.RULES["invest"]
+    trail = max(ind["c"][max(0, i - 59):i + 1]) - r["trail_atr"] * atr if atr else None
+    floor200 = s200 * 0.97 if s200 else None
+    stop = max(x for x in (trail, floor200) if x is not None) if (trail or floor200) else None
+    s200_old = ind["sma200"][i - 20] if i >= 20 else None
+    out = {"rule_stop": stop, "to_stop": (c / stop - 1) * 100 if stop else None}
+    if floor200 and c < floor200:
+        return dict(out, verdict="exit", why="Closed more than 3% below the 200-day average")
+    if trail and c < trail:
+        return dict(out, verdict="exit", why="Below the trailing stop (60-day high close minus 5 ATR)")
+    sig = L.state_at("invest", ind, mkt)
+    if sig["status"] in ("confirmed", "recent", "provisional"):
+        return dict(out, verdict="buy", why="Entry rule active: " + (sig["setup"][1] if sig["setup"] else ""))
+    if (s50 and c < s50) or (s200 and s200_old and s200 < s200_old):
+        return dict(out, verdict="weak", why="Below the 50-day average" if s50 and c < s50 else "200-day average is falling")
+    return dict(out, verdict="hold", why="Uptrend intact, above the rule stop")
+
+
 def _num(x):
     try:
         return float(x)
@@ -238,6 +267,7 @@ def holdings():
     if not isinstance(rows, list):
         return {"connected": True, "error": (r.get("error") or r.get("text") or "Unexpected answer")[:300]}
     cfg = L.settings_for("invest", st)
+    mkt = L.market()
     out = []
     for h in rows:
         sym = (h.get("tradingsymbol") or h.get("symbol") or "").upper()
@@ -259,8 +289,7 @@ def holdings():
                             else "Below 200-day" if s200 else "–")
             row["from_high"] = (c / hh - 1) * 100
             row["vs_50"] = (c / s50 - 1) * 100 if s50 else None
-            if s200 and c < s200 * 0.97:
-                row["flags"].append("Closed well below the 200-day average (Investing rules would exit)")
+            row.update(_verdict(ind, mkt))
         except Exception:  # noqa: BLE001
             row["trend"] = "–"
         if value > cfg["max_per_stock"]:
