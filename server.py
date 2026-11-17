@@ -1082,14 +1082,17 @@ def portfolio():
     with _state_lock:
         st = load_state()
         paper, clk = st["paper"], market_clock()
-        keep, equity = [], paper["cash"]
+        keep = []
         for p in paper["positions"]:
-            exit_px, reason = None, None
+            exit_px, reason, sq_px = None, None, None
+            # 15:15 IST on the day the trade opened: nothing after this counts
+            d = datetime.strptime(p["opened_date"], "%Y-%m-%d").replace(tzinfo=IST)
+            sq_t = int((d + timedelta(minutes=SQUARE_M)).timestamp())
             try:
                 q = quote(p["symbol"])
                 last = q["price"] or p["entry"]
                 for b in q["bars"]:
-                    if b["t"] < p["opened"]:
+                    if b["t"] < p["opened"] or b["t"] >= sq_t:
                         continue
                     if b["l"] <= p["stop"]:
                         exit_px, reason = p["stop"], "stop"
@@ -1097,19 +1100,21 @@ def portfolio():
                     if b["h"] >= p["target"]:
                         exit_px, reason = p["target"], "target"
                         break
+                    sq_px = b["c"]   # close of the last bar before 15:15
             except Exception:  # noqa: BLE001
                 last = p.get("last", p["entry"])
             if exit_px is None and (clk["date"] > p["opened_date"] or
                                     (clk["date"] == p["opened_date"] and clk["minute"] >= SQUARE_M)):
-                exit_px, reason = last, "square-off"
+                exit_px, reason = (sq_px if sq_px is not None else last), "square-off"
             if exit_px is not None:
                 _close(paper, p, exit_px, reason, clk)
             else:
                 p["last"] = last
                 p["pnl"] = (last - p["entry"]) * p["qty"]
                 keep.append(p)
-                equity += last * p["qty"]
         paper["positions"] = keep
+        # after the closes above, so sale proceeds are already back in cash
+        equity = paper["cash"] + sum(p["last"] * p["qty"] for p in keep)
         save_state(st)
         today = clk["date"]
         return {"cash": paper["cash"], "equity": equity, "start_cash": paper["start_cash"],
