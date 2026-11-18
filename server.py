@@ -1825,7 +1825,18 @@ class Handler(BaseHTTPRequestHandler):
         if not full.startswith(STATIC) or not os.path.isfile(full):
             return self._send(404, b"Not found", "text/plain")
         with open(full, "rb") as f:
-            self._send(200, f.read(), MIME.get(os.path.splitext(full)[1], "application/octet-stream"))
+            data = f.read()
+        if rel == "index.html":
+            # stamp each script / stylesheet with its file time, so browsers fetch the new one after every change
+            def _stamp(m):
+                name = m.group(2)
+                try:
+                    v = int(os.path.getmtime(os.path.join(STATIC, name)))
+                except OSError:
+                    return m.group(0)
+                return '%s="%s?v=%d"' % (m.group(1), name, v)
+            data = re.sub(r'(src|href)="([\w.-]+\.(?:js|css))"', _stamp, data.decode("utf-8")).encode("utf-8")
+        self._send(200, data, MIME.get(os.path.splitext(full)[1], "application/octet-stream"))
 
     def do_POST(self):
         u = urllib.parse.urlparse(self.path)
