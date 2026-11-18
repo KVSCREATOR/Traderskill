@@ -254,3 +254,6 @@ thead th:hover { color: var(--text); }
 thead th[data-dir="asc"]::after { content: " ▲"; color: var(--accent); }
 thead th[data-dir="desc"]::after { content: " ▼"; color: var(--accent); }
 .tablebar { gap: 10px; flex-wrap: wrap; margin: -4px 0 12px; align-items: center; }
+
+.newsitem a.tone-pos { color: var(--pass); }
+.newsitem a.tone-neg { color: var(--fail); }

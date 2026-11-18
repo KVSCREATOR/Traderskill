@@ -69,6 +69,103 @@ CAUTION = ["fraud", "probe", "raid", "downgrade", "default", "resign", "penalty"
            "fine ", "loss widens", "profit falls", "profit drops", "sebi notice", "recall"]
 
 
+# Headline tone for the News page: green = positive, red = negative, plain = no clear impact.
+# A word match, not a reading of the story. Phrases are matched before single words, and
+# each matched piece of text counts once.
+_NEUTRAL_PHRASES = [r"stop[- ]loss", r"profit[- ]and[- ]loss", r"p&l",
+                    r"price,? news", r"share price today", r"stock price today", r"live updates?"]
+_TONE_PHRASES = [  # (pattern, weight)
+    (r"loss(es)? (narrows?|narrowed|shrinks?|halves)", 2), (r"turns? (profitable|around)", 2),
+    (r"back (in|to) (the )?black", 2), (r"(net )?profit (rises?|rose|jumps?|surges?|soars?|climbs?|grows?|up|doubles?|beats?)", 2),
+    (r"(revenue|sales|income|ebitda|margins?|earnings) (rises?|rose|jumps?|surges?|soars?|climbs?|grows?|up|improves?|beats?|expands?)", 2),
+    (r"(beats?|tops?|surpass(es)?|exceeds?) (street |analyst |market )?(estimates?|expectations?|forecasts?)", 2),
+    (r"(stocks?|shares?) to buy", 2), (r"top picks?", 2), (r"buy (rating|call|recommendation)", 2),
+    (r"(rating|target) (raised|hiked|upped|increased)", 2), (r"(raises?|hikes?|ups) (its |the )?(target|rating|guidance|stake)", 2),
+    (r"(record|all[- ]time|52[- ]week|lifetime|multi[- ]year|fresh|new) highs?", 2), (r"(near|closes near) (its )?(record |52[- ]week )?highs?", 1),
+    (r"(bags?|wins?|secures?|receives?|bagged|won|secured|received) [^.;:]{0,40}?(orders?|contracts?|deals?|approvals?)", 2),
+    (r"order (win|inflow|book (rises|grows|at record))", 2), (r"(bonus|stock split|buyback|special dividend)", 1),
+    (r"call (contracts|options|writers?|buying)", 1), (r"fii(s)? (buy|add|raise)", 1),
+    (r"loss(es)? (widens?|widened|deepens?|swells?)", -2), (r"(swings?|slips?|falls?|plunges?) (in)?to (a )?(net )?loss", -2),
+    (r"(net )?profit (falls?|fell|drops?|dropped|declines?|declined|slumps?|plunges?|tumbles?|sinks?|down|halves|misses)", -2),
+    (r"(revenue|sales|income|ebitda|margins?|earnings) (falls?|fell|drops?|declines?|slumps?|down|contracts?|shrinks?|misses|weakens?)", -2),
+    (r"(miss(es)?|misses|missed|below|lags?) (street |analyst |market )?(estimates?|expectations?|forecasts?)", -2),
+    (r"(stocks?|shares?) to (sell|avoid)", -2), (r"sell (rating|call|recommendation)", -2),
+    (r"(rating|target) (cut|lowered|slashed|reduced)", -2), (r"(cuts?|lowers?|slashes?|trims?) (its |the )?(target|rating|guidance|stake|forecast)", -2),
+    (r"(record|all[- ]time|52[- ]week|multi[- ]year|fresh|new) lows?", -2), (r"profit[- ]booking", -1),
+    (r"put (contracts|options|buying|writers? exit)", -1), (r"puts? draw", -1), (r"fii(s)? (sell|cut|exit|dump)", -1),
+    (r"stake sale", -1), (r"block deal", 0), (r"faces? pressure", -1), (r"under pressure", -1),
+    (r"(up|gains?|higher|rises?|jumps?) (by )?(over |nearly |around |about )?\d", 1),
+    (r"(down|lower|loses|falls?|drops?) (by )?(over |nearly |around |about )?\d", -1),
+    (r"(trades?|trading|ends?|ended|closes?|closed|opens?|opened|settles?|settled|edges?) (sharply |marginally |slightly )?higher", 1),
+    (r"(trades?|trading|ends?|ended|closes?|closed|opens?|opened|settles?|settled|edges?) (sharply |marginally |slightly )?lower", -1),
+    (r"(workers?|employees?|staff|union)'? (go on )?strike|on strike", -2), (r"under fire|(major |massive )?fire (at|breaks)", -2),
+    (r"steps? down", -1), (r"show[- ]cause", -2), (r"sebi (notice|order|probe|penalty|ban|action)", -2), (r"income tax (raid|notice|demand)", -2),
+    (r"tax demand", -2), (r"gst (notice|demand)", -2), (r"pledged? shares", -1),
+]
+_TONE_WORDS = {
+    1: ["gain", "gains", "gained", "rise", "rises", "rose", "rising", "climb", "climbs", "climbed", "advance", "advances",
+        "rebound", "rebounds", "recovers", "recovery", "strong", "robust", "bullish", "positive", "upbeat",
+        "shine", "shines", "outperform", "outperforms", "outperformed", "buying", "accumulate", "invest", "invests",
+        "investment", "expansion", "expands", "expand", "launches", "approval", "approved", "dividend", "upgrade",
+        "upgrades", "upgraded", "boost", "boosts", "boosted", "optimistic", "growth", "acquires", "wins", "milestone"],
+    2: ["surge", "surges", "surged", "soar", "soars", "soared", "jump", "jumps", "jumped", "rally", "rallies", "rallied",
+        "zoom", "zooms", "skyrocket", "skyrockets", "spurt", "spurts", "breakout", "multibagger"],
+    -1: ["fall", "falls", "fell", "falling", "drop", "drops", "dropped", "decline", "declines", "declined",
+         "dip", "dips", "dipped", "slip", "slips", "slipped", "slide", "slides", "weak", "weaker", "bearish",
+         "negative", "pressure", "concern", "concerns", "worries", "worry", "caution", "cautious", "selling", "sell-off",
+         "selloff", "underperform", "underperforms", "loss", "losses",
+         "delay", "delayed", "warning", "warns", "headwinds", "outflow", "outflows", "volatile", "exit", "exits"],
+    -2: ["plunge", "plunges", "plunged", "crash", "crashes", "crashed", "tumble", "tumbles", "tumbled", "slump", "slumps",
+         "slumped", "sink", "sinks", "sank", "tank", "tanks", "tanked", "nosedive", "nosedives", "plummet", "plummets",
+         "fraud", "scam", "probe", "raid", "raids", "penalty", "fined", "fine", "lawsuit", "ban", "banned", "resigns",
+         "resignation", "quits", "default", "defaults", "investigation", "insolvency", "bankruptcy", "recall",
+         "blaze", "accident", "shutdown", "suspended", "suspension", "downgrade", "downgrades", "downgraded", "rout",
+         "bloodbath", "meltdown"],
+}
+_TONE_WORD_RE = [(w, re.compile(r"(?<![\w-])(?:" + "|".join(re.escape(x) for x in ws) + r")(?![\w-])"))
+                 for w, ws in _TONE_WORDS.items()]
+_TONE_PHRASE_RE = [(re.compile(p), w) for p, w in _TONE_PHRASES]
+_NEUTRAL_RE = re.compile("|".join(_NEUTRAL_PHRASES))
+_CLAUSE_RE = re.compile(r"\s*(?:;|:|\||—| - |\bwhile\b|\bbut\b|\bwhereas\b|\bhowever\b)\s*")
+
+
+def _tone_score(text):
+    """Score one piece of text; returns (score, matched words)."""
+    t = " " + _NEUTRAL_RE.sub(" ", text) + " "
+    score, hits = 0, []
+    for rx, w in _TONE_PHRASE_RE:
+        for m in rx.finditer(t):
+            score += w
+            if w:
+                hits.append(m.group(0).strip())
+        t = rx.sub(" ", t)
+    for w, rx in _TONE_WORD_RE:
+        for m in rx.finditer(t):
+            score += w
+            hits.append(m.group(0))
+    return score, hits
+
+
+def headline_tone(title, keys=()):
+    """'pos', 'neg' or 'neu' for a headline about one stock.
+
+    When the headline has several parts (split on ; : while but ...), the part that names
+    the stock decides, if it has any tone words; otherwise the whole headline does.
+    """
+    low = title.lower()
+    parts = [p for p in _CLAUSE_RE.split(low) if p.strip()]
+    mine = [p for p in parts if any(k in p for k in keys)] if len(parts) > 1 else []
+    score, hits = 0, []
+    if mine:
+        for p in mine:
+            s, h = _tone_score(p)
+            score, hits = score + s, hits + h
+    if not hits:
+        score, hits = _tone_score(low)
+    tone = "pos" if score >= 1 else "neg" if score <= -1 else "neu"
+    return tone, score, hits
+
+
 class ApiError(Exception):
     def __init__(self, code, msg):
         super().__init__(msg)
@@ -591,6 +688,7 @@ def news(sym, name=None):
         i["new"] = i["id"] not in seen
         low = i["title"].lower() + " "
         i["caution"] = [w.strip() for w in CAUTION if w in low]
+        i["tone"], i["tone_score"], i["tone_words"] = headline_tone(i["title"], keys)
     return {"symbol": sym, "name": name, "items": items, "source": source}
 
 

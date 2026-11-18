@@ -431,12 +431,12 @@ async function news(sym) {
           <div class="row"><a href="#/predictor/${encodeURIComponent(w.symbol)}"><b class="mono">${esc(w.symbol)}</b></a><span class="muted">${esc(w.name)}</span></div>
           <div class="row"><span class="mono">${inr(w.price)}</span><span class="mono ${cls(w.change_pct)}">${pct(w.change_pct)}</span></div></div>
           ${w.error ? `<p class="muted">${esc(w.error)}</p>` : items.length ? items.map(i => `<div class="newsitem"><span class="dot ${i.new ? '' : 'old'}" title="${i.new ? 'New' : 'Seen'}"></span>
-            <div style="flex:1;min-width:0"><a href="${esc(i.link)}" target="_blank" rel="noopener noreferrer">${esc(i.title)}</a>
+            <div style="flex:1;min-width:0"><a class="tone-${i.tone || 'neu'}" href="${esc(i.link)}" target="_blank" rel="noopener noreferrer" title="${i.tone && i.tone !== 'neu' ? (i.tone === 'pos' ? 'Positive: ' : 'Negative: ') + esc((i.tone_words || []).join(', ')) : 'No clear impact'}">${esc(i.title)}</a>
             ${i.caution.length ? `<span class="pill warn" style="margin-left:6px">${esc(i.caution.join(', '))}</span>` : ''}
             <div><small>${esc(i.source)} · ${ago(i.ts)}</small></div></div></div>`).join('')
           : `<p class="muted">${S.onlyNew ? 'Nothing new since you last marked as read.' : 'No headlines in the last 3 days.'}</p>`}</div>`;
       }).join('')}
-      ${sym ? '' : '<p class="note">Change the watchlist under Limits. Caution tags are a simple keyword match, not a judgement of the story.</p>'}</div>`;
+      ${sym ? '' : '<p class="note">Change the watchlist under Limits. Green = positive headline, red = negative, plain = no clear impact. Colours and caution tags are a simple word match, not a judgement of the story.</p>'}</div>`;
     $('#onlyNew').onchange = e => { S.onlyNew = e.target.checked; draw(); };
     view.querySelectorAll('[data-nw]').forEach(b => b.onclick = () => { S.newsHoldings = b.dataset.nw === '1'; news(); });
     $('#markRead').onclick = async () => { await api('/api/news/seen', { ids }); d.watch.forEach(w => w.items.forEach(i => i.new = false)); draw(); };
@@ -670,7 +670,6 @@ async function settings() {
   let saved = null; try { saved = localStorage.getItem('ts.mode'); } catch (e) { /* ignore */ }
   setMode(saved || 'swing', true);
   document.querySelectorAll('#modeSwitch button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
-  setMode(await modeChooser(), true);   // ask every time the portal opens
   await loadHeld();
   route(); pollAlerts();
 })();
