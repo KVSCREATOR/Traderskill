@@ -20,9 +20,11 @@ L = None   # longterm module
 K = None   # kite module
 G = None   # gtt module
 
-KINDS = [("zerodha", "Your real Zerodha buys and sells (seen within ~2 minutes)"), ("alert", "Price alerts ringing"), ("signals", "Buy signals after the close (watchlist and holdings)"),
-         ("holdings", "Zerodha holdings at Exit or Weak"), ("paper", "Paper trades: GTT fills, stops, targets, sells"),
-         ("summary", "Daily summary at 15:45")]
+KINDS = [("morning", "08:45 Morning outlook from global cues"), ("plan", "09:32 Day plan: market, your holdings, best setups"),
+         ("close", "15:32 Market close summary"), ("eod", "15:35 Your holdings: today's gains and losses, rule actions"),
+         ("zerodha", "Your real Zerodha buys and sells (seen within ~2 minutes)"), ("alert", "Price alerts ringing"),
+         ("paper", "Paper trades: GTT fills, stops, targets, sells")]
+R = None   # reports module (scheduled messages + history log)
 _send_lock = threading.Lock()
 
 
@@ -135,14 +137,21 @@ def _post(chat_id, text):
 def notify(kind, text):
     """Send a message in the background if Telegram is connected and this kind is switched on.
     Never raises and never slows the caller."""
+    def log(status, err=None):
+        try:
+            R.log(kind, text, status, err)
+        except Exception:  # noqa: BLE001
+            pass
     try:
         if not token():
-            return
+            return log("not sent: no bot token")
         c = _cfg(S.load_state())
-        if not c.get("chat_id") or not c["on"].get(kind, True):
-            return
+        if not c.get("chat_id"):
+            return log("not sent: Telegram not connected")
+        if not c["on"].get(kind, True):
+            return log("not sent: switched off")
     except Exception:  # noqa: BLE001
-        return
+        return log("not sent: error")
 
     def run():
         err = None
@@ -150,6 +159,7 @@ def notify(kind, text):
             _post(c["chat_id"], text)
         except Exception as e:  # noqa: BLE001
             err = getattr(e, "msg", None) or str(e)[:150]
+        log("failed" if err else "sent", err)
         try:
             with S._state_lock:
                 st = S.load_state()
@@ -317,20 +327,10 @@ def watcher():
                             job()
                         except Exception:  # noqa: BLE001
                             pass
-            if weekday and clk["minute"] >= 945:                   # 15:45 onwards, once a day
-                st = S.load_state()
-                c = _cfg(st)
-                if c.get("chat_id") and c.get("after_close_day") != clk["date"]:
-                    with S._state_lock:
-                        st = S.load_state()
-                        cc = _cfg(st)
-                        cc["after_close_day"] = clk["date"]
-                        st["telegram"] = cc
-                        S.save_state(st)
-                    try:
-                        after_close()
-                    except Exception:  # noqa: BLE001
-                        pass
+            try:
+                R.due()                                             # 08:45 / 09:32 / 15:32 / 15:35 reports
+            except Exception:  # noqa: BLE001
+                pass
         except Exception:  # noqa: BLE001
             pass
         time.sleep(30)

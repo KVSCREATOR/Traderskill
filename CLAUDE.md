@@ -143,5 +143,12 @@ watchlist + Zerodha holdings, holdings at Exit/Weak (Investing rules) and a dail
 Kind `zerodha`: every ~2 min (09:15–15:45) compares Zerodha positions' day_buy/day_sell qty with the last
 look (state telegram.zsnap) and sends BUY/SELL messages; first look of the day is silent. Read-only (positions).
 
+Scheduled reports (added 18 Nov 2026, `reports.py`, page `#/notifications`): on trading days only (weekday, not in
+settings.holidays, and for 09:32+ the Nifty must have traded today) the watcher sends 08:45 morning outlook (weighted
+global cues -> Positive/Mixed/Negative, hit rate judged at 09:32 vs Nifty move, state telegram.outlook_calls), 09:32 day
+plan, 15:32 market close, 15:35 holdings (day gains/losses, rule actions, own-limit breaches, buy signals). These replace
+the old 15:45 messages. Every notify() is appended to data/notify_log.jsonl (sent / failed / not sent + reason).
+Framing agreed with owner: outlook = reading of cues, not a forecast; actions = rule results, not personal advice.
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).

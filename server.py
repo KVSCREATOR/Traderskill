@@ -1471,6 +1471,24 @@ def api(method, path, q, body):
         if not long_mode:
             raise ApiError(400, "The forward test is for Trading and Investing modes.")
         return longterm.journal(mode)
+    if path == "/api/notify_log":
+        return reports.history(int(q.get("limit") or 500), q.get("kind") or None)
+    if path == "/api/reports/run" and method == "POST":
+        kind = body.get("kind")
+        if kind not in reports.BUILDERS:
+            raise ApiError(400, "Unknown report")
+        text = reports.run(kind)
+        return {"ok": text is not None, "text": text}
+    if path == "/api/settings/holidays" and method == "POST":
+        days = [d.strip() for d in str(body.get("holidays") or "").replace("\n", ",").split(",") if d.strip()]
+        for d in days:
+            if not re.fullmatch(r"\d{4}-\d\d-\d\d", d):
+                raise ApiError(400, "Use dates like 2026-12-25, separated by commas.")
+        with _state_lock:
+            st = load_state()
+            st["settings"]["holidays"] = sorted(set(days))
+            save_state(st)
+        return {"holidays": st["settings"]["holidays"]}
     if path == "/api/telegram":
         return telegram.status()
     if path == "/api/telegram/connect" and method == "POST":
@@ -1606,6 +1624,9 @@ import kite  # noqa: E402  (read-only Zerodha link via the free Kite MCP server)
 kite.S, kite.L = sys.modules[__name__], longterm
 import telegram  # noqa: E402  (send-only notifications)
 telegram.S, telegram.L, telegram.K, telegram.G = sys.modules[__name__], longterm, kite, gtt
+import reports  # noqa: E402  (scheduled reports + notification history)
+reports.S, reports.L, reports.K, reports.T = sys.modules[__name__], longterm, kite, telegram
+telegram.R = reports
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}

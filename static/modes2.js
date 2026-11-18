@@ -600,8 +600,51 @@ async function tgCard(box) {
     ${d.last_error ? `<p class="note down" style="margin-top:8px">Last send failed: ${esc(d.last_error)}</p>` : ''}
     <p class="note" style="margin-top:10px">Send-only: the bot messages you but cannot read commands, buy or sell. Alerts, GTTs and paper exits are checked every 30 seconds in market hours even with no page open; buy signals, holdings and the summary go out once a day at 15:45 IST.</p>`;
   const act = async (path, body, msg) => { try { await api(path, body || {}); if (msg) toast(msg); tgCard(box); } catch (e) { toast(e.message, 'bad'); } };
+  holidayBox(box);
   const c = $('#tgConn'); if (c) c.onclick = () => act('/api/telegram/connect', {}, 'Telegram connected. Check your phone for the test message.');
   const tt = $('#tgTest'); if (tt) tt.onclick = () => act('/api/telegram/test', {}, 'Test message sent.');
   const off = $('#tgOff'); if (off) off.onclick = () => act('/api/telegram/disconnect', {}, 'Telegram disconnected.');
   box.querySelectorAll('[data-tg]').forEach(x => x.onchange = () => act('/api/telegram/settings', { on: { [x.dataset.tg]: x.checked } }));
+}
+
+
+/* ---------------------------------------------------------------- Notifications: schedule, run now, full history */
+const NKIND = { morning: '08:45 Morning outlook', plan: '09:32 Day plan', close: '15:32 Market close', eod: '15:35 Your holdings',
+  zerodha: 'Zerodha buy/sell', alert: 'Price alert', paper: 'Paper trade' };
+async function notifPage() {
+  const my = S.nav;
+  view.innerHTML = head('Notifications', 'Scheduled reports and every message the portal has sent or tried to send.') + loading(2);
+  let d, err; try { d = await api('/api/notify_log?limit=1000'); } catch (e) { err = e; }
+  if (my !== S.nav) return;
+  if (err) { view.innerHTML = head('Notifications', '') + failBox(err); return; }
+  let f = 'all', q = '';
+  const draw = () => {
+    const rows = d.rows.filter(r => (f === 'all' || r.kind === f) && (!q || r.text.toLowerCase().includes(q)));
+    const chips = [['all', 'All']].concat(Object.entries(NKIND)).map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-nk="${k}">${esc(l)}</button>`).join('');
+    view.innerHTML = head('Notifications', `${d.total} logged · newest first · trading days only (weekends and your holiday list are skipped)`,
+      '<a class="btn" href="#/settings">Telegram settings</a>') +
+      `<div class="stack"><div class="card"><h2>Run a report now</h2><div class="row">${['morning', 'plan', 'close', 'eod'].map(k => `<button class="btn" data-run="${k}">${esc(NKIND[k])}</button>`).join('')}</div>
+        <p class="note" style="margin-top:8px">Builds the report from live data right away, logs it here and sends it to Telegram if that kind is switched on. Handy to preview before the scheduled time.</p></div>
+      <div class="card"><div class="row tablebar"><input id="nFind" type="search" placeholder="Search messages" value="${esc(q)}" style="width:220px"><div class="chips" style="margin:0">${chips}</div></div>
+        ${rows.length ? rows.map(r => `<div class="nlog"><div class="row" style="justify-content:space-between"><b>${esc(NKIND[r.kind] || r.kind)}</b>
+          <span class="note">${esc(r.ts)} · <span class="${r.status === 'sent' ? 'up' : r.status === 'failed' ? 'down' : 'muted'}">${esc(r.status)}</span>${r.error ? ' · ' + esc(r.error) : ''}</span></div>
+          <pre>${esc(r.text)}</pre></div>`).join('') : '<div class="empty">No messages yet.</div>'}</div></div>`;
+    view.querySelectorAll('[data-nk]').forEach(b => b.onclick = () => { f = b.dataset.nk; draw(); });
+    const fi = $('#nFind'); fi.oninput = () => { q = fi.value.trim().toLowerCase(); const pos = fi.selectionStart; draw(); const n = $('#nFind'); n.focus(); n.setSelectionRange(pos, pos); };
+    view.querySelectorAll('[data-run]').forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = 'Building…';
+      try { await api('/api/reports/run', { kind: b.dataset.run }); toast('Report built and logged.'); } catch (e) { toast(e.message, 'bad'); }
+      notifPage();
+    });
+  };
+  draw();
+}
+
+/* holiday list on the Limits page (inside the Telegram box) */
+async function holidayBox(box) {
+  let st; try { st = await api('/api/status'); } catch (e) { return; }
+  const days = (st.settings.holidays || []).join(', ');
+  box.insertAdjacentHTML('beforeend', `<form class="row" id="holF" style="margin-top:14px"><label style="flex:1;min-width:260px">NSE holidays (no reports on these dates, YYYY-MM-DD, comma separated)
+    <input name="h" value="${esc(days)}" placeholder="2026-12-25, 2027-01-26"></label><button class="btn" style="align-self:flex-end">Save holidays</button></form>`);
+  $('#holF').onsubmit = async e => { e.preventDefault(); try { await api('/api/settings/holidays', { holidays: new FormData(e.target).get('h') }); toast('Holidays saved.'); } catch (err) { toast(err.message, 'bad'); } };
 }
