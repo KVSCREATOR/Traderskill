@@ -196,7 +196,8 @@ async function predictor(sym) {
     setClock(p.clock); renderPredict(p); sourceAlert(p);
   };
   await load(false);
-  S.timer = setInterval(() => { if (S.clock && S.clock.open && !$('#dlg').open) load(true); }, 60000);
+  // Scalping refreshes every 15 s; Trading and Investing stay at 60 s (daily bars)
+  S.timer = setInterval(() => { if (S.clock && S.clock.open && !$('#dlg').open) load(true); }, S.mode === 'intraday' ? 15000 : 60000);
 }
 
 function oddsCard(od, h) {
@@ -584,7 +585,7 @@ async function broker() {
     gttCard($('#gttBox'));
   };
   await load();
-  S.timer = setInterval(load, 30000);
+  S.timer = setInterval(load, 10000);   // Scalping paper book
 }
 
 /* ---------------------------------------------------------------- big deals */

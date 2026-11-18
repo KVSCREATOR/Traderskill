@@ -829,7 +829,7 @@ def scan_one(sym):
     try:
         dmeta, daily = chart(sym, "1y", "1d", 300)
         try:
-            imeta, intra = chart(sym, "5d", "5m", 60)
+            imeta, intra = chart(sym, "5d", "5m", 20)   # Scalping scan
         except Exception:  # noqa: BLE001
             imeta, intra = {}, []
         eod = dmeta.get("source") in EOD_LABEL
@@ -893,6 +893,15 @@ def predict(sym):
             imeta, intra = f_intra.result()
         except Exception:  # noqa: BLE001
             imeta, intra = {}, []
+        # Scalping speed: 60 days of bars are cached for a minute, but today's bars and the
+        # price are re-read every few seconds and laid over them.
+        try:
+            fmeta, fresh = chart(sym, "1d", "5m", 8)
+            if fresh:
+                intra = [b for b in intra if b["t"] < fresh[0]["t"]] + fresh
+                imeta = dict(imeta, **{k: v for k, v in fmeta.items() if k in ("regularMarketPrice", "regularMarketTime")})
+        except Exception:  # noqa: BLE001
+            pass
         eod = dmeta.get("source") in EOD_LABEL
         if eod or not intra:
             intra = []
@@ -1138,8 +1147,8 @@ def predict(sym):
 
 
 # ----------------------------------------------------------------- quotes, alerts, paper broker
-def quote(sym):
-    meta, bars = chart(sym, "1d", "5m", 30)
+def quote(sym, ttl=30):
+    meta, bars = chart(sym, "1d", "5m", ttl)
     return {"symbol": sym, "price": meta.get("regularMarketPrice"), "prev_close": meta.get("previousClose"),
             "bars": bars, "time": meta.get("regularMarketTime")}
 
@@ -1202,7 +1211,7 @@ def portfolio():
             d = datetime.strptime(p["opened_date"], "%Y-%m-%d").replace(tzinfo=IST)
             sq_t = int((d + timedelta(minutes=SQUARE_M)).timestamp())
             try:
-                q = quote(p["symbol"])
+                q = quote(p["symbol"], 8)   # Scalping paper book
                 last = q["price"] or p["entry"]
                 for b in q["bars"]:
                     if b["t"] < p["opened"] or b["t"] >= sq_t:
@@ -1258,7 +1267,7 @@ def place_order(body):
         raise ApiError(409, "No trade plan for %s yet." % sym)
     with _state_lock:
         st = load_state()
-        px = quote(sym)["price"]
+        px = quote(sym, 8)["price"]   # Scalping paper fill
         if not px or px <= tp["stop"]:
             raise ApiError(409, "Price is at or below the stop; the plan is no longer valid.")
         if px >= tp["target"]:
@@ -1288,7 +1297,7 @@ def close_position(body):
         for p in list(paper["positions"]):
             if p["id"] == body.get("id"):
                 try:
-                    px = quote(p["symbol"])["price"] or p.get("last", p["entry"])
+                    px = quote(p["symbol"], 8)["price"] or p.get("last", p["entry"])
                 except Exception:  # noqa: BLE001
                     px = p.get("last", p["entry"])
                 _close(paper, p, px, "manual", clk)
