@@ -282,3 +282,10 @@ thead th[data-dir="desc"]::after { content: " ▼"; color: var(--accent); }
 /* locked table headers: the heading row stays put, only the rows scroll */
 .tablewrap { overflow: auto; max-height: calc(100vh - 150px); }
 .tablewrap thead th { position: sticky; top: 0; z-index: 2; box-shadow: inset 0 -1px 0 var(--border); }
+
+/* collapsible blocks on My holdings */
+.card[data-fold] { position: relative; }
+.foldbtn { position: absolute; top: 12px; right: 14px; z-index: 3; }
+.card.folded > *:not(.foldbtn):not(h2):not(.row:has(h2)) { display: none; }
+.card.folded { padding-bottom: 14px; }
+.card.folded h2 { margin-bottom: 0; }

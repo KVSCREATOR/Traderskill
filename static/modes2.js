@@ -385,6 +385,7 @@ async function holdingsPage() {
     try { await api('/api/alerts', { alerts: a }); toast(`${a.length} rule-stop alerts set. They ring once when a price falls to its rule stop.`); askNotify(); pollAlerts(); } catch (e) { toast(e.message, 'bad'); }
   };
   extrasBox($('#kExtras'));
+  makeCollapsible(view);
   holdNews(my);
   let hf = 'all';
   const applyF = () => {
@@ -480,6 +481,23 @@ async function extrasBox(box) {
       <div><span>Exchanges</span><b>${esc(x.profile.exchanges || '–')}</b></div><div><span>Products</span><b>${esc(x.profile.products || '–')}</b></div></div>
       <p class="note" style="margin-top:8px">Read-only. The portal cannot place, change or cancel orders.</p></div>` : ''}
     ${x.errors.length ? `<p class="note down">${x.errors.map(esc).join(' · ')}</p>` : ''}`;
+  makeCollapsible(box);
+}
+
+/* My holdings: every block below the holdings table can be collapsed; the choice is remembered */
+function makeCollapsible(root) {
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem('ts.fold') || '{}'); } catch (e) { /* ignore */ }
+  root.querySelectorAll('.card').forEach(card => {
+    const h = card.querySelector('h2'); if (!h || card.dataset.fold || /^Holdings/i.test(h.textContent.trim())) return;
+    const key = h.textContent.replace(/[·\d,]+/g, '').trim().slice(0, 40);
+    card.dataset.fold = key;
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'btn sm foldbtn';
+    const set = shut => { card.classList.toggle('folded', shut); btn.textContent = shut ? 'Expand ▾' : 'Collapse ▴'; btn.setAttribute('aria-expanded', String(!shut)); };
+    btn.onclick = () => { const shut = !card.classList.contains('folded'); set(shut); saved[key] = shut; try { localStorage.setItem('ts.fold', JSON.stringify(saved)); } catch (e) { /* ignore */ } };
+    card.insertBefore(btn, card.firstChild);
+    set(!!saved[key]);
+  });
 }
 
 
