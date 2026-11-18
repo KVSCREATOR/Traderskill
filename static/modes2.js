@@ -365,14 +365,14 @@ async function holdingsPage() {
     ${d.warnings.length ? `<div class="banner">${d.warnings.map(esc).join(' · ')}</div>` : ''}
     <div class="card"><h2>Holdings · <span id="hCount">${d.rows.length}</span></h2>${d.rows.length ? `<div class="row tablebar"><input id="hFind" type="search" placeholder="Search stock or sector" style="width:200px">
       <div class="chips" style="margin:0">${[['all', 'All'], ['exit', 'Exit signal'], ['weak', 'Weak'], ['hold', 'Hold'], ['buy', 'Buy signal'], ['up', 'In profit'], ['down', 'In loss'], ['cap', 'Over cap']].map(([k, l]) => `<button class="chip ${k === 'all' ? 'on' : ''}" data-hf="${k}">${l}</button>`).join('')}</div>
-      <button class="btn sm" data-sortreset>Default order</button><span class="note" style="margin:0">Click a column heading to sort.</span></div><div class="tablewrap"><table><thead><tr><th>Stock</th><th class="num">Qty</th><th class="num">Avg cost</th><th class="num">Price</th><th class="num">Today</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Profit / loss</th><th>Trend</th><th class="num">From 52w high</th><th>What the ${esc(d.rules_label)} rules say</th></tr></thead><tbody>
+      <button class="btn sm" data-sortreset>Default order</button><span class="note" style="margin:0">Click a column heading to sort.</span></div><div class="tablewrap"><table><thead><tr><th>Stock</th><th class="num">Qty</th><th class="num">Avg cost</th><th class="num">Price</th><th class="num">Today</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Profit / loss</th><th>Trend</th><th class="num">From 52w high</th><th>What the ${esc(d.rules_label)} rules say</th><th>Latest news</th></tr></thead><tbody>
       ${d.rows.map(r => `<tr data-v="${esc(r.verdict || '')}" data-pl="${r.pnl >= 0 ? 'up' : 'down'}" data-cap="${r.flags.some(f => f.includes('cap')) ? 1 : 0}" data-txt="${esc((r.symbol + ' ' + (r.sector || '')).toLowerCase())}"><td class="sym"><a href="#/predictor/${encodeURIComponent(r.symbol)}"><b>${esc(r.symbol)}</b></a><small>${esc(r.sector || r.exchange || '')}${r.flags.length ? ' · <span class="down">' + r.flags.map(esc).join('; ') + '</span>' : ''}</small>${holdDetail(r)}</td>
         <td class="num">${r.qty}</td><td class="num">${r.avg != null ? inr(r.avg) : '–'}</td><td class="num">${r.ltp != null ? inr(r.ltp) : '–'}</td>
         <td class="num ${cls(r.day_pct)}">${r.day_pct != null ? sgn(r.day_pct) : '–'}</td><td class="num">${inr(r.value, 0)}</td><td class="num">${(r.value / tot * 100).toFixed(1)}%</td>
         <td class="num ${cls(r.pnl)}">${money(r.pnl)}<small class="chg" style="display:block">${r.pnl_pct != null ? sgn(r.pnl_pct) : ''}</small></td>
         <td><span class="pill ${r.trend === 'Strong up' ? 'pass' : r.trend === 'Below 200-day' ? 'fail' : ''}">${esc(r.trend)}</span></td>
         <td class="num">${r.from_high != null ? sgn(r.from_high) : '–'}</td>
-        <td>${r.verdict ? `<span class="pill ${VERDICT[r.verdict][1]}">${VERDICT[r.verdict][0]}</span><small class="muted" style="display:block;max-width:230px">${esc(r.why)}${r.rule_stop ? ` · rule stop ${inr(r.rule_stop)} (${sgn(-r.to_stop)} away)` : ''}</small>` : '–'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No holdings in this Zerodha account.</div>'}</div>
+        <td>${r.verdict ? `<span class="pill ${VERDICT[r.verdict][1]}">${VERDICT[r.verdict][0]}</span><small class="muted" style="display:block;max-width:230px">${esc(r.why)}${r.rule_stop ? ` · rule stop ${inr(r.rule_stop)} (${sgn(-r.to_stop)} away)` : ''}</small>` : '–'}</td><td class="hnews" data-hn="${esc(r.symbol)}"><span class="muted">Loading…</span></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No holdings in this Zerodha account.</div>'}</div>
     ${d.sectors.length ? `<div class="card"><h2>By sector</h2><div class="facts">${d.sectors.map(([k, v]) => `<div><span>${esc(k)}</span><b class="mono">${inr(v, 0)} · ${(v / tot * 100).toFixed(1)}%</b></div>`).join('')}</div></div>` : ''}
     <div id="kExtras"><div class="card"><div class="empty">Loading positions, mutual funds and funds…</div></div></div>
     ${fitBlock(d.fit)}
@@ -385,6 +385,7 @@ async function holdingsPage() {
     try { await api('/api/alerts', { alerts: a }); toast(`${a.length} rule-stop alerts set. They ring once when a price falls to its rule stop.`); askNotify(); pollAlerts(); } catch (e) { toast(e.message, 'bad'); }
   };
   extrasBox($('#kExtras'));
+  holdNews(my);
   let hf = 'all';
   const applyF = () => {
     const q = ($('#hFind')?.value || '').trim().toLowerCase(); let n = 0;
@@ -441,6 +442,19 @@ function holdDetail(r) {
     ${f('Day change', x.day_change != null ? inr(x.day_change) + (x.day_change_pct != null ? ' (' + sgn(x.day_change_pct) + ')' : '') : '–')}${f('P&amp;L as Zerodha shows it', x.zerodha_pnl != null ? inr(x.zerodha_pnl, 0) : '–')}
     ${x.mtf ? f('MTF (margin trading)', esc(Object.entries(x.mtf).map(([k, v]) => nice(k) + ' ' + v).join(', '))) : ''}
     ${x.discrepancy ? f('Data check', '<span class="down">Zerodha flags a quantity mismatch</span>') : ''}</div></details>`;
+}
+// Latest-news column on My holdings: newest headlines per stock, green = positive, red = negative
+async function holdNews(my) {
+  let d; try { d = await api('/api/news?holdings=1'); } catch (e) { d = null; }
+  if (my !== S.nav) return;
+  const by = {}; (d ? d.watch : []).forEach(w => { by[w.symbol] = w; });
+  view.querySelectorAll('td[data-hn]').forEach(td => {
+    const w = by[td.dataset.hn];
+    if (!w || w.error || !w.items.length) { td.innerHTML = `<span class="muted">${w && w.error ? 'Unavailable' : 'No news in 3 days'}</span>`; return; }
+    const tones = { pos: 0, neg: 0 }; w.items.forEach(i => { if (tones[i.tone] != null) tones[i.tone]++; });
+    td.innerHTML = w.items.slice(0, 2).map(i => `<a class="tone-${i.tone || 'neu'}" href="${esc(i.link)}" target="_blank" rel="noopener noreferrer" title="${esc(i.source)} · ${ago(i.ts)}">${esc(i.title)}</a>`).join('')
+      + `<small><a href="#/news/${encodeURIComponent(w.symbol)}">${w.items.length} in 3 days</a>${tones.pos ? ` · <span class="up">${tones.pos} positive</span>` : ''}${tones.neg ? ` · <span class="down">${tones.neg} negative</span>` : ''}</small>`;
+  });
 }
 async function extrasBox(box) {
   if (!box) return;
