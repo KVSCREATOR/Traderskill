@@ -9,6 +9,8 @@ services:
       # DSM's HTTPS reverse proxy on 8766 (see NAS.md), so passwords are never sent unencrypted.
       - "127.0.0.1:8765:8765"
     volumes:
+      # the code runs straight from this folder: edit files here, no rebuild needed
+      - ./:/app
       - ./data:/app/data
     env_file:
       - tradeskill.env

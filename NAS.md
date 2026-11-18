@@ -79,11 +79,18 @@ journals. After the NAS works, stop `start.bat` on the PC.
 
 The bot only sends messages; it cannot read commands, buy or sell.
 
-## Updating later
+## Updating later (no rebuild needed for code)
 
-Copy the changed files over the old ones in `\\192.168.1.200\docker\tradeskill`, then in
-Container Manager -> Project -> `tradeskill` -> **Action -> Build** (then Start). `data` and
-`tradeskill.env` are kept.
+The container runs the files in `\\192.168.1.200\docker\tradeskill` directly:
+
+- Page files (`static\`): refresh the browser.
+- Python files (`*.py`): the portal notices within about 10 seconds, checks them for errors and restarts itself.
+  If a file has an error it keeps running the last good version; see **Limits -> Portal program**, which also has
+  a **Restart portal** button.
+- Only changes to `Dockerfile` or `docker-compose.yml` need Container Manager -> Project -> Stop -> **Build** -> Start.
+
+Tip: map `\\192.168.1.200\docker` as drive **Z:** (File Explorer -> This PC -> Map network drive) and work in
+`Z:\tradeskill`. It is a git clone of the private GitHub repo, so changes can be committed and pushed from there.
 
 ## Safety
 

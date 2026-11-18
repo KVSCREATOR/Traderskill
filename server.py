@@ -1489,6 +1489,14 @@ def api(method, path, q, body):
             st["settings"]["holidays"] = sorted(set(days))
             save_state(st)
         return {"holidays": st["settings"]["holidays"]}
+    if path == "/api/admin/code":
+        return code_status()
+    if path == "/api/admin/restart" and method == "POST":
+        err = _code_ok()
+        if err:
+            raise ApiError(409, "Not restarted: a code file has an error. " + err)
+        threading.Timer(1.0, lambda: restart_now("Restart button")).start()
+        return {"ok": True, "message": "Restarting in about 5 seconds."}
     if path == "/api/telegram":
         return telegram.status()
     if path == "/api/telegram/connect" and method == "POST":
@@ -1627,6 +1635,81 @@ telegram.S, telegram.L, telegram.K, telegram.G = sys.modules[__name__], longterm
 import reports  # noqa: E402  (scheduled reports + notification history)
 reports.S, reports.L, reports.K, reports.T = sys.modules[__name__], longterm, kite, telegram
 telegram.R = reports
+
+# ----------------------------------------------------------------- self-restart (edit files on the NAS, no rebuild)
+_reload = {"error": None, "checked": None}
+_CODE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _code_files():
+    return sorted(f for f in os.listdir(_CODE_DIR) if f.endswith(".py"))
+
+
+def _code_stamp():
+    out = {}
+    for f in _code_files():
+        try:
+            out[f] = os.path.getmtime(os.path.join(_CODE_DIR, f))
+        except OSError:
+            pass
+    return out
+
+
+def _code_ok():
+    """Compile every .py file; return None if all fine, else the first error."""
+    for f in _code_files():
+        try:
+            with open(os.path.join(_CODE_DIR, f), encoding="utf-8") as fh:
+                compile(fh.read(), f, "exec")
+        except SyntaxError as e:
+            return "%s line %s: %s" % (f, e.lineno, e.msg)
+        except Exception as e:  # noqa: BLE001
+            return "%s: %s" % (f, str(e)[:200])
+    return None
+
+
+def restart_now(reason="restart"):
+    """Replace this process with a fresh copy of the server (same port, same data)."""
+    err = _code_ok()
+    if err:
+        _reload["error"] = err
+        raise ApiError(409, "Not restarted: a code file has an error. " + err)
+    print("Restarting (%s)..." % reason)
+    sys.stdout.flush()
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+def _watch_code():
+    """Every 5 s: if a .py file changed and all files compile, restart; if not, keep running and report."""
+    seen = _code_stamp()
+    while True:
+        time.sleep(5)
+        now = _code_stamp()
+        if now == seen:
+            continue
+        time.sleep(2)   # let a multi-file save finish
+        now = _code_stamp()
+        err = _code_ok()
+        _reload["checked"] = market_clock()["ist"]
+        if err:
+            _reload["error"] = err
+            print("Code changed but has an error; still running the old version: " + err)
+            seen = now
+            continue
+        _reload["error"] = None
+        try:
+            restart_now("code changed")
+        except Exception:  # noqa: BLE001
+            seen = now
+
+
+def code_status():
+    return {"error": _reload["error"], "checked": _reload["checked"], "files": _code_files(),
+            "started": _STARTED, "auto_restart": os.environ.get("AUTO_RESTART", "1") != "0"}
+
+
+_STARTED = None
+
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
@@ -1769,6 +1852,9 @@ if __name__ == "__main__":
         sys.exit("Refusing to start: HOST=%s lets other devices in, so set PORTAL_PASSWORD (8+ characters)." % HOST)
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     telegram.start()   # background watcher: alerts, GTTs, paper exits, after-close messages
+    _STARTED = market_clock()["ist"]
+    if os.environ.get("AUTO_RESTART", "1") != "0":
+        threading.Thread(target=_watch_code, name="code-watch", daemon=True).start()
     print("Tradeskill Portal running at %s  (Ctrl+C to stop)" % (PUBLIC_URL or "http://%s:%d" % (HOST, PORT)))
     sys.stdout.flush()
     try:

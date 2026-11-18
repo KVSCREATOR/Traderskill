@@ -242,6 +242,7 @@ async function settingsAll() {
   if (m === 'intraday') $('#sf').onsubmit = e => { e.preventDefault(); save(Object.fromEntries(new FormData(e.target)), 'Scalping limits saved.'); };
   else $('#lf').onsubmit = e => { e.preventDefault(); save({ mode_settings: { [m]: Object.fromEntries(new FormData(e.target)) } }, `${MODES[m].label} limits saved.`); };
   tgCard($('#tgBox'));
+  codeBox($('#tgBox'));
   $('#wf').onsubmit = e => { e.preventDefault(); save({ watchlist: new FormData(e.target).get('watchlist').split(',').map(x => x.trim()).filter(Boolean) }, 'Watchlist saved.'); };
   $('#pf').onsubmit = e => {
     e.preventDefault(); const cash = +new FormData(e.target).get('paper_cash'), d = $('#dlg');
@@ -647,4 +648,20 @@ async function holidayBox(box) {
   box.insertAdjacentHTML('beforeend', `<form class="row" id="holF" style="margin-top:14px"><label style="flex:1;min-width:260px">NSE holidays (no reports on these dates, YYYY-MM-DD, comma separated)
     <input name="h" value="${esc(days)}" placeholder="2026-12-25, 2027-01-26"></label><button class="btn" style="align-self:flex-end">Save holidays</button></form>`);
   $('#holF').onsubmit = async e => { e.preventDefault(); try { await api('/api/settings/holidays', { holidays: new FormData(e.target).get('h') }); toast('Holidays saved.'); } catch (err) { toast(err.message, 'bad'); } };
+}
+
+
+/* ---------------------------------------------------------------- Restart portal (Limits page) */
+async function codeBox(after) {
+  let d; try { d = await api('/api/admin/code'); } catch (e) { return; }
+  after.insertAdjacentHTML('afterend', `<div class="card" id="codeBox"><h2>Portal program</h2>
+    <div class="row"><span class="pill ${d.error ? 'fail' : 'pass'}">${d.error ? 'Code error: still running the last good version' : 'Running'}</span>
+    <span class="note">Started ${esc(d.started || '–')} · auto-restart on code changes: ${d.auto_restart ? 'on' : 'off'}</span>
+    <button class="btn sm" id="rsBtn">Restart portal</button></div>
+    ${d.error ? `<p class="note down" style="margin-top:8px">${esc(d.error)}</p>` : ''}
+    <p class="note" style="margin-top:8px">The portal runs the files in the NAS folder directly. Page changes show on a browser refresh; Python changes are checked for errors and picked up within about 10 seconds. Use the button if you want to restart by hand.</p></div>`);
+  $('#rsBtn').onclick = async () => {
+    try { const r = await api('/api/admin/restart', {}); toast(r.message); setTimeout(() => location.reload(), 6000); }
+    catch (e) { toast(e.message, 'bad'); }
+  };
 }

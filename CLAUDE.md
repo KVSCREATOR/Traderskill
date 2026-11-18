@@ -125,6 +125,23 @@ the rule's volume test), 20-day avg (Trading), 40-day / 52-week breakout line, s
 Investing shows 270 sessions. My holdings verdict follows the selected mode (Scalping → Investing).
 Holdings extras (quick-pick bar, Scanner chip, News switch) hide whenever Zerodha is not reachable.
 
+## WHERE TO WORK (since 18 Nov 2026) — the NAS folder is the one and only copy
+- Edit the project in `Z:\tradeskill` (= `\\192.168.1.200\docker\tradeskill`, mapped as drive Z: on the PC).
+  It is a git clone of https://github.com/KVSCREATOR/Traderskill — commit and push from there.
+  `D:\Projects\tradeskill` on the PC is an OLD snapshot: do not edit or run it.
+- The container runs the code straight from that folder (docker-compose mounts `./:/app` and `./data:/app/data`),
+  so NO rebuild for code changes:
+  - static/ (pages, styles, scripts): visible on a browser refresh;
+  - *.py: the server checks every 5 s, compiles all .py files and restarts itself (os.execv) only if they compile;
+    if one has an error it keeps running the last good version and shows the error on Limits -> Portal program.
+    Limits also has a "Restart portal" button (`POST /api/admin/restart`, `GET /api/admin/code`). AUTO_RESTART=0 disables.
+  - Rebuild in Container Manager only for Dockerfile / docker-compose.yml / Python-version changes.
+- Before saving Python edits on the NAS, compile-check them (a copy in the scratchpad + `compile()`); node cannot
+  `--check` files on a UNC path, so copy JS locally first. The live portal picks changes up immediately.
+- Network to the NAS is slow (~100 ms): run big copies / git fetches in the background.
+- Do not type the owner's NAS, DSM, Zerodha or portal passwords; the owner signs in. DSM uses a self-signed
+  certificate that the in-app browser refuses, so DSM clicks are the owner's.
+
 Running on the owner's Synology DS925+ (since 17 Nov 2026): Container Manager project
 `tradeskill` at /volume1/docker/tradeskill (built from the Dockerfile, data/ on the volume,
 tradeskill.env holds PORTAL_PASSWORD). Open at https://192.168.1.200:8766 = DSM reverse proxy

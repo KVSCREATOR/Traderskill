@@ -10,3 +10,7 @@ __pycache__/
 
 # NAS / Docker secrets
 tradeskill.env
+
+# NAS-only files
+_backup*/
+tradeskill.env.txt
