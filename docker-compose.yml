@@ -5,7 +5,9 @@ services:
     container_name: tradeskill
     restart: unless-stopped
     ports:
-      - "8765:8765"
+      # Only the NAS itself can reach plain HTTP 8765. Everyone else comes in through
+      # DSM's HTTPS reverse proxy on 8766 (see NAS.md), so passwords are never sent unencrypted.
+      - "127.0.0.1:8765:8765"
     volumes:
       - ./data:/app/data
     env_file:

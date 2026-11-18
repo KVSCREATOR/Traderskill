@@ -28,11 +28,11 @@ edit it with Notepad:
 
 ```
 PORTAL_PASSWORD=<your own password, 8+ characters>
-PUBLIC_URL=http://192.168.1.200:8765
+PUBLIC_URL=https://192.168.1.200:8766
 ```
 
 - To use it from outside home as well, open the **Tailscale** app on the NAS, note its
-  Tailscale IP (starts with `100.`), and use `PUBLIC_URL=http://100.x.y.z:8765` instead.
+  Tailscale IP (starts with `100.`), and open `https://100.x.y.z:8766` from outside.
   Your phone/laptop need the Tailscale app signed in to the same account.
 - `tradeskill.env` holds your password: it is never uploaded to GitHub.
 
@@ -43,24 +43,26 @@ PUBLIC_URL=http://192.168.1.200:8765
    docker-compose.yml**.
 3. Next -> Next -> **Done**. It builds the image (about a minute, downloads `python:3.12-slim`)
    and starts the container. It restarts by itself after a NAS reboot.
-4. Open `http://192.168.1.200:8765` (or your Tailscale address) and sign in with the password.
+4. The container only listens on the NAS itself (`127.0.0.1:8765` in `docker-compose.yml`),
+   so it cannot be opened yet from a PC or phone: do step 4 next.
 
-## 4. HTTPS address for Zerodha (required)
+## 4. HTTPS address (required)
 
-Zerodha only returns to an **HTTPS** address (or 127.0.0.1), so plain
-`http://192.168.1.200:8765` is refused ("invalid_redirect_uri"). Use DSM's reverse proxy:
+The portal is reached only through DSM's HTTPS reverse proxy. That keeps your password
+encrypted on the network, and Zerodha only returns to an **HTTPS** address anyway
+(plain http is refused with "invalid_redirect_uri").
 
 1. Control Panel -> Login Portal -> Advanced -> **Reverse Proxy** -> **Create**.
 2. Description `Tradeskill portal`; Source **HTTPS**, hostname `*`, port **8766**;
-   Destination **HTTP**, `localhost`, port **8765**. Save.
-3. Set `PUBLIC_URL=https://192.168.1.200:8766` in `tradeskill.env` (or put that one line in
+   Destination **HTTP**, `127.0.0.1`, port **8765**. Save.
+3. Check `PUBLIC_URL=https://192.168.1.200:8766` in `tradeskill.env` (or put that one line in
    `data/public_url.txt`, which overrides it without touching the password file).
 4. Container Manager -> Project -> `tradeskill` -> **Action -> Build** (recreates the container).
 5. Open **https://192.168.1.200:8766** in Chrome; accept the certificate warning once
    (Advanced -> Proceed: DSM's certificate is for its Synology name, not the IP).
 6. Sign in -> **My holdings** -> **Connect Zerodha**. The portal registers the new address itself.
 
-Use the https address from then on (bookmark it).
+Bookmark the https address. `http://192.168.1.200:8765` no longer opens from other devices.
 
 ## 5. Stop the PC copy
 
@@ -75,6 +77,7 @@ Container Manager -> Project -> `tradeskill` -> **Action -> Build** (then Start)
 
 ## Safety
 
-- Do not forward port 8765 on your router to the internet. Use Tailscale for outside access.
+- Plain HTTP 8765 is open only on the NAS itself (since 18 Nov 2026); use https 8766.
+- Do not forward 8765 or 8766 on your router to the internet. Use Tailscale for outside access.
 - Zerodha access stays read-only; the portal still cannot place real orders.
 - The sign-in cookie lasts 30 days; changing `PORTAL_PASSWORD` signs everyone out.

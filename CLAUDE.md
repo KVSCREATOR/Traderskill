@@ -128,7 +128,9 @@ Holdings extras (quick-pick bar, Scanner chip, News switch) hide whenever Zerodh
 Running on the owner's Synology DS925+ (since 17 Nov 2026): Container Manager project
 `tradeskill` at /volume1/docker/tradeskill (built from the Dockerfile, data/ on the volume,
 tradeskill.env holds PORTAL_PASSWORD). Open at https://192.168.1.200:8766 = DSM reverse proxy
-(HTTPS 8766 -> localhost:8765); Zerodha MCP only accepts https or loopback return URLs.
+(HTTPS 8766 -> 127.0.0.1:8765); Zerodha MCP only accepts https or loopback return URLs.
+Since 18 Nov 2026 docker-compose publishes `127.0.0.1:8765:8765`, so plain HTTP 8765 is not
+reachable from the LAN (owner asked to close it); 8766 HTTPS is the only way in.
 PUBLIC_URL can also come from data/public_url.txt. The PC copy is stopped: run ONE copy only.
 To update the NAS: copy changed files into the share, then Project -> Build. See NAS.md.
 
