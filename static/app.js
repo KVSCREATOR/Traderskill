@@ -79,10 +79,15 @@ function sourceAlert(p) {
 
 /* stock drop-down: every Nifty 250 stock */
 function stockSelect(cur) {
-  const opt = u => `<option value="${esc(u.symbol)}" ${u.symbol === cur ? 'selected' : ''}>${esc(u.symbol)} — ${esc(u.name)}</option>`;
-  const known = S.universe.some(u => u.symbol === cur);
-  return `<select class="stockpick" aria-label="Choose a stock from the Nifty 250">
+  // "My holdings" group first, only while Zerodha is connected; the current stock is selected once, in the first group it appears in
+  const held = typeof heldSyms === 'function' ? heldSyms() : [];
+  const names = Object.fromEntries(S.universe.map(u => [u.symbol, u.name]));
+  let picked = false;
+  const opt = u => { const sel = u.symbol === cur && !picked; if (sel) picked = true; return `<option value="${esc(u.symbol)}" ${sel ? 'selected' : ''}>${esc(u.symbol)} — ${esc(u.name)}</option>`; };
+  const known = S.universe.some(u => u.symbol === cur) || held.includes(cur);
+  return `<select class="stockpick" aria-label="Choose a stock">
     ${!cur ? '<option value="" selected disabled>Choose from 250 stocks…</option>' : !known ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : ''}
+    ${held.length ? `<optgroup label="◉ My holdings (Zerodha)">${held.map(s => opt({ symbol: s, name: names[s] || s })).join('')}</optgroup>` : ''}
     <optgroup label="Nifty 50">${S.universe.filter(u => u.nifty50).map(opt).join('')}</optgroup>
     <optgroup label="Other large and mid caps">${S.universe.filter(u => !u.nifty50).map(opt).join('')}</optgroup></select>`;
 }
