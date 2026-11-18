@@ -32,9 +32,11 @@ p { margin: 0; }
 
 .shell { display: grid; grid-template-columns: 236px 1fr; min-height: 100%; }
 .side { background: var(--surface); border-right: 1px solid var(--border); padding: 16px 12px; display: flex; flex-direction: column; gap: 12px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
-.brand { display: flex; gap: 10px; align-items: center; padding: 0 8px; }
-.brand b { display: block; font-size: 16px; letter-spacing: -.01em; }
-.brand span { font-size: 11.5px; color: var(--muted); }
+.brand { display: flex; gap: 11px; align-items: center; padding: 0 8px; }
+.brand svg { flex: none; width: 34px; height: 34px; }
+.brand-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.brand b { display: block; font-size: 17px; line-height: 1.1; letter-spacing: -.01em; }
+.brand .brand-mode { align-self: flex-start; font: 600 11px var(--sans); color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
 #nav { display: flex; flex-direction: column; gap: 1px; }
 #nav h3 { margin: 10px 10px 3px; font: 600 10.5px var(--sans); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 #nav a { display: flex; align-items: center; gap: 11px; padding: 5px 10px; border-radius: 9px; color: var(--text); position: relative; }
@@ -182,7 +184,7 @@ dialog .facts { grid-template-columns: 1fr; margin: 14px 0; }
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
   .side { position: static; height: auto; flex-direction: row; align-items: center; padding: 10px 12px; gap: 10px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
-  .brand span, .side-note, #nav small, #nav h3 { display: none; }
+  .brand .brand-mode, .side .credit, .side-note, #nav small, #nav h3 { display: none; }
   #nav { flex-direction: row; }
   #nav a { padding: 7px 10px; white-space: nowrap; }
   #nav i { display: none; }
@@ -236,9 +238,9 @@ td small.chg { display: block; font-size: 11px; opacity: .85; }
 .ctip span { color: var(--muted); }
 .ctip i { font: 600 12px var(--mono); font-style: normal; text-align: right; }
 
-.brand .credit { display: block; margin-top: 3px; font-size: 10.5px; line-height: 1.35; color: var(--muted); }
-.brand .credit a { color: var(--accent); text-decoration: none; }
-.brand .credit a:hover { text-decoration: underline; }
+.side .credit { margin: -4px 8px 0; padding-top: 9px; border-top: 1px solid var(--border); font-size: 10.5px; line-height: 1.45; color: var(--muted); }
+.side .credit a { display: block; color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+.side .credit a:hover { text-decoration: underline; }
 
 /* quick-pick bar of Zerodha holdings */
 #holdbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 28px 0; }
