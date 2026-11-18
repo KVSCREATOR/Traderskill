@@ -140,6 +140,8 @@ Connect finds the chat that pressed Start via getUpdates. Kinds (each on/off): a
 summary. A background watcher thread (started in server main) runs check_alerts + GTT checks every 30 s from
 09:00–15:45 on weekdays, paper books every 5 min, and once a day from 15:45 sends buy signals for
 watchlist + Zerodha holdings, holdings at Exit/Weak (Investing rules) and a daily summary.
+Kind `zerodha`: every ~2 min (09:15–15:45) compares Zerodha positions' day_buy/day_sell qty with the last
+look (state telegram.zsnap) and sends BUY/SELL messages; first look of the day is silent. Read-only (positions).
 
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).

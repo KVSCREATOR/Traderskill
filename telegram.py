@@ -20,7 +20,7 @@ L = None   # longterm module
 K = None   # kite module
 G = None   # gtt module
 
-KINDS = [("alert", "Price alerts ringing"), ("signals", "Buy signals after the close (watchlist and holdings)"),
+KINDS = [("zerodha", "Your real Zerodha buys and sells (seen within ~2 minutes)"), ("alert", "Price alerts ringing"), ("signals", "Buy signals after the close (watchlist and holdings)"),
          ("holdings", "Zerodha holdings at Exit or Weak"), ("paper", "Paper trades: GTT fills, stops, targets, sells"),
          ("summary", "Daily summary at 15:45")]
 _send_lock = threading.Lock()
@@ -247,10 +247,53 @@ def after_close():
         notify("summary", "\n".join(lines))
 
 
+# ----------------------------------------------------------------- your real Zerodha trades
+def zerodha_trades():
+    """Compare today's bought / sold quantities in Zerodha positions with the last look and
+    report the difference. Read-only: uses the same positions read as My holdings.
+    The first look of the day only records, so a restart does not repeat earlier trades."""
+    st = S.load_state()
+    c = _cfg(st)
+    if not c.get("chat_id") or not c["on"].get("zerodha", True):
+        return
+    if not (st.get("kite") or {}).get("token"):
+        return
+    rows = K._rows(K.call("portfolio", {"mode": "positions"}))
+    if not rows and "data" not in K.call("portfolio", {"mode": "positions"}):
+        return
+    today = S.market_clock()["date"]
+    snap = {}
+    for r in rows:
+        key = "%s|%s|%s" % (r.get("tradingsymbol"), r.get("exchange"), r.get("product"))
+        snap[key] = [K._num(r.get("day_buy_quantity")) or 0, K._num(r.get("day_sell_quantity")) or 0,
+                     K._num(r.get("day_buy_price")) or 0, K._num(r.get("day_sell_price")) or 0,
+                     K._num(r.get("day_buy_value")) or 0, K._num(r.get("day_sell_value")) or 0]
+    prev = c.get("zsnap") or {}
+    if prev.get("day") == today:
+        old = prev.get("rows") or {}
+        for key, (bq, sq, bp, sp, bv, sv) in snap.items():
+            ob = old.get(key, [0, 0, 0, 0, 0, 0])
+            sym, exch, prod = key.split("|")
+            if bq > ob[0]:
+                q = bq - ob[0]
+                px = (bv - ob[4]) / q if bv > ob[4] else bp
+                notify("zerodha", "🟢 Zerodha BUY: %g %s at %s (%s, %s) · today's total bought %g" % (q, sym, _rs(px), prod, exch, bq))
+            if sq > ob[1]:
+                q = sq - ob[1]
+                px = (sv - ob[5]) / q if sv > ob[5] else sp
+                notify("zerodha", "🔴 Zerodha SELL: %g %s at %s (%s, %s) · today's total sold %g" % (q, sym, _rs(px), prod, exch, sq))
+    with S._state_lock:
+        st = S.load_state()
+        cc = _cfg(st)
+        cc["zsnap"] = {"day": today, "rows": snap}
+        st["telegram"] = cc
+        S.save_state(st)
+
+
 # ----------------------------------------------------------------- background watcher
 def watcher():
     """Runs for the life of the server. Each job is wrapped so one failure never stops the rest."""
-    last_paper = 0
+    last_paper = last_z = 0
     while True:
         try:
             clk = S.market_clock()
@@ -259,6 +302,12 @@ def watcher():
                 for job in (S.check_alerts, G.check):
                     try:
                         job()
+                    except Exception:  # noqa: BLE001
+                        pass
+                if clk["minute"] >= 555 and time.time() - last_z > 110:   # your Zerodha trades, every ~2 minutes
+                    last_z = time.time()
+                    try:
+                        zerodha_trades()
                     except Exception:  # noqa: BLE001
                         pass
                 if time.time() - last_paper > 300:                 # paper books every 5 minutes
