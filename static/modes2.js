@@ -496,7 +496,7 @@ function makeCollapsible(root) {
     const set = shut => { card.classList.toggle('folded', shut); btn.textContent = shut ? 'Expand ▾' : 'Collapse ▴'; btn.setAttribute('aria-expanded', String(!shut)); };
     btn.onclick = () => { const shut = !card.classList.contains('folded'); set(shut); saved[key] = shut; try { localStorage.setItem('ts.fold', JSON.stringify(saved)); } catch (e) { /* ignore */ } };
     card.insertBefore(btn, card.firstChild);
-    set(!!saved[key]);
+    set(/^Holdings/i.test(key) ? false : !!saved[key]);   // Holdings always opens expanded
   });
 }
 
