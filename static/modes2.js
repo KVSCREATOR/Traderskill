@@ -366,7 +366,7 @@ async function holdingsPage() {
     <div class="card"><h2>Holdings · <span id="hCount">${d.rows.length}</span></h2>${d.rows.length ? `<div class="row tablebar"><input id="hFind" type="search" placeholder="Search stock or sector" style="width:200px">
       <div class="chips" style="margin:0">${[['all', 'All'], ['exit', 'Exit signal'], ['weak', 'Weak'], ['hold', 'Hold'], ['buy', 'Buy signal'], ['up', 'In profit'], ['down', 'In loss'], ['cap', 'Over cap']].map(([k, l]) => `<button class="chip ${k === 'all' ? 'on' : ''}" data-hf="${k}">${l}</button>`).join('')}</div>
       <button class="btn sm" data-sortreset>Default order</button><span class="note" style="margin:0">Click a column heading to sort.</span></div><div class="tablewrap"><table><thead><tr><th>Stock</th><th class="num">Qty</th><th class="num">Avg cost</th><th class="num">Price</th><th class="num">Today</th><th class="num">Value</th><th class="num">Weight</th><th class="num">Profit / loss</th><th>Trend</th><th class="num">From 52w high</th><th>What the ${esc(d.rules_label)} rules say</th></tr></thead><tbody>
-      ${d.rows.map(r => `<tr data-v="${esc(r.verdict || '')}" data-pl="${r.pnl >= 0 ? 'up' : 'down'}" data-cap="${r.flags.some(f => f.includes('cap')) ? 1 : 0}" data-txt="${esc((r.symbol + ' ' + (r.sector || '')).toLowerCase())}"><td class="sym"><a href="#/predictor/${encodeURIComponent(r.symbol)}"><b>${esc(r.symbol)}</b></a><small>${esc(r.sector || r.exchange || '')}${r.flags.length ? ' · <span class="down">' + r.flags.map(esc).join('; ') + '</span>' : ''}</small></td>
+      ${d.rows.map(r => `<tr data-v="${esc(r.verdict || '')}" data-pl="${r.pnl >= 0 ? 'up' : 'down'}" data-cap="${r.flags.some(f => f.includes('cap')) ? 1 : 0}" data-txt="${esc((r.symbol + ' ' + (r.sector || '')).toLowerCase())}"><td class="sym"><a href="#/predictor/${encodeURIComponent(r.symbol)}"><b>${esc(r.symbol)}</b></a><small>${esc(r.sector || r.exchange || '')}${r.flags.length ? ' · <span class="down">' + r.flags.map(esc).join('; ') + '</span>' : ''}</small>${holdDetail(r)}</td>
         <td class="num">${r.qty}</td><td class="num">${r.avg != null ? inr(r.avg) : '–'}</td><td class="num">${r.ltp != null ? inr(r.ltp) : '–'}</td>
         <td class="num ${cls(r.day_pct)}">${r.day_pct != null ? sgn(r.day_pct) : '–'}</td><td class="num">${inr(r.value, 0)}</td><td class="num">${(r.value / tot * 100).toFixed(1)}%</td>
         <td class="num ${cls(r.pnl)}">${money(r.pnl)}<small class="chg" style="display:block">${r.pnl_pct != null ? sgn(r.pnl_pct) : ''}</small></td>
@@ -424,6 +424,24 @@ function holdBar(name) {
     else if (location.hash === '#/' + name) route(); else location.hash = '#/' + name;
   });
 }
+const LABELS = { live_balance: 'Live balance', opening_balance: 'Opening balance', cash: 'Cash', collateral: 'Collateral (pledged)', intraday_payin: 'Added today',
+  adhoc_margin: 'Ad-hoc margin', debits: 'Used (debits)', exposure: 'Exposure', span: 'SPAN', option_premium: 'Option premium', holding_sales: 'Holding sales',
+  turnover: 'Turnover', payout: 'Withdrawal requested', m2m_realised: 'Realised M2M', m2m_unrealised: 'Unrealised M2M', delivery: 'Delivery' };
+const nice = k => LABELS[k] || k.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+function holdDetail(r) {
+  const x = r.detail; if (!x) return '';
+  const q = v => v == null ? '–' : v;
+  const f = (k, v) => `<div><span>${k}</span><b class="mono">${v}</b></div>`;
+  return `<details class="hdet"><summary>Details</summary><div class="facts">
+    ${f('Exchange · product', esc((x.exchange || '–') + ' · ' + (x.product || '–')))}${f('ISIN', esc(x.isin || '–'))}
+    ${f('Settled qty', q(x.settled_qty))}${f('T1 qty (not yet settled)', q(x.t1_qty))}
+    ${f('Opening qty', q(x.opening_qty))}${f('Realised qty', q(x.realised_qty))}
+    ${f('Used today (sold)', q(x.used_qty))}${f('Pledged / collateral qty', q(x.collateral_qty) + (x.collateral_type ? ' · ' + esc(x.collateral_type) : ''))}
+    ${f('Authorised to sell (TPIN)', q(x.authorised_qty) + (x.authorised_date ? ' · ' + esc(String(x.authorised_date).slice(0, 10)) : ''))}${f("Yesterday's close", x.close != null ? inr(x.close) : '–')}
+    ${f('Day change', x.day_change != null ? inr(x.day_change) + (x.day_change_pct != null ? ' (' + sgn(x.day_change_pct) + ')' : '') : '–')}${f('P&amp;L as Zerodha shows it', x.zerodha_pnl != null ? inr(x.zerodha_pnl, 0) : '–')}
+    ${x.mtf ? f('MTF (margin trading)', esc(Object.entries(x.mtf).map(([k, v]) => nice(k) + ' ' + v).join(', '))) : ''}
+    ${x.discrepancy ? f('Data check', '<span class="down">Zerodha flags a quantity mismatch</span>') : ''}</div></details>`;
+}
 async function extrasBox(box) {
   if (!box) return;
   let x; try { x = await api('/api/kite/extras'); } catch (e) { box.innerHTML = failBox(e); return; }
@@ -432,12 +450,21 @@ async function extrasBox(box) {
   box.innerHTML = `${f ? `<div class="kv" style="margin:0 0 14px"><div><span>Funds available (equity)</span><b>${f.net != null ? inr(f.net, 0) : '–'}</b></div><div><span>Cash balance</span><b>${f.cash != null ? inr(f.cash, 0) : '–'}</b></div>
       <div><span>Mutual funds value</span><b>${inr(mfv, 0)}</b></div><div class="${mfv - mfc >= 0 ? 'tile-up' : 'tile-down'}"><span>Mutual funds profit / loss</span><b>${money(mfv - mfc)}${mfc ? ' (' + sgn((mfv / mfc - 1) * 100) + ')' : ''}</b></div></div>` : ''}
     <div class="card"><h2>Open positions · ${x.positions.length}</h2>${x.positions.length ? `<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Product</th><th class="num">Qty</th><th class="num">Avg</th><th class="num">Price</th><th class="num">P&amp;L</th></tr></thead><tbody>
-      ${x.positions.map(p => `<tr><td class="mono"><b>${esc(p.symbol)}</b></td><td>${esc(p.product || '')}</td><td class="num">${p.qty}</td><td class="num">${p.avg != null ? inr(p.avg) : '–'}</td><td class="num">${p.ltp != null ? inr(p.ltp) : '–'}</td><td class="num ${cls(p.pnl)}">${money(p.pnl)}</td></tr>`).join('')}</tbody></table></div>`
+      ${x.positions.map(p => `<tr><td class="mono"><b>${esc(p.symbol)}</b><small class="muted" style="display:block">${esc(p.exchange || '')}${p.overnight_qty ? ' · overnight ' + p.overnight_qty : ''}${p.day_buy || p.day_sell ? ' · today +' + (p.day_buy || 0) + ' / −' + (p.day_sell || 0) : ''}${p.realised ? ' · realised ' + inr(p.realised, 0) : ''}</small></td><td>${esc(p.product || '')}</td><td class="num">${p.qty}</td><td class="num">${p.avg != null ? inr(p.avg) : '–'}</td><td class="num">${p.ltp != null ? inr(p.ltp) : '–'}</td><td class="num ${cls(p.pnl)}">${money(p.pnl)}</td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty">No open intraday or overnight positions.</div>'}</div>
     <div class="card"><h2>Mutual funds (Coin) · ${x.mfs.length}</h2>${x.mfs.length ? `<div class="tablewrap"><table><thead><tr><th>Fund</th><th class="num">Units</th><th class="num">Avg NAV</th><th class="num">NAV</th><th class="num">Value</th><th class="num">Profit / loss</th></tr></thead><tbody>
       ${x.mfs.map(m => `<tr><td>${esc(m.fund)}<small class="muted" style="display:block">NAV date ${esc(m.nav_date || '–')}</small></td><td class="num">${m.units.toFixed(3)}</td><td class="num">${inr(m.avg)}</td><td class="num">${inr(m.nav)}</td><td class="num">${inr(m.value, 0)}</td>
         <td class="num ${cls(m.pnl)}">${money(m.pnl)}<small class="chg" style="display:block">${m.pnl_pct != null ? sgn(m.pnl_pct) : ''}</small></td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty">No mutual funds in Coin.</div>'}</div>
+    ${Object.keys(x.margins || {}).length ? `<div class="card"><h2>Funds and margins</h2><div class="grid2">${Object.entries(x.margins).map(([seg, m]) => `<div>
+      <h2 style="margin-bottom:8px">${seg === 'equity' ? 'Equity' : 'Commodity'}${m.enabled === false ? ' · not enabled' : ''} · net ${m.net != null ? inr(m.net, 0) : '–'}</h2>
+      <div class="facts" style="grid-template-columns:1fr">${Object.entries(m.available).map(([k, v]) => `<div><span>${esc(nice(k))}</span><b class="mono">${inr(v, 0)}</b></div>`).join('')}
+      ${Object.entries(m.utilised).filter(([, v]) => v).map(([k, v]) => `<div><span>Used · ${esc(nice(k))}</span><b class="mono">${inr(v, 0)}</b></div>`).join('')}</div></div>`).join('')}</div></div>` : ''}
+    ${x.profile ? `<div class="card"><h2>Zerodha account</h2><div class="facts">
+      <div><span>Name</span><b>${esc(x.profile.name || '–')}</b></div><div><span>Client ID</span><b class="mono">${esc(x.profile.user_id || '–')}</b></div>
+      <div><span>Broker · account type</span><b>${esc((x.profile.broker || '–') + ' · ' + (x.profile.type || '–'))}</b></div><div><span>Demat consent</span><b>${esc(x.profile.demat_consent || '–')}</b></div>
+      <div><span>Exchanges</span><b>${esc(x.profile.exchanges || '–')}</b></div><div><span>Products</span><b>${esc(x.profile.products || '–')}</b></div></div>
+      <p class="note" style="margin-top:8px">Read-only. The portal cannot place, change or cancel orders.</p></div>` : ''}
     ${x.errors.length ? `<p class="note down">${x.errors.map(esc).join(' · ')}</p>` : ''}`;
 }
 

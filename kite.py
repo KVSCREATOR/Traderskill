@@ -343,7 +343,16 @@ def holdings(mode="invest"):
                "cost": cost, "pnl": value - cost, "pnl_pct": (value / cost - 1) * 100 if cost else None,
                "day_pct": (ltp / close - 1) * 100 if ltp and close else _num(h.get("day_change_percentage")),
                "day_pnl": (ltp - close) * qty if ltp and close else None,
-               "sector": S.UNIVERSE.get(sym, {}).get("industry", ""), "flags": []}
+               "sector": S.UNIVERSE.get(sym, {}).get("industry", ""), "flags": [],
+               "detail": {"exchange": h.get("exchange"), "isin": h.get("isin"), "product": h.get("product"),
+                          "settled_qty": _num(h.get("quantity")), "t1_qty": _num(h.get("t1_quantity")),
+                          "realised_qty": _num(h.get("realised_quantity")), "opening_qty": _num(h.get("opening_quantity")),
+                          "used_qty": _num(h.get("used_quantity")), "authorised_qty": _num(h.get("authorised_quantity")),
+                          "authorised_date": h.get("authorised_date"), "collateral_qty": _num(h.get("collateral_quantity")),
+                          "collateral_type": h.get("collateral_type"), "close": close,
+                          "day_change": _num(h.get("day_change")), "day_change_pct": _num(h.get("day_change_percentage")),
+                          "zerodha_pnl": _num(h.get("pnl")), "discrepancy": bool(h.get("discrepancy")),
+                          "mtf": {k_: v_ for k_, v_ in (h.get("mtf") or {}).items() if _num(v_)} or None}}
         try:
             ind = L.indicators(L.history(sym)["bars"])
             i = len(ind["c"]) - 1
@@ -416,7 +425,7 @@ def _rows(r):
 
 def extras():
     """Positions, mutual funds and funds (all read-only)."""
-    out = {"positions": [], "mfs": [], "funds": None, "errors": []}
+    out = {"positions": [], "mfs": [], "funds": None, "margins": {}, "profile": None, "errors": []}
     try:
         for p in _rows(call("portfolio", {"mode": "positions"})):
             qty = _num(p.get("quantity")) or 0
@@ -424,7 +433,9 @@ def extras():
                 continue
             out["positions"].append({"symbol": p.get("tradingsymbol"), "product": p.get("product"), "qty": qty,
                                      "avg": _num(p.get("average_price")), "ltp": _num(p.get("last_price")),
-                                     "pnl": _num(p.get("pnl")) or 0})
+                                     "pnl": _num(p.get("pnl")) or 0, "exchange": p.get("exchange"),
+                                     "overnight_qty": _num(p.get("overnight_quantity")), "day_buy": _num(p.get("day_buy_quantity")),
+                                     "day_sell": _num(p.get("day_sell_quantity")), "realised": _num(p.get("realised"))})
     except Exception as e:  # noqa: BLE001
         out["errors"].append("Positions: %s" % str(e)[:100])
     try:
@@ -442,6 +453,20 @@ def extras():
         av = eq.get("available") or {}
         out["funds"] = {"net": _num(eq.get("net")), "cash": _num(av.get("live_balance") or av.get("cash")),
                         "used": _num((eq.get("utilised") or {}).get("debits"))}
+        for seg in ("equity", "commodity"):
+            s_ = m.get(seg) or {}
+            if s_:
+                out["margins"][seg] = {"enabled": s_.get("enabled"), "net": _num(s_.get("net")),
+                                       "available": {k_: _num(v_) for k_, v_ in (s_.get("available") or {}).items() if _num(v_) is not None},
+                                       "utilised": {k_: _num(v_) for k_, v_ in (s_.get("utilised") or {}).items() if _num(v_) is not None}}
     except Exception as e:  # noqa: BLE001
         out["errors"].append("Funds: %s" % str(e)[:100])
+    try:   # profile: name, client ID and segments only (no e-mail, no photo)
+        p = call("portfolio", {"mode": "profile"}).get("data") or {}
+        lst = lambda v: ", ".join(v) if isinstance(v, list) else (v or "")  # noqa: E731
+        out["profile"] = {"name": p.get("user_name"), "user_id": p.get("user_id"), "broker": p.get("broker"),
+                          "type": p.get("user_type"), "exchanges": lst(p.get("exchanges")), "products": lst(p.get("products")),
+                          "demat_consent": (p.get("meta") or {}).get("demat_consent")}
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append("Profile: %s" % str(e)[:100])
     return out
