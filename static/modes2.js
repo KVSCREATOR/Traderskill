@@ -519,3 +519,20 @@ document.addEventListener('input', e => {
   const q = inp.value.trim().toLowerCase(), tbody = inp.closest('.card')?.querySelector('tbody'); if (!tbody) return;
   [...tbody.rows].forEach(r => { if (r.cells.length > 1) r.hidden = !!q && !r.innerText.toLowerCase().includes(q); });
 });
+
+
+/* ---------------------------------------------------------------- scrolling index strip */
+async function tickerLoad() {
+  let d; try { d = await api('/api/indices'); } catch (e) { return; }
+  const box = $('#ticker'), run = $('#tkRun'); if (!box || !d.rows.length) return;
+  const open = d.clock && d.clock.open;
+  box.querySelector('.tk-live b').textContent = open ? 'Live' : 'Closed';
+  box.classList.toggle('closed', !open);
+  const item = r => `<span class="tk-it"><b>${esc(r.name)}</b> ${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+    ${r.pct == null ? '' : `<span class="${r.pct >= 0 ? 'up' : 'down'}">${r.pct >= 0 ? '▲ +' : '▼ '}${r.pct.toFixed(2)}%</span>`}</span>`;
+  const html = d.rows.map(item).join('');
+  run.innerHTML = html + html;   // twice, so the loop is seamless
+  run.style.animationDuration = Math.max(45, d.rows.length * 6) + 's';
+  box.hidden = false;
+}
+addEventListener("load", () => { tickerLoad(); setInterval(tickerLoad, 60000); });

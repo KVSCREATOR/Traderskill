@@ -265,3 +265,16 @@ thead th[data-dir="desc"]::after { content: " ▼"; color: var(--accent); }
 .hnews a { display: block; color: var(--text); margin-bottom: 4px; line-height: 1.35; }
 .hnews a.tone-pos { color: var(--pass); } .hnews a.tone-neg { color: var(--fail); }
 .hnews small { color: var(--muted); } .hnews small a { display: inline; color: var(--accent); }
+
+/* scrolling index strip */
+.ticker { display: flex; align-items: center; height: 38px; background: var(--surface); border-bottom: 1px solid var(--border); overflow: hidden; }
+.tk-live { flex: none; display: flex; align-items: center; gap: 7px; padding: 0 14px; height: 100%; border-right: 1px solid var(--border); font: 600 13px var(--sans); color: var(--muted); }
+.tk-live i { width: 8px; height: 8px; border-radius: 50%; background: var(--pass); }
+.ticker.closed .tk-live i { background: var(--muted); }
+.tk-view { overflow: hidden; flex: 1; }
+.tk-run { display: flex; gap: 34px; width: max-content; white-space: nowrap; padding-left: 20px; animation: tkscroll 60s linear infinite; }
+.ticker:hover .tk-run { animation-play-state: paused; }
+.tk-it { font: 15px var(--mono); color: var(--muted); }
+.tk-it b { color: var(--text); font-weight: 600; margin-right: 4px; }
+@keyframes tkscroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .tk-run { animation: none; } .tk-view { overflow-x: auto; } }

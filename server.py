@@ -1299,6 +1299,28 @@ def close_position(body):
 
 
 # ----------------------------------------------------------------- http
+INDICES = [("NIFTY 50", "^NSEI"), ("SENSEX", "^BSESN"), ("BANK NIFTY", "^NSEBANK"), ("FIN NIFTY", "NIFTY_FIN_SERVICE.NS"),
+           ("NIFTY IT", "^CNXIT"), ("MIDCAP 100", "NIFTY_MIDCAP_100.NS"), ("SMALLCAP 100", "^CNXSC"),
+           ("NIFTY AUTO", "^CNXAUTO"), ("NIFTY PHARMA", "^CNXPHARMA"), ("INDIA VIX", "^INDIAVIX")]
+
+
+def indices():
+    """Index levels for the scrolling strip (free Yahoo quotes, cached 60 s)."""
+    def one(item):
+        name, ys = item
+        try:
+            m = json.loads(fetch("https://query1.finance.yahoo.com/v8/finance/chart/%s?range=1d&interval=5m"
+                                 % urllib.parse.quote(ys, safe=""), 60))["chart"]["result"][0]["meta"]
+            px, prev = m.get("regularMarketPrice"), m.get("chartPreviousClose") or m.get("previousClose")
+            return {"name": name, "price": px, "change": px - prev if px and prev else None,
+                    "pct": (px / prev - 1) * 100 if px and prev else None}
+        except Exception:  # noqa: BLE001
+            return None
+    with ThreadPoolExecutor(10) as ex:
+        rows = [r for r in ex.map(one, INDICES) if r and r["price"]]
+    return {"rows": rows, "clock": market_clock()}
+
+
 def api(method, path, q, body):
     mode = q.get("mode") or (body or {}).get("mode") or "intraday"
     if mode not in longterm.LABEL:
@@ -1367,6 +1389,8 @@ def api(method, path, q, body):
         if not long_mode:
             raise ApiError(400, "The forward test is for Trading and Investing modes.")
         return longterm.journal(mode)
+    if path == "/api/indices":
+        return indices()
     if path == "/api/earnings":
         return earnings(clean_symbol(q.get("symbol")))
     if path == "/api/news":
