@@ -488,7 +488,7 @@ async function extrasBox(box) {
 function makeCollapsible(root) {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem('ts.fold') || '{}'); } catch (e) { /* ignore */ }
   root.querySelectorAll('.card').forEach(card => {
-    const h = card.querySelector('h2'); if (!h || card.dataset.fold || /^Holdings/i.test(h.textContent.trim())) return;
+    const h = card.querySelector('h2'); if (!h || card.dataset.fold) return;
     const key = h.textContent.replace(/[·\d,]+/g, '').trim().slice(0, 40);
     card.dataset.fold = key;
     const btn = document.createElement('button');
