@@ -25,7 +25,7 @@ KINDS = [("hello", "Greeting when the NAS / portal starts"), ("morning", "Mornin
          ("update", "08:45 update, only if the morning reading changed"), ("login", "Zerodha login reminders (every 30 min until signed in)"),
          ("signin", "First Zerodha login of the day: holdings, funds, mutual funds, limits"),
          ("stopalert", "A holding falls below its rule stop"), ("move", "Big market move: NIFTY ±1.5% or VIX above 20"),
-         ("weekly", "Sunday 10:00 weekly summary"), ("plan", "09:32 Day plan: market, your holdings, best setups"),
+         ("weekly", "Sunday 10:00 weekly summary"), ("gtt", "GTT saved: details + Zerodha GTT link"), ("plan", "09:32 Day plan: market, your holdings, best setups"),
          ("close", "15:32 Market close summary"), ("eod", "15:35 Your holdings: today's gains and losses, rule actions"),
          ("zerodha", "Your real Zerodha buys and sells (seen within ~2 minutes)"), ("alert", "Price alerts ringing"),
          ("paper", "Paper trades: GTT fills, stops, targets, sells")]

@@ -320,7 +320,10 @@ def _save_holdings(rows):
         S.save_state(st)
 
 
-BUILDERS = {"morning": morning, "plan": plan, "close": close, "eod": eod}
+BUILDERS = {"morning": lambda: D.morning_plan()[0],
+            "update": lambda: D.morning_update() or "08:45 update: nothing changed since the morning plan (normally not sent).",
+            "login": lambda: D.login_text(), "signin": lambda: D.signin_text() or "Zerodha is not connected: no sign-in summary.",
+            "plan": plan, "close": close, "eod": eod, "weekly": lambda: D.weekly()}
 
 
 def run(kind):

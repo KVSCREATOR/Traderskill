@@ -106,6 +106,10 @@ def login_link():
     return "%s/kite/go?t=%s" % (base, _sig(_today()))
 
 
+def portal_link():
+    return S.PUBLIC_URL or "http://127.0.0.1:%d" % S.PORT
+
+
 def link_ok(t):
     """The link works on the day it was sent (and the morning after, for a late tap)."""
     days = [_today(), (_now().date() - timedelta(days=1)).isoformat()]
@@ -202,7 +206,7 @@ def morning_plan(update=False):
         if res:
             msg.append("\n📅 Results expected about today/tomorrow (estimate): " + ", ".join(res))
         msg.append("\nToday's routine: Zerodha login reminder now, final plan at 09:32 after the opening.")
-    msg += [_track_line(), "A reading of news and overnight cues, not a forecast. " + NOTE]
+    msg += [_track_line(), "🌐 Portal: %s" % portal_link(), "A reading of news and overnight cues, not a forecast. " + NOTE]
     R._save_call(_tone_for_track(r["tone"]), r["score"])
     _flag("morning_reading", {"day": _today(), "tone": r["tone"], "ids": [h["id"] for h in r["news"]]})
     return "\n".join(msg), r
@@ -282,7 +286,8 @@ def on_start():
     except Exception:  # noqa: BLE001
         web = "⚠️"
     lines = ["%s! Your NAS and Tradeskill are live (started %s IST)." % (greeting(m), started),
-             "Checks: portal %s · Telegram ✅ · Zerodha %s" % (web, "✅ signed in" if connected() else "🔑 needs login")]
+             "Checks: portal %s · Telegram ✅ · Zerodha %s" % (web, "✅ signed in" if connected() else "🔑 needs login"),
+             "🌐 Open the portal: %s" % portal_link()]
     if not trading:
         lines.append("Market closed today (weekend or NSE holiday).")
     if m >= 1020:   # evening start
@@ -320,7 +325,8 @@ def login_reminder(force=False):
     later = bool(_flag("signin_sent") == _today())
     msg = ["🔑 %s Zerodha login needed%s." % ("Again:" if later else "", " (it ended during the day)" if later else ""),
            "Tap to sign in (one step, opens Zerodha's login on your phone):", login_link(),
-           "Works on your home Wi-Fi (or Tailscale). Reminders every 30 min until you sign in; last at 15:30."]
+           "🌐 Portal: %s" % portal_link(),
+           "Keep Tailscale on. Reminders every 30 min until you sign in; last at 15:30."]
     _flag("login_last", {"day": _today(), "at": time.time()})
     _send("login", "\n".join(msg))
 
@@ -342,9 +348,20 @@ def _fit_lines(h):
 
 def signin_summary():
     """After the day's first Zerodha login: everything in one message."""
+    text = signin_text()
+    if text:
+        _send("signin", text)
+
+
+def login_text():
+    return "\n".join(["🔑 Zerodha login (tap to sign in, Tailscale on):", login_link(), "🌐 Portal: %s" % portal_link(),
+                      "Reminders every 30 min from 07:00 until you sign in; last at 15:30 (trading days)."])
+
+
+def signin_text():
     h = K.holdings("invest")
     if not h.get("connected") or "rows" not in h:
-        return
+        return None
     try:
         x = K.extras()
     except Exception:  # noqa: BLE001
@@ -372,8 +389,9 @@ def signin_summary():
     if fit:
         msg.append("\n⚠️ Your own limits: " + "; ".join(fit))
     msg.append(NOTE)
+    msg.insert(len(msg) - 1, "🌐 Portal: %s" % portal_link())
     R._save_holdings(h["rows"])
-    _send("signin", "\n".join(msg))
+    return "\n".join(msg)
 
 
 def after_login():
@@ -587,6 +605,14 @@ def tick():
         except OSError:
             pass
         threading.Thread(target=test_all, name="notify-test", daemon=True).start()
+    flag = os.path.join(S.DATA, "send_login_link.flag")   # one-shot: send a fresh Zerodha login link now
+    if os.path.exists(flag):
+        try:
+            os.remove(flag)
+        except OSError:
+            pass
+        _send("login", "\n".join(["🔑 Zerodha login (tap to sign in, Tailscale on):", login_link(),
+                                   "🌐 Open the portal: %s" % portal_link(), "Tip: pin this message for quick access."]))
     m = _min()
     for job in (lambda: login_reminder(),):
         try:

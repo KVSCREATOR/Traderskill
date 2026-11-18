@@ -410,17 +410,23 @@ def held():
     out = {"connected": False, "symbols": []}
     try:
         if _kite(S.load_state()).get("token"):
-            r = call("portfolio", {"mode": "holdings", "type": "compact", "limit": 500})
+            r = call("portfolio", {"mode": "holdings", "type": "full", "limit": 500})
             rows = r.get("data")
             if isinstance(rows, dict):
                 rows = rows.get("data") or []
             if isinstance(rows, list):
-                syms = []
+                syms, items = [], []
                 for h in rows:
                     sym = (h.get("tradingsymbol") or h.get("symbol") or "").upper()
-                    if sym and sym not in syms:
-                        syms.append(sym)
-                out = {"connected": True, "symbols": syms}
+                    qty = (_num(h.get("quantity")) or 0) + (_num(h.get("t1_quantity")) or 0)
+                    if not sym or sym in syms or not qty:   # skip sold-out rows (0 shares)
+                        continue
+                    syms.append(sym)
+                    avg, ltp, close = _num(h.get("average_price")), _num(h.get("last_price")), _num(h.get("close_price"))
+                    items.append({"symbol": sym, "qty": qty, "ltp": ltp,
+                                  "day_pct": (ltp / close - 1) * 100 if ltp and close else _num(h.get("day_change_percentage")),
+                                  "pnl_pct": (ltp / avg - 1) * 100 if ltp and avg else None})
+                out = {"connected": True, "symbols": syms, "items": items}
     except Exception:  # noqa: BLE001
         pass
     _held.update(at=time.time(), data=out)

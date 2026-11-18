@@ -260,11 +260,14 @@ function gttBtn(p) {
 }
 function gttDialog(p) {
   const pl = p.plan || {}, intra = p.mode === 'intraday' || S.mode === 'intraday', d = $('#dlg');
-  const trig = pl.trigger || pl.entry || p.price, open = p.clock && p.clock.open;
+  // pl.trigger is a price in Scalping but a yes/no flag in Trading/Investing: never use a flag as a price
+  const trig = (typeof pl.trigger === 'number' ? pl.trigger : null) || pl.entry || p.price, open = p.clock && p.clock.open;
+  const sugg = p.size && p.size.qty ? p.size.qty : null;
   const num = (id, label, v, ph = '') => `<label>${label}<input id="${id}" type="number" step="0.05" min="0" value="${v != null ? (+v).toFixed(2) : ''}" placeholder="${ph}"></label>`;
   $('#dlgBody').innerHTML = `<h3>GTT order · ${esc(p.symbol)} · ${esc(MODES[S.mode].label)}</h3>
     <p class="note">Good Till Triggered: the paper broker buys automatically when the price reaches your trigger. ${open ? 'The market is open now; the GTT is checked from' : 'Set it now while the market is closed; it is checked from'} ${intra ? 'the next session, inside your entry window, for that one session only' : 'the next session on, for up to 1 year'}. Paper only: nothing is sent to any broker.</p>
     <div class="grid">${num('gTrig', 'Trigger price (₹)', trig)}
+      <label>Quantity (shares) · blank = size by your limits<input id="gQty" type="number" step="1" min="1" value="${sugg || ''}" placeholder="${sugg ? 'suggested ' + sugg : 'auto'}"></label>
       ${intra ? num('gStop', 'Stop (₹)', pl.stop) + num('gTgt', 'Target (₹)', pl.target)
         : num('gStop', 'Stop (₹) · blank = rule stop', null, 'auto: ' + (pl.stop ? pl.stop.toFixed(2) : 'ATR rule'))}</div>
     <p class="note">Last price ${inr(p.price)}. <b>Trigger above the price</b> = breakout, filled the way the rules trade it: ${intra ? 'on the first completed 5-minute bar that closes at or above the trigger' : 'at the next day’s open after a daily close at or above the trigger, skipped if that open has run too far'}. <b>Trigger below the price</b> = dip buy, filled when the price touches it. Shares are sized and risk-checked at the fill with your limits.</p>
@@ -273,7 +276,7 @@ function gttDialog(p) {
   $('#gGo').onclick = async e => {
     e.preventDefault();
     const v = id => { const x = $('#' + id); return x && x.value !== '' ? +x.value : null; };
-    const body = { symbol: p.symbol, trigger: v('gTrig'), stop: v('gStop'), confirm: true };
+    const body = { symbol: p.symbol, trigger: v('gTrig'), stop: v('gStop'), qty: v('gQty'), confirm: true };
     if (intra) body.target = v('gTgt');
     $('#gGo').disabled = true;
     try { await api('/api/gtt', body); d.close(); toast(`GTT set: buy ${p.symbol} at ${inr(body.trigger)}.`); }
@@ -422,7 +425,12 @@ function holdBar(name) {
   const syms = heldSyms();
   if (!syms.length || !PICK_VIEWS[name]) { bar.hidden = true; return; }
   bar.hidden = false;
-  bar.innerHTML = `<span class="muted">◉ My holdings</span>${syms.map(x => `<button class="chip" data-hp="${esc(x)}">${esc(x)}</button>`).join('')}`;
+  const by = Object.fromEntries(((S.held && S.held.items) || []).map(h => [h.symbol, h]));
+  // 7 shades by profit %: dark red <= -10, red -10..-5, light red -5..-1, white -1..+1, light green +1..+5, green +5..+10, dark green >= +10
+  const shade = p => p == null ? 'pl0' : p <= -10 ? 'plm3' : p <= -5 ? 'plm2' : p <= -1 ? 'plm1' : p < 1 ? 'pl0' : p < 5 ? 'plp1' : p < 10 ? 'plp2' : 'plp3';
+  bar.innerHTML = `<span class="muted">◉ My holdings</span>${syms.map(x => { const p = by[x] && by[x].pnl_pct;
+    return `<button class="chip pl ${shade(p)}" data-hp="${esc(x)}" title="${esc(x)}${p != null ? ' · profit ' + (p >= 0 ? '+' : '') + p.toFixed(1) + '%' : ''}">${esc(x)}${p != null ? `<small>${p >= 0 ? '+' : ''}${p.toFixed(1)}%</small>` : ''}</button>`; }).join('')}
+    <span class="pl-key" title="Colour = profit or loss on your average cost"><i class="plm3"></i><i class="plm2"></i><i class="plm1"></i><i class="pl0"></i><i class="plp1"></i><i class="plp2"></i><i class="plp3"></i></span>`;
   bar.querySelectorAll('[data-hp]').forEach(b => b.onclick = () => {
     const sym = b.dataset.hp; S.lastSymbol = sym; try { localStorage.setItem('ts.symbol', sym); } catch (e) { /* ignore */ }
     if (['predictor', 'news', 'earnings'].includes(name)) location.hash = `#/${name}/${encodeURIComponent(sym)}`;
@@ -549,7 +557,8 @@ async function tickerLoad() {
   const open = d.clock && d.clock.open;
   box.querySelector('.tk-live b').textContent = open ? 'Live' : 'Closed';
   box.classList.toggle('closed', !open);
-  const item = r => `<span class="tk-it"><b>${esc(r.name)}</b> ${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+  // stock names link to their prediction page (index / world names are not single stocks)
+  const item = r => `<span class="tk-it">${r.link ? `<a class="tk-a" href="#/predictor/${encodeURIComponent(r.name)}" title="Open ${esc(r.name)}">${esc(r.name)}</a>` : `<b>${esc(r.name)}</b>`} ${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
     ${r.pct == null ? '' : `<span class="${r.pct >= 0 ? 'up' : 'down'}">${r.pct >= 0 ? '▲ +' : '▼ '}${r.pct.toFixed(2)}%</span>`}</span>`;
   // each line holds its items twice for a seamless loop; the duration follows the line's length,
   // so all three lines move at the same speed on screen
@@ -567,7 +576,11 @@ async function tickerLoad() {
     el.dataset.sig = sig; el.dataset.kept = '';
     el.closest('.tk-line').hidden = !list.length;
   };
-  fill($('#tkN50'), d.nifty50 || []); fill(run, d.rows); fill($('#tkWorld'), d.world || []);
+  fill($('#tkN50'), (d.nifty50 || []).map(r => Object.assign({ link: true }, r))); fill(run, d.rows); fill($('#tkWorld'), d.world || []);
+  // your Zerodha holdings: only while Zerodha is connected (hidden otherwise)
+  if (Date.now() - (S.heldAt || 0) > 60000) await loadHeld();
+  const mine = heldSyms().length ? (S.held.items || []).filter(h => h.ltp).map(h => ({ name: h.symbol, price: h.ltp, pct: h.day_pct, link: true })) : [];
+  const mineEl = $('#tkMine'); if (mineEl) { fill(mineEl, mine); mineEl.closest('.tk-line').hidden = !mine.length; }
   box.hidden = false;
   setTimeout(() => box.querySelectorAll('.tk-run').forEach(el => {
     if (el.dataset.kept) return;   // numbers updated in place: keep the running speed
@@ -579,6 +592,15 @@ addEventListener("load", () => { tickerLoad(); setInterval(tickerLoad, 60000); }
 
 
 /* ---------------------------------------------------------------- Telegram (send-only) on the Limits page */
+// when each Telegram message goes out, and its group (shown in the settings table)
+const TG_WHEN = {
+  hello: ['On NAS start', 'System'], morning: ['First start after 06:00', 'Morning'], update: ['08:45 if changed', 'Morning'],
+  login: ['From 07:00, every 30 min', 'Zerodha'], signin: ['First login of the day', 'Zerodha'], plan: ['09:32', 'Market'],
+  stopalert: ['Market hours', 'Alerts'], move: ['Market hours', 'Alerts'], alert: ['When it rings', 'Alerts'],
+  zerodha: ['Within ~2 min', 'Zerodha'], paper: ['When it happens', 'Paper'], close: ['15:32', 'Market'], eod: ['15:35', 'Market'],
+  weekly: ['Sunday 10:00', 'Weekly'], gtt: ['When you save a GTT', 'Paper'],
+};
+function tgCollapsed() { try { return localStorage.getItem('ts.tgCollapsed') === '1'; } catch (e) { return false; } }
 async function tgCard(box) {
   if (!box) return;
   let d; try { d = await api('/api/telegram'); } catch (e) { box.innerHTML = '<h2>Telegram notifications</h2>' + failBox(e); return; }
@@ -595,12 +617,21 @@ async function tgCard(box) {
   else body = `<div class="row" style="margin-bottom:12px"><span class="pill pass">Connected to ${esc(d.name || 'you')}</span>
       <button class="btn sm" id="tgTest">Send test message</button><button class="btn sm" id="tgOff">Disconnect</button>
       ${d.last_sent ? `<span class="note">Last message ${esc(d.last_sent.slice(5, 16))}</span>` : ''}</div>
-      <div class="facts" style="grid-template-columns:1fr">${d.kinds.map(([k, l]) => `<div><span>${esc(l)}</span>
-        <label class="row" style="flex-direction:row;gap:6px;font-weight:500"><input type="checkbox" data-tg="${k}" ${d.on[k] ? 'checked' : ''}> ${d.on[k] ? 'On' : 'Off'}</label></div>`).join('')}</div>`;
-  box.innerHTML = `<h2>Telegram notifications</h2>${body}
+      <div class="row tablebar" style="margin:0 0 10px"><span class="note" style="margin:0">${d.kinds.filter(([k]) => d.on[k]).length} of ${d.kinds.length} switched on</span>
+        <button class="btn sm" data-tgall="1">All on</button><button class="btn sm" data-tgall="0">All off</button></div>
+      <div class="tablewrap"><table class="tgtable"><thead><tr><th class="num">#</th><th>Message</th><th>When</th><th>Group</th><th class="num">On / off</th></tr></thead><tbody>
+      ${d.kinds.map(([k, l], i) => { const w = TG_WHEN[k] || ['', 'Other']; const what = l.replace(/^\d\d:\d\d\s*/, '');
+        return `<tr><td class="num muted">${i + 1}</td><td>${esc(what)}</td><td class="mono">${esc(w[0])}</td><td><span class="pill">${esc(w[1])}</span></td>
+        <td class="num"><label class="switch" title="${d.on[k] ? 'On' : 'Off'}"><input type="checkbox" data-tg="${k}" ${d.on[k] ? 'checked' : ''}><span></span></label></td></tr>`; }).join('')}
+      </tbody></table></div>`;
+  box.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="margin:0">Telegram notifications</h2>
+      <button class="btn sm" data-collapse="tg">${tgCollapsed() ? 'Expand ▼' : 'Collapse ▲'}</button></div><div class="cbody" ${tgCollapsed() ? 'hidden' : ''}>${body}
     ${d.last_error ? `<p class="note down" style="margin-top:8px">Last send failed: ${esc(d.last_error)}</p>` : ''}
-    <p class="note" style="margin-top:10px">Send-only: the bot messages you but cannot read commands, buy or sell. Alerts, GTTs and paper exits are checked every 30 seconds in market hours even with no page open; buy signals, holdings and the summary go out once a day at 15:45 IST.</p>`;
+    <p class="note" style="margin-top:10px">Send-only: the bot messages you but cannot read commands, buy or sell. Alerts, GTTs and paper exits are checked every 30 seconds in market hours even with no page open.</p></div>`;
   const act = async (path, body, msg) => { try { await api(path, body || {}); if (msg) toast(msg); tgCard(box); } catch (e) { toast(e.message, 'bad'); } };
+  const cb = box.querySelector('[data-collapse]'); if (cb) cb.onclick = () => { try { localStorage.setItem('ts.tgCollapsed', tgCollapsed() ? '0' : '1'); } catch (e) { /* ignore */ } tgCard(box); };
+  box.querySelectorAll('[data-tgall]').forEach(b => b.onclick = () => act('/api/telegram/settings', { on: Object.fromEntries(d.kinds.map(([k]) => [k, b.dataset.tgall === '1'])) },
+    b.dataset.tgall === '1' ? 'All Telegram messages switched on.' : 'All Telegram messages switched off.'));
   holidayBox(box);
   const c = $('#tgConn'); if (c) c.onclick = () => act('/api/telegram/connect', {}, 'Telegram connected. Check your phone for the test message.');
   const tt = $('#tgTest'); if (tt) tt.onclick = () => act('/api/telegram/test', {}, 'Test message sent.');
@@ -610,8 +641,12 @@ async function tgCard(box) {
 
 
 /* ---------------------------------------------------------------- Notifications: schedule, run now, full history */
-const NKIND = { morning: '08:45 Morning outlook', plan: '09:32 Day plan', close: '15:32 Market close', eod: '15:35 Your holdings',
-  zerodha: 'Zerodha buy/sell', alert: 'Price alert', paper: 'Paper trade' };
+// every message type, in the order of the day (matches the Telegram settings table)
+const NKIND = { hello: 'NAS start greeting', morning: 'Morning plan (first start after 06:00)', update: '08:45 update (if changed)',
+  login: 'Zerodha login link', signin: 'Zerodha sign-in summary', plan: '09:32 Day plan', stopalert: 'Below rule stop', move: 'Big market move',
+  alert: 'Price alert', zerodha: 'Zerodha buy/sell', paper: 'Paper trade', close: '15:32 Market close', eod: '15:35 Your holdings',
+  weekly: 'Sunday 10:00 weekly', gtt: 'GTT saved' };
+const NRUN = ['morning', 'update', 'login', 'signin', 'plan', 'close', 'eod', 'weekly'];
 async function notifPage() {
   const my = S.nav;
   view.innerHTML = head('Notifications', 'Scheduled reports and every message the portal has sent or tried to send.') + loading(2);
@@ -622,9 +657,9 @@ async function notifPage() {
   const draw = () => {
     const rows = d.rows.filter(r => (f === 'all' || r.kind === f) && (!q || r.text.toLowerCase().includes(q)));
     const chips = [['all', 'All']].concat(Object.entries(NKIND)).map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-nk="${k}">${esc(l)}</button>`).join('');
-    view.innerHTML = head('Notifications', `${d.total} logged · newest first · trading days only (weekends and your holiday list are skipped)`,
+    view.innerHTML = head('Notifications', `${d.total} logged · newest first · market reports run on NSE trading days only`,
       '<a class="btn" href="#/settings">Telegram settings</a>') +
-      `<div class="stack"><div class="card"><h2>Run a report now</h2><div class="row">${['morning', 'plan', 'close', 'eod'].map(k => `<button class="btn" data-run="${k}">${esc(NKIND[k])}</button>`).join('')}</div>
+      `<div class="stack"><div class="card"><h2>Run a report now</h2><div class="row" style="flex-wrap:wrap">${NRUN.map(k => `<button class="btn" data-run="${k}">${esc(NKIND[k])}</button>`).join('')}</div>
         <p class="note" style="margin-top:8px">Builds the report from live data right away, logs it here and sends it to Telegram if that kind is switched on. Handy to preview before the scheduled time.</p></div>
       <div class="card"><div class="row tablebar"><input id="nFind" type="search" placeholder="Search messages" value="${esc(q)}" style="width:220px"><div class="chips" style="margin:0">${chips}</div></div>
         ${rows.length ? rows.map(r => `<div class="nlog"><div class="row" style="justify-content:space-between"><b>${esc(NKIND[r.kind] || r.kind)}</b>

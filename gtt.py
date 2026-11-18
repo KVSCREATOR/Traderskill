@@ -44,6 +44,13 @@ def place(mode, body):
     target = body.get("target")
     stop = float(stop) if stop not in (None, "") else None
     target = float(target) if target not in (None, "") else None
+    qty = body.get("qty")
+    try:
+        qty = int(qty) if qty not in (None, "") else None
+    except (TypeError, ValueError):
+        raise S.ApiError(400, "Quantity must be a whole number of shares.")
+    if qty is not None and qty < 1:
+        raise S.ApiError(400, "Quantity must be at least 1 share (or leave it blank to size by your limits).")
     if mode == "intraday":
         if stop is None or target is None:
             raise S.ApiError(400, "Scalping GTTs need a stop and a target.")
@@ -59,7 +66,7 @@ def place(mode, body):
     now = S.now_ist()
     order = {"id": _new_id(sym), "mode": mode, "symbol": sym, "trigger": round(trigger, 2),
              "direction": "above" if last is None or trigger >= last else "below", "price_at_set": last,
-             "stop": stop, "target": target, "created": int(time.time()), "created_date": clk["date"],
+             "stop": stop, "target": target, "qty": qty, "created": int(time.time()), "created_date": clk["date"],
              "created_at": clk["ist"], "status": "active", "note": "",
              "expires": (now + timedelta(days=VALID_DAYS)).date().isoformat() if mode != "intraday" else None,
              "session": None}
@@ -70,6 +77,20 @@ def place(mode, body):
             raise S.ApiError(409, "There is already an active GTT for %s in this mode. Cancel it first." % sym)
         orders.append(order)
         S.save_state(st)
+    try:   # confirmation on Telegram, with Zerodha's GTT page to set the same order for real yourself
+        mlabel = {"intraday": "Scalping", "swing": "Trading", "invest": "Investing"}.get(mode, mode)
+        S.telegram.notify("gtt", "\n".join([
+            "🎯 GTT saved (paper, %s): BUY %s %s when the price %s %s" % (
+                mlabel, ("%d ×" % qty) if qty else "(sized at the fill)", sym,
+                "rises to" if order["direction"] == "above" else "falls to", S.telegram._rs(trigger, 2)),
+            "Stop %s%s · valid %s" % (S.telegram._rs(stop, 2) if stop else "by the rules",
+                                     (" · target " + S.telegram._rs(target, 2)) if target else "",
+                                     "this session" if mode == "intraday" else "1 year"),
+            "To place the same GTT in your real account, open Zerodha (sign in if asked) → GTT:",
+            "https://kite.zerodha.com/orders/gtt",
+            "The portal itself never places real orders."]))
+    except Exception:  # noqa: BLE001
+        pass
     return {"ok": True, "order": order}
 
 
@@ -132,6 +153,8 @@ def _check_long(st, o, clk):
             return
         target = L.target_for(mode, fill, stop)
         size = L.size_long(fill, stop, target, cfg)
+        if o.get("qty"):
+            size["qty"] = int(o["qty"])
         rc = L.risk_long(o["symbol"], size["qty"], fill, stop, mode, st)
         bad = [c for c in rc["checks"] if not c["ok"] and c["name"] != "Market open"]
         if bad:
@@ -179,6 +202,8 @@ def _check_intraday(st, o, clk):
             o.update(status="rejected", note="Gapped past the stop or target at %s" % S.hm(m), triggered_date=day)
             return
         size = S.size_position(fill, o["stop"], s)
+        if o.get("qty"):
+            size["qty"] = int(o["qty"])
         rc = S.risk_check(o["symbol"], size["qty"], fill, o["stop"], st)
         bad = [c for c in rc["checks"] if not c["ok"] and c["name"] != "Entry window"]
         if bad:
