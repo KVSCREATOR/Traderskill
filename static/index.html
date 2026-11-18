@@ -57,7 +57,10 @@
         <button id="theme" class="btn ghost icon" type="button" title="Switch light / dark" aria-label="Switch theme">◐</button>
       </div>
     </header>
-    <div id="ticker" class="ticker" hidden><span class="tk-live"><i></i><b>…</b></span><div class="tk-view"><div class="tk-run" id="tkRun"></div></div></div>
+    <div id="ticker" class="ticker" hidden><span class="tk-live"><i></i><b>…</b></span><div class="tk-lines">
+      <div class="tk-line"><span class="tk-tag">NIFTY 50</span><div class="tk-view"><div class="tk-run" id="tkN50"></div></div></div>
+      <div class="tk-line"><span class="tk-tag">INDICES</span><div class="tk-view"><div class="tk-run" id="tkRun"></div></div></div>
+      <div class="tk-line"><span class="tk-tag">WORLD</span><div class="tk-view"><div class="tk-run" id="tkWorld"></div></div></div></div></div>
     <div id="holdbar" hidden></div>
     <main id="view" tabindex="-1"></main>
   </div>

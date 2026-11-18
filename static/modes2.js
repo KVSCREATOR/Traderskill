@@ -550,11 +550,30 @@ async function tickerLoad() {
   box.classList.toggle('closed', !open);
   const item = r => `<span class="tk-it"><b>${esc(r.name)}</b> ${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
     ${r.pct == null ? '' : `<span class="${r.pct >= 0 ? 'up' : 'down'}">${r.pct >= 0 ? '▲ +' : '▼ '}${r.pct.toFixed(2)}%</span>`}</span>`;
-  const html = d.rows.map(item).join('');
-  run.innerHTML = html + html;   // twice, so the loop is seamless
-  run.style.animationDuration = Math.max(45, d.rows.length * 6) + 's';
+  // each line holds its items twice for a seamless loop; the duration follows the line's length,
+  // so all three lines move at the same speed on screen
+  const fill = (el, list) => {
+    if (!el) return;
+    const sig = list.map(r => r.name).join('|');
+    if (el.dataset.sig === sig && el.children.length === list.length * 2) {
+      // same items: update the numbers in place so the scroll keeps going instead of restarting
+      [...el.children].forEach((sp, k) => { const r = list[k % list.length]; const tmp = document.createElement('span'); tmp.innerHTML = item(r); sp.innerHTML = tmp.firstElementChild.innerHTML; });
+      el.dataset.kept = '1';
+      return;
+    }
+    const html = list.map(item).join('');
+    el.innerHTML = html + html;
+    el.dataset.sig = sig; el.dataset.kept = '';
+    el.closest('.tk-line').hidden = !list.length;
+  };
+  fill($('#tkN50'), d.nifty50 || []); fill(run, d.rows); fill($('#tkWorld'), d.world || []);
   box.hidden = false;
+  setTimeout(() => box.querySelectorAll('.tk-run').forEach(el => {
+    if (el.dataset.kept) return;   // numbers updated in place: keep the running speed
+    el.style.animationDuration = Math.max(20, el.scrollWidth / 2 / TK_SPEED) + 's';
+  }), 50);
 }
+const TK_SPEED = 45;   // pixels per second, same for every line
 addEventListener("load", () => { tickerLoad(); setInterval(tickerLoad, 60000); });
 
 

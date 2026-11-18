@@ -1316,6 +1316,12 @@ INDICES = [("NIFTY 50", "^NSEI"), ("SENSEX", "^BSESN"), ("BANK NIFTY", "^NSEBANK
            ("NIFTY AUTO", "^CNXAUTO"), ("NIFTY PHARMA", "^CNXPHARMA"), ("INDIA VIX", "^INDIAVIX")]
 
 
+WORLD = [  # only markets that move the Nifty: US cues (futures trade during Indian hours), Asia, oil, rupee, dollar, US yields
+    ("S&P 500 FUT", "ES=F"), ("NASDAQ FUT", "NQ=F"), ("DOW JONES", "^DJI"), ("NIKKEI", "^N225"), ("HANG SENG", "^HSI"),
+    ("KOSPI", "^KS11"), ("BRENT CRUDE $", "BZ=F"), ("USD/INR", "INR=X"), ("DOLLAR INDEX", "DX-Y.NYB"),
+    ("US 10Y YIELD %", "^TNX"), ("GOLD $", "GC=F")]
+
+
 def indices():
     """Index levels for the scrolling strip (free Yahoo quotes, cached 60 s)."""
     def one(item):
@@ -1328,9 +1334,12 @@ def indices():
                     "pct": (px / prev - 1) * 100 if px and prev else None}
         except Exception:  # noqa: BLE001
             return None
-    with ThreadPoolExecutor(10) as ex:
+    stocks = [(k, k + ".NS") for k in sorted(NIFTY)]
+    with ThreadPoolExecutor(16) as ex:
         rows = [r for r in ex.map(one, INDICES) if r and r["price"]]
-    return {"rows": rows, "clock": market_clock()}
+        world = [r for r in ex.map(one, WORLD) if r and r["price"]]
+        n50 = [r for r in ex.map(one, stocks) if r and r["price"]]
+    return {"rows": rows, "nifty50": n50, "world": world, "clock": market_clock()}
 
 
 def candles(sym, tf):
