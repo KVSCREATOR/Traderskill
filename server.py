@@ -1481,6 +1481,13 @@ def api(method, path, q, body):
         return telegram.set_on(body.get("on") or {})
     if path == "/api/telegram/disconnect" and method == "POST":
         return telegram.disconnect()
+    if path == "/api/quote":
+        sym = clean_symbol(q.get("symbol"))
+        qt = quote(sym)
+        if not qt["price"]:
+            raise ApiError(404, "No price for %s" % sym)
+        return {"symbol": sym, "price": qt["price"], "prev_close": qt["prev_close"], "live": market_clock()["open"],
+                "pct": (qt["price"] / qt["prev_close"] - 1) * 100 if qt["prev_close"] else None}
     if path == "/api/candles":
         return candles(clean_symbol(q.get("symbol")), q.get("tf") or "1w")
     if path == "/api/indices":

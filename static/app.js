@@ -532,7 +532,7 @@ function drawAlerts(d) {
   const desc = a => a.type === 'clock' ? CLOCKS[a.level] : `${ATYPE[a.type]} ${a.type.startsWith('pct') ? a.level + '%' : inr(a.level)}`;
   view.innerHTML = head('Alerts', 'Each alert rings once. Checked every 30 seconds on delayed quotes while this tab is open.') +
     `<div class="stack"><div class="card"><h2>New alert</h2><form class="grid" id="af">
-      <label>Symbol<input name="symbol" list="symbols" required style="text-transform:uppercase" value="${esc(S.lastSymbol || '')}"></label>
+      <label><span>Symbol <span id="aPx" class="mono"></span></span><input name="symbol" list="symbols" required style="text-transform:uppercase" value="${esc(S.lastSymbol || '')}"></label>
       <label>Condition<select name="type">${Object.entries(ATYPE).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
       <label>Level (₹ or %)<input name="level" type="number" step="0.05" min="0.05" required></label>
       <button class="btn primary">Add alert</button></form>
@@ -543,6 +543,18 @@ function drawAlerts(d) {
         <td class="num">${a.fired_at ? `<button class="btn sm" data-rearm="${a.id}">Re-arm</button> ` : ''}<button class="btn sm danger" data-del="${a.id}">Delete</button></td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty">No alerts yet. Add one above, or use “Set entry, stop &amp; target alerts” on a prediction.</div>'}</div></div>`;
   const post = async (path, body) => { try { await api(path, body); drawAlerts(await pollAlerts()); } catch (e) { toast(e.message, 'bad'); } };
+  // price next to the symbol: live price in market hours, last close otherwise; green up / red down vs yesterday
+  const sIn = $('#af [name=symbol]'), pxEl = $('#aPx'); let pxT;
+  const showPx = async () => {
+    const sym = sIn.value.trim().toUpperCase().replace(/\.NS$/, '');
+    if (!sym) { pxEl.textContent = ''; return; }
+    let d; try { d = await api('/api/quote?symbol=' + encodeURIComponent(sym)); } catch (e) { pxEl.textContent = ''; return; }
+    if (sIn.value.trim().toUpperCase().replace(/\.NS$/, '') !== sym) return;
+    pxEl.className = 'mono ' + (d.pct == null ? '' : d.pct >= 0 ? 'up' : 'down');
+    pxEl.textContent = `(${d.live ? '' : 'last close '}${inr(d.price)}${d.pct == null ? '' : ' ' + (d.pct >= 0 ? '▲ +' : '▼ ') + d.pct.toFixed(2) + '%'})`;
+  };
+  sIn.oninput = () => { clearTimeout(pxT); pxT = setTimeout(showPx, 400); };
+  showPx();
   $('#af').onsubmit = e => { e.preventDefault(); askNotify(); const f = new FormData(e.target); post('/api/alerts', { alerts: [{ symbol: f.get('symbol'), type: f.get('type'), level: +f.get('level') }] }); };
   view.querySelectorAll('[data-clock]').forEach(b => b.onclick = () => { askNotify(); post('/api/alerts', { alerts: [{ type: 'clock', level: b.dataset.clock }] }); });
   view.querySelectorAll('[data-del]').forEach(b => b.onclick = () => post('/api/alerts/delete', { id: b.dataset.del }));
