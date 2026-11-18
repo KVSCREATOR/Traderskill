@@ -69,6 +69,16 @@ Bookmark the https address. `http://192.168.1.200:8765` no longer opens from oth
 Run only one copy at a time, otherwise the PC and the NAS keep separate paper accounts and
 journals. After the NAS works, stop `start.bat` on the PC.
 
+## Telegram notifications (optional)
+
+1. In Telegram open **@BotFather** (blue tick) -> `/newbot` -> pick a name and a username ending in `bot`.
+2. Open your new bot from BotFather's link and press **Start**.
+3. Add one line to `tradeskill.env`: `TELEGRAM_BOT_TOKEN=<the token BotFather gave you>`.
+4. Container Manager -> Project -> `tradeskill` -> Stop -> **Build** -> Start.
+5. Portal -> **Limits** -> Telegram -> **Connect**. A test message arrives on your phone.
+
+The bot only sends messages; it cannot read commands, buy or sell.
+
 ## Updating later
 
 Copy the changed files over the old ones in `\\192.168.1.200\docker\tradeskill`, then in

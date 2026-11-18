@@ -1195,6 +1195,7 @@ def check_alerts():
                 a["fired_at"] = clk["ist"]
                 a["message"] = (a.get("label") + ": " if a.get("label") else "") + msg
                 fired.append(a)
+                telegram.notify("alert", "🔔 " + a["message"])
         save_state(st)
         return {"alerts": st["alerts"], "fired": fired, "clock": clk}
 
@@ -1248,6 +1249,8 @@ def portfolio():
 
 def _close(paper, p, px, reason, clk):
     pnl = (px - p["entry"]) * p["qty"]
+    telegram.notify("paper", "%s Paper Scalping: sold %d %s at %.2f (%s) · P&L %+.0f" % (
+        "✅" if pnl >= 0 else "🔻", p["qty"], p["symbol"], px, reason, pnl))
     paper["cash"] += px * p["qty"]
     paper["trades"].append({"symbol": p["symbol"], "qty": p["qty"], "entry": p["entry"], "exit": px,
                             "stop": p["stop"], "target": p["target"], "pnl": pnl, "reason": reason,
@@ -1459,6 +1462,16 @@ def api(method, path, q, body):
         if not long_mode:
             raise ApiError(400, "The forward test is for Trading and Investing modes.")
         return longterm.journal(mode)
+    if path == "/api/telegram":
+        return telegram.status()
+    if path == "/api/telegram/connect" and method == "POST":
+        return telegram.connect()
+    if path == "/api/telegram/test" and method == "POST":
+        return telegram.test()
+    if path == "/api/telegram/settings" and method == "POST":
+        return telegram.set_on(body.get("on") or {})
+    if path == "/api/telegram/disconnect" and method == "POST":
+        return telegram.disconnect()
     if path == "/api/candles":
         return candles(clean_symbol(q.get("symbol")), q.get("tf") or "1w")
     if path == "/api/indices":
@@ -1575,6 +1588,8 @@ import gtt  # noqa: E402  (paper GTT orders, all modes)
 gtt.S, gtt.L = sys.modules[__name__], longterm
 import kite  # noqa: E402  (read-only Zerodha link via the free Kite MCP server)
 kite.S, kite.L = sys.modules[__name__], longterm
+import telegram  # noqa: E402  (send-only notifications)
+telegram.S, telegram.L, telegram.K, telegram.G = sys.modules[__name__], longterm, kite, gtt
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
@@ -1716,6 +1731,7 @@ if __name__ == "__main__":
     if not LOOPBACK and len(PASSWORD) < 8:
         sys.exit("Refusing to start: HOST=%s lets other devices in, so set PORTAL_PASSWORD (8+ characters)." % HOST)
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    telegram.start()   # background watcher: alerts, GTTs, paper exits, after-close messages
     print("Tradeskill Portal running at %s  (Ctrl+C to stop)" % (PUBLIC_URL or "http://%s:%d" % (HOST, PORT)))
     sys.stdout.flush()
     try:

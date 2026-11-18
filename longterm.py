@@ -1040,7 +1040,7 @@ def portfolio_long(mode):
                     break
             last = ind["c"][-1]
             if out:
-                _close_long(paper, p, out[0], out[1], out[2], clk)
+                _close_long(paper, p, out[0], out[1], out[2], clk, mode)
                 closed_now.append(p["symbol"])
             else:
                 p.update(stop=pos["stop"], last=last, held=pos["bars"], pnl=(last - p["entry"]) * p["qty"],
@@ -1059,9 +1059,14 @@ def portfolio_long(mode):
                 "settings": cfg, "clock": clk}
 
 
-def _close_long(paper, p, px, why, day, clk):
+def _close_long(paper, p, px, why, day, clk, mode=None):
     gross = (px - p["entry"]) * p["qty"]
     fee = costs(p["entry"] * p["qty"], px * p["qty"])
+    try:
+        S.telegram.notify("paper", "%s Paper %s: sold %d %s at %.2f (%s) · P&L after costs %+.0f" % (
+            "✅" if gross - fee >= 0 else "🔻", LABEL.get(mode, "Trading/Investing"), p["qty"], p["symbol"], px, why, gross - fee))
+    except Exception:  # noqa: BLE001
+        pass
     paper["cash"] += px * p["qty"] * (1 - COST_SIDE) - DP_FEE
     held = (date.fromisoformat(day) - date.fromisoformat(p["opened_date"])).days
     paper["trades"].append({"symbol": p["symbol"], "qty": p["qty"], "entry": p["entry"], "exit": px, "stop0": p["stop0"],
@@ -1109,7 +1114,7 @@ def close_long(mode, pid):
                     px = S.quote(p["symbol"])["price"] or p.get("last", p["entry"])
                 except Exception:  # noqa: BLE001
                     px = p.get("last", p["entry"])
-                _close_long(paper, p, px, "manual", clk["date"], clk)
+                _close_long(paper, p, px, "manual", clk["date"], clk, mode)
                 paper["positions"].remove(p)
                 S.save_state(st)
                 return {"ok": True}

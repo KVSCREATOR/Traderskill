@@ -233,6 +233,7 @@ async function settingsAll() {
       <label>Entries allowed from (IST)<input name="entry_start" type="time" value="${esc(s.entry_start)}" required></label>
       <label>Entries allowed until (IST)<input name="entry_end" type="time" value="${esc(s.entry_end)}" required></label>
       <button class="btn primary">Save Scalping limits</button></form>` : longForm(m)}</div>
+    <div class="card" id="tgBox"><h2>Telegram notifications</h2><div class="empty">Loading…</div></div>
     <div class="card"><h2>News watchlist</h2><form class="row" id="wf"><input name="watchlist" value="${esc(s.watchlist.join(', '))}" style="text-transform:uppercase;flex:1;min-width:220px"><button class="btn">Save watchlist</button></form></div>
     <div class="card"><h2>${MODES[m].label} paper account</h2><form class="row" id="pf"><label>Starting cash (₹)<input name="paper_cash" type="number" min="1000" step="1000" value="${m === 'intraday' ? 100000 : st.modes[m].capital}"></label>
       <button class="btn danger" style="align-self:flex-end">Reset paper account</button></form>
@@ -240,6 +241,7 @@ async function settingsAll() {
   const save = async (body, msg) => { try { await api('/api/settings', body); toast(msg); } catch (e) { toast(e.message, 'bad'); } };
   if (m === 'intraday') $('#sf').onsubmit = e => { e.preventDefault(); save(Object.fromEntries(new FormData(e.target)), 'Scalping limits saved.'); };
   else $('#lf').onsubmit = e => { e.preventDefault(); save({ mode_settings: { [m]: Object.fromEntries(new FormData(e.target)) } }, `${MODES[m].label} limits saved.`); };
+  tgCard($('#tgBox'));
   $('#wf').onsubmit = e => { e.preventDefault(); save({ watchlist: new FormData(e.target).get('watchlist').split(',').map(x => x.trim()).filter(Boolean) }, 'Watchlist saved.'); };
   $('#pf').onsubmit = e => {
     e.preventDefault(); const cash = +new FormData(e.target).get('paper_cash'), d = $('#dlg');
@@ -554,3 +556,33 @@ async function tickerLoad() {
   box.hidden = false;
 }
 addEventListener("load", () => { tickerLoad(); setInterval(tickerLoad, 60000); });
+
+
+/* ---------------------------------------------------------------- Telegram (send-only) on the Limits page */
+async function tgCard(box) {
+  if (!box) return;
+  let d; try { d = await api('/api/telegram'); } catch (e) { box.innerHTML = '<h2>Telegram notifications</h2>' + failBox(e); return; }
+  const steps = `<ol class="note" style="line-height:1.8;margin:6px 0 12px 18px">
+      <li>In Telegram, open <b>@BotFather</b> (blue tick), send <code>/newbot</code>, choose a name and a username ending in <code>bot</code>.</li>
+      <li>Open your new bot from BotFather's link and press <b>Start</b>.</li>
+      <li>Put the token BotFather gave you in <code>tradeskill.env</code> on the NAS as <code>TELEGRAM_BOT_TOKEN=...</code>, then Stop → Build → Start the project.
+        (On a PC copy: save it alone in <code>data/telegram_token.txt</code> and restart.)</li>
+      <li>Come back here and click <b>Connect</b>.</li></ol>`;
+  let body;
+  if (!d.token_set) body = `<p class="note">No bot token found yet.</p>${steps}`;
+  else if (!d.connected) body = `<p class="note">Bot token found. Press <b>Start</b> on your bot in Telegram, then:</p>
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="tgConn">Connect</button></div>`;
+  else body = `<div class="row" style="margin-bottom:12px"><span class="pill pass">Connected to ${esc(d.name || 'you')}</span>
+      <button class="btn sm" id="tgTest">Send test message</button><button class="btn sm" id="tgOff">Disconnect</button>
+      ${d.last_sent ? `<span class="note">Last message ${esc(d.last_sent.slice(5, 16))}</span>` : ''}</div>
+      <div class="facts" style="grid-template-columns:1fr">${d.kinds.map(([k, l]) => `<div><span>${esc(l)}</span>
+        <label class="row" style="flex-direction:row;gap:6px;font-weight:500"><input type="checkbox" data-tg="${k}" ${d.on[k] ? 'checked' : ''}> ${d.on[k] ? 'On' : 'Off'}</label></div>`).join('')}</div>`;
+  box.innerHTML = `<h2>Telegram notifications</h2>${body}
+    ${d.last_error ? `<p class="note down" style="margin-top:8px">Last send failed: ${esc(d.last_error)}</p>` : ''}
+    <p class="note" style="margin-top:10px">Send-only: the bot messages you but cannot read commands, buy or sell. Alerts, GTTs and paper exits are checked every 30 seconds in market hours even with no page open; buy signals, holdings and the summary go out once a day at 15:45 IST.</p>`;
+  const act = async (path, body, msg) => { try { await api(path, body || {}); if (msg) toast(msg); tgCard(box); } catch (e) { toast(e.message, 'bad'); } };
+  const c = $('#tgConn'); if (c) c.onclick = () => act('/api/telegram/connect', {}, 'Telegram connected. Check your phone for the test message.');
+  const tt = $('#tgTest'); if (tt) tt.onclick = () => act('/api/telegram/test', {}, 'Test message sent.');
+  const off = $('#tgOff'); if (off) off.onclick = () => act('/api/telegram/disconnect', {}, 'Telegram disconnected.');
+  box.querySelectorAll('[data-tg]').forEach(x => x.onchange = () => act('/api/telegram/settings', { on: { [x.dataset.tg]: x.checked } }));
+}

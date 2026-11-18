@@ -134,5 +134,12 @@ reachable from the LAN (owner asked to close it); 8766 HTTPS is the only way in.
 PUBLIC_URL can also come from data/public_url.txt. The PC copy is stopped: run ONE copy only.
 To update the NAS: copy changed files into the share, then Project -> Build. See NAS.md.
 
+Telegram notifications (added 18 Nov 2026, `telegram.py`, Limits → Telegram, `/api/telegram*`): SEND-ONLY
+bot; token from TELEGRAM_BOT_TOKEN (tradeskill.env) or data/telegram_token.txt, never sent to the browser.
+Connect finds the chat that pressed Start via getUpdates. Kinds (each on/off): alert, signals, holdings, paper,
+summary. A background watcher thread (started in server main) runs check_alerts + GTT checks every 30 s from
+09:00–15:45 on weekdays, paper books every 5 min, and once a day from 15:45 sends buy signals for
+watchlist + Zerodha holdings, holdings at Exit/Weak (Investing rules) and a daily summary.
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).

@@ -216,6 +216,13 @@ def check(mode=None):
             if o != before:
                 o.setdefault("closed_at", clk["ist"] if o["status"] != "active" else None)
                 changed = True
+                if before["status"] == "active" and o["status"] != "active":
+                    try:
+                        msg = ("bought %s %s at %.2f" % (o.get("qty"), o["symbol"], o["fill"])) if o["status"] == "triggered" and o.get("fill")                             else "%s %s · %s" % (o["symbol"], o["status"], o.get("note") or "")
+                        S.telegram.notify("paper", "%s Paper GTT (%s): %s" % ("🟢" if o["status"] == "triggered" else "⚪",
+                                                                             S.longterm.LABEL.get(o["mode"], o["mode"]), msg))
+                    except Exception:  # noqa: BLE001
+                        pass
         if changed:
             S.save_state(st)
         return st
