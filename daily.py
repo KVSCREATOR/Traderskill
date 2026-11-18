@@ -264,9 +264,25 @@ def results_soon(days=1):
 def on_start():
     """Called once per REAL start (not code reloads), ~20 s after the server comes up."""
     time.sleep(20)
+    started = _now().strftime("%H:%M")
+    # after a NAS power-on the network / Telegram may need a minute: wait (up to 10 min) so the greeting is not lost
+    for _ in range(40):
+        try:
+            if T._call("getMe", timeout=10):
+                break
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(15)
     m = _min()
     trading = R.is_trading_day()
-    lines = ["%s! Your NAS and Tradeskill are live (started %s IST)." % (greeting(m), _now().strftime("%H:%M"))]
+    try:
+        import urllib.request
+        urllib.request.urlopen("http://127.0.0.1:%d/login" % S.PORT, timeout=10)
+        web = "✅"
+    except Exception:  # noqa: BLE001
+        web = "⚠️"
+    lines = ["%s! Your NAS and Tradeskill are live (started %s IST)." % (greeting(m), started),
+             "Checks: portal %s · Telegram ✅ · Zerodha %s" % (web, "✅ signed in" if connected() else "🔑 needs login")]
     if not trading:
         lines.append("Market closed today (weekend or NSE holiday).")
     if m >= 1020:   # evening start
@@ -312,8 +328,9 @@ def login_reminder(force=False):
 def _fit_lines(h):
     cfg = L.settings_for("invest")
     out = []
-    if len(h["rows"]) > cfg["max_positions"]:
-        out.append("%d holdings vs your limit of %d" % (len(h["rows"]), cfg["max_positions"]))
+    live = [r for r in h["rows"] if r.get("qty")]
+    if len(live) > cfg["max_positions"]:
+        out.append("%d holdings vs your limit of %d" % (len(live), cfg["max_positions"]))
     over = [r["symbol"] for r in h["rows"] if r["value"] > cfg["max_per_stock"]]
     if over:
         out.append("%d over the %s per-stock cap" % (len(over), R.rs(cfg["max_per_stock"])))
@@ -342,8 +359,9 @@ def signin_summary():
            "Funds available: %s" % (R.rs(f.get("net")) if f.get("net") is not None else "–")]
     if x["mfs"]:
         msg.append("Mutual funds: value %s · P&L %s" % (R.rs(mfv), R.signed(mfv - mfc)))
-    msg.append("\nHoldings (%d) · rule verdict:" % len(h["rows"]))
-    for r in sorted(h["rows"], key=lambda r: -r["value"]):
+    rows = [r for r in h["rows"] if r.get("qty")]   # Zerodha keeps sold-out stocks with 0 shares for a while
+    msg.append("\nHoldings (%d) · rule verdict:" % len(rows))
+    for r in sorted(rows, key=lambda r: -r["value"]):
         msg.append("%s %s %g × %s = %s · %s%s" % (icon.get(r.get("verdict"), "⚪"), r["symbol"], r["qty"], R.rs(r["ltp"], 2),
                                                   R.rs(r["value"]), R.signed(r["pnl"]),
                                                   " (%+.1f%%)" % r["pnl_pct"] if r.get("pnl_pct") is not None else ""))
@@ -506,11 +524,69 @@ def weekly():
     return "\n".join(msg)
 
 
+# ----------------------------------------------------------------- one-shot live test of every message
+def test_all():
+    """Send every message type once, marked TEST (triggered by data/test_notifications.flag)."""
+    tag = "🧪 TEST · "
+
+    def send(kind, text):
+        if text:
+            _send(kind, tag + text)
+
+    m = _min()
+    send("hello", "%s! Your NAS and Tradeskill are live (started %s IST).\nChecks: portal ✅ · Telegram ✅ · Zerodha %s" % (
+        greeting(m), _now().strftime("%H:%M"), "✅ signed in" if connected() else "🔑 needs login"))
+    jobs = [("morning", lambda: morning_plan()[0]),
+            ("update", lambda: morning_update() or "08:45 update: nothing changed since the morning plan, so normally no message."),
+            ("login", lambda: "\n".join(["🔑 Zerodha login needed.", "Tap to sign in (one step, opens Zerodha's login on your phone):",
+                                         login_link(), "Works on your home Wi-Fi (or Tailscale). Reminders every 30 min until you sign in; last at 15:30."])),
+            ("plan", lambda: R.plan()), ("weekly", weekly)]
+    for kind, fn in jobs:
+        try:
+            send(kind, fn())
+        except Exception as e:  # noqa: BLE001
+            send(kind, "%s could not be built: %s" % (kind, str(e)[:150]))
+    try:   # sign-in summary, stop and market-move checks as they stand right now
+        out = []
+        orig = globals()["_send"]
+        globals()["_send"] = lambda k, t: out.append((k, t))
+        try:
+            signin_summary()
+        finally:
+            globals()["_send"] = orig
+        for k, t in out:
+            send(k, t)
+        mkt, hits = L.market(), []
+        for sym in _held_syms():
+            try:
+                ind = L.indicators(L.history(sym)["bars"])
+                v = K._verdict(ind, mkt, "invest")
+                if v.get("rule_stop") and ind["c"][-1] < v["rule_stop"]:
+                    hits.append("  %s at %s · rule stop %s" % (sym, R.rs(ind["c"][-1], 2), R.rs(v["rule_stop"], 2)))
+            except Exception:  # noqa: BLE001
+                pass
+        send("stopalert", ("🔴 Below the rule stop (Investing rules):\n" + "\n".join(hits)) if hits else "Rule-stop alert: no holding is below its rule stop right now.")
+        d, by = R._quotes()
+        n, v = by.get("NIFTY 50"), by.get("INDIA VIX")
+        send("move", "Market-move check: NIFTY 50 %s (alert at ±1.5%%) · India VIX %s (alert above 20)." % (
+            R.pct(n and n["pct"]), "%.2f" % v["price"] if v else "–"))
+    except Exception as e:  # noqa: BLE001
+        send("signin", "Test part failed: %s" % str(e)[:150])
+    send("hello", "Test finished: every message type above was sent once. Normal schedule continues.")
+
+
 # ----------------------------------------------------------------- watcher hook (every 30 s)
 _last = {"stop": 0, "move": 0}
 
 
 def tick():
+    flag = os.path.join(S.DATA, "test_notifications.flag")
+    if os.path.exists(flag):
+        try:
+            os.remove(flag)
+        except OSError:
+            pass
+        threading.Thread(target=test_all, name="notify-test", daemon=True).start()
     m = _min()
     for job in (lambda: login_reminder(),):
         try:
