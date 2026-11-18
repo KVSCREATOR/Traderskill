@@ -19,7 +19,8 @@ L = None   # longterm
 K = None   # kite
 T = None   # telegram
 
-SCHEDULE = [("morning", 525), ("plan", 572), ("close", 932), ("eod", 935)]   # minutes after midnight IST
+SCHEDULE = [("plan", 572), ("close", 932), ("eod", 935)]   # morning plan + 08:45 update now live in daily.py
+D = None   # daily module   # minutes after midnight IST
 NOTE = "Rule results and data, not personal advice."
 _log_lock = threading.Lock()
 
@@ -107,8 +108,11 @@ def _zerodha():
 
 
 def _reconnect_line():
-    url = (S.PUBLIC_URL or "http://127.0.0.1:%d" % S.PORT) + "/#/holdings"
-    return "🔑 Zerodha login has expired (it ends every morning). Reconnect: %s" % url
+    try:
+        return "🔑 Zerodha login has expired (it ends every morning). One-tap login: %s" % D.login_link()
+    except Exception:  # noqa: BLE001
+        url = (S.PUBLIC_URL or "http://127.0.0.1:%d" % S.PORT) + "/#/holdings"
+        return "🔑 Zerodha login has expired (it ends every morning). Reconnect: %s" % url
 
 
 def _setups(mode, n=5, only=None):
@@ -219,6 +223,10 @@ def plan():
         if rows:
             msg.append("\nTop %s setups in a buy zone (rules):" % L.LABEL[mode])
             msg += ["  %s · %s at %s (rank %d)" % (r["symbol"], r["setup"], rs(r["price"], 2), r["rank"]) for r in rows]
+    try:
+        msg += D.plan_extra()   # morning reading, last month, Scalping breakouts
+    except Exception:  # noqa: BLE001
+        pass
     msg.append(NOTE)
     return "\n".join(msg)
 
@@ -308,7 +316,7 @@ def _save_holdings(rows):
         st = S.load_state()
         tg = st.setdefault("telegram", {})
         tg["last_holdings"] = {"day": S.now_ist().date().isoformat(),
-                               "rows": [{"symbol": r["symbol"], "verdict": r.get("verdict") or "hold"} for r in rows]}
+                               "rows": [{"symbol": r["symbol"], "verdict": r.get("verdict") or "hold", "qty": r.get("qty")} for r in rows]}
         S.save_state(st)
 
 

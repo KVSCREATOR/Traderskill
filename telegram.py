@@ -20,7 +20,12 @@ L = None   # longterm module
 K = None   # kite module
 G = None   # gtt module
 
-KINDS = [("morning", "08:45 Morning outlook from global cues"), ("plan", "09:32 Day plan: market, your holdings, best setups"),
+D = None   # daily module
+KINDS = [("hello", "Greeting when the NAS / portal starts"), ("morning", "Morning plan: news + global cues (first start after 06:00)"),
+         ("update", "08:45 update, only if the morning reading changed"), ("login", "Zerodha login reminders (every 30 min until signed in)"),
+         ("signin", "First Zerodha login of the day: holdings, funds, mutual funds, limits"),
+         ("stopalert", "A holding falls below its rule stop"), ("move", "Big market move: NIFTY ±1.5% or VIX above 20"),
+         ("weekly", "Sunday 10:00 weekly summary"), ("plan", "09:32 Day plan: market, your holdings, best setups"),
          ("close", "15:32 Market close summary"), ("eod", "15:35 Your holdings: today's gains and losses, rule actions"),
          ("zerodha", "Your real Zerodha buys and sells (seen within ~2 minutes)"), ("alert", "Price alerts ringing"),
          ("paper", "Paper trades: GTT fills, stops, targets, sells")]
@@ -327,6 +332,10 @@ def watcher():
                             job()
                         except Exception:  # noqa: BLE001
                             pass
+            try:
+                D.tick()                                            # reminders, morning plan, watches, weekly
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 R.due()                                             # 08:45 / 09:32 / 15:32 / 15:35 reports
             except Exception:  # noqa: BLE001

@@ -1635,6 +1635,9 @@ telegram.S, telegram.L, telegram.K, telegram.G = sys.modules[__name__], longterm
 import reports  # noqa: E402  (scheduled reports + notification history)
 reports.S, reports.L, reports.K, reports.T = sys.modules[__name__], longterm, kite, telegram
 telegram.R = reports
+import daily  # noqa: E402  (start greeting, morning plan, Zerodha reminders, market-hours watches)
+daily.S, daily.L, daily.K, daily.T, daily.R = sys.modules[__name__], longterm, kite, telegram, reports
+kite.D = reports.D = telegram.D = daily
 
 # ----------------------------------------------------------------- self-restart (edit files on the NAS, no rebuild)
 _reload = {"error": None, "checked": None}
@@ -1676,6 +1679,7 @@ def restart_now(reason="restart"):
         raise ApiError(409, "Not restarted: a code file has an error. " + err)
     print("Restarting (%s)..." % reason)
     sys.stdout.flush()
+    os.environ["TS_RELOADED"] = "1"   # tells the new process this is a reload, not a NAS/Docker start
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
@@ -1779,6 +1783,25 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         if not self._local():
             return self._send(403, {"error": "local access only"})
+        if u.path == "/kite/go":   # one-tap Zerodha login from the Telegram reminder (signed, one day)
+            q = dict(urllib.parse.parse_qsl(u.query))
+            if not daily.link_ok(q.get("t")):
+                return self._send(403, "<p>This login link has expired. Use the newest Telegram reminder.</p>".encode(), "text/html; charset=utf-8")
+            try:
+                url = kite.connect_url()["url"]
+            except Exception as e:  # noqa: BLE001
+                return self._send(502, ("<p>Zerodha login could not start: %s</p>" % html.escape(str(e)[:200])).encode(), "text/html; charset=utf-8")
+            self.send_response(302)
+            self.send_header("Location", url)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        if u.path == "/api/kite/callback":   # protected by the one-time state value, not the portal password
+            try:
+                page = kite.callback(dict(urllib.parse.parse_qsl(u.query)), signed_in=self._authed())
+            except Exception as e:  # noqa: BLE001
+                page = "<p>Zerodha login failed: %s</p>" % str(e)[:200].replace("<", "&lt;")
+            return self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
         if u.path == "/login":
             return self._login_page()
         if not self._authed():
@@ -1853,6 +1876,8 @@ if __name__ == "__main__":
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     telegram.start()   # background watcher: alerts, GTTs, paper exits, after-close messages
     _STARTED = market_clock()["ist"]
+    if not os.environ.get("TS_RELOADED"):   # a real start (NAS power-on / Docker start): greet on Telegram
+        threading.Thread(target=daily.on_start, name="start-greeting", daemon=True).start()
     if os.environ.get("AUTO_RESTART", "1") != "0":
         threading.Thread(target=_watch_code, name="code-watch", daemon=True).start()
     print("Tradeskill Portal running at %s  (Ctrl+C to stop)" % (PUBLIC_URL or "http://%s:%d" % (HOST, PORT)))

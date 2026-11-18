@@ -90,7 +90,10 @@ def connect_url():
     return {"url": BASE + "/authorize?" + urllib.parse.urlencode(q)}
 
 
-def callback(q):
+D = None   # daily module
+
+
+def callback(q, signed_in=True):
     """Finish the login. Returns an HTML page that sends you back to the portal."""
     state, code = q.get("state"), q.get("code")
     p = _pending.pop(state or "", None)
@@ -114,6 +117,14 @@ def callback(q):
         S.save_state(st)
     _session.update(id=None, token=None)
     _held.update(at=0, data=None)
+    try:
+        D.after_login()   # first login of the day -> holdings + funds on Telegram
+    except Exception:  # noqa: BLE001
+        pass
+    if not signed_in:   # came from the phone link: no portal session needed, just confirm
+        return ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+                "<body style='font:17px system-ui;padding:40px;text-align:center'><h2>✅ Zerodha connected</h2>"
+                "<p>Read-only. Your holdings summary is on its way to Telegram. You can close this page.</p>")
     return _page("Zerodha connected (read-only). Loading your holdings…", True)
 
 
