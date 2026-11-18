@@ -742,7 +742,17 @@ def analyze(sym, mode):
     # Trading looks at ~8 months, Investing at ~13 months so the 52-week high is on screen
     start = max(0, n - (160 if mode == "swing" else 270))
     bars = [{"d": ind["d"][k], "o": ind["o"][k], "h": ind["h"][k], "l": ind["l"][k], "c": ind["c"][k], "v": ind["v"][k],
-             "va": ind["vavg50"][k], "s20": ind["sma20"][k], "s50": ind["sma50"][k], "s200": ind["sma200"][k]} for k in range(start, n)]
+             "va": ind["vavg50"][k], "s20": ind["sma20"][k], "s50": ind["sma50"][k], "s200": ind["sma200"][k]} for k in range(n)]
+    try:
+        add_overlays(bars, mode)   # on the full history so the RSI and trailing line are warmed up
+    except Exception:  # noqa: BLE001
+        pass
+    bars = bars[start:]
+    if bars and bars[0].get("rs"):
+        b0 = bars[0]["rs"]
+        for b in bars:
+            if b.get("rs"):
+                b["rs"] = b["rs"] / b0 * 100
     # the level a breakout must close above (40-day high for Trading, 52-week high for Investing)
     lvl_i = i - 1 if stt["forming"] else i
     level = ind["hh40"][lvl_i] if mode == "swing" else ind["hh252"][lvl_i]
@@ -759,7 +769,7 @@ def analyze(sym, mode):
             "trend": {"rs": rs, "own": own, "bench": bench, "own3": own3, "bench3": bench3, "up_long": up_long, "up_mid": up_mid,
                       "sma50": s50, "sma200": s200, "high52": max(ind["h"][-252:]), "low52": min(ind["l"][-252:]),
                       "atr": a, "rsi": ind["rsi"][i], "regime": reg},
-            "daily_bars": bars, "news": nws, "earnings": earn, "settings": cfg}
+            "daily_bars": bars, "results": results_marks(earn), "news": nws, "earnings": earn, "settings": cfg}
 
 
 def add_earn(checks, mode, earn, mx):
@@ -1111,3 +1121,47 @@ def reset_paper(mode, cash):
         st = S.load_state()
         st["paper_" + mode] = {"cash": cash, "start_cash": cash, "peak": cash, "positions": [], "trades": []}
         S.save_state(st)
+
+
+# ----------------------------------------------------------------- chart indicators
+def add_overlays(rows, mode="invest"):
+    """Add RSI(14), the rules' trailing-stop line and relative strength vs the Nifty to
+    chart candles (dicts with o/h/l/c and d = start date, optional de = end date)."""
+    if not rows:
+        return rows
+    c = [r["c"] for r in rows]
+    rsi = S.rsi_series(c)
+    tr = [rows[0]["h"] - rows[0]["l"]] + [max(rows[k]["h"] - rows[k]["l"], abs(rows[k]["h"] - c[k - 1]), abs(rows[k]["l"] - c[k - 1]))
+                                          for k in range(1, len(rows))]
+    mult, look = RULES[mode]["trail_atr"], 60
+    try:
+        nif = Market()
+    except Exception:  # noqa: BLE001
+        nif = None
+    base = None
+    for k, r in enumerate(rows):
+        r["rsi"] = rsi[k]
+        if k >= 13:
+            a = sum(tr[k - 13:k + 1]) / 14
+            r["trail"] = max(c[max(0, k - look + 1):k + 1]) - mult * a
+        if nif:
+            j = nif.at(r.get("de") or r["d"])
+            if j is not None:
+                ratio = c[k] / nif.ind["c"][j]
+                base = base or ratio
+                r["rs"] = ratio / base * 100
+    return rows
+
+
+def results_marks(earn):
+    """Approximate results dates (quarter end + 45 days, + 60 for March) with profit growth."""
+    out = []
+    q = (earn or {}).get("quarters") or []
+    for a, b in zip([None] + q[:-1], q):
+        qe = date.fromisoformat(b["date"])
+        d = qe + timedelta(days=60 if qe.month == 3 else 45)
+        g = None
+        if a and a.get("net_income") and b.get("net_income") is not None:
+            g = (b["net_income"] - a["net_income"]) / abs(a["net_income"]) * 100
+        out.append({"d": d.isoformat(), "q": b["date"], "growth": g})
+    return out

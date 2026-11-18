@@ -1363,7 +1363,9 @@ def candles(sym, tf):
         g = groups[k]
         first = g[0]["t"]
         d = datetime.fromtimestamp(first, IST).date().isoformat() if isinstance(first, (int, float)) else first
-        out.append({"d": d, "tl": label(k) if label else None, "o": g[0]["o"], "h": max(x["h"] for x in g),
+        last = g[-1]["t"]
+        de = datetime.fromtimestamp(last, IST).date().isoformat() if isinstance(last, (int, float)) else last
+        out.append({"d": d, "de": de, "tl": label(k) if label else None, "o": g[0]["o"], "h": max(x["h"] for x in g),
                     "l": min(x["l"] for x in g), "c": g[-1]["c"], "v": sum(x["v"] or 0 for x in g)})
     cl = [b["c"] for b in out]
     vo = [b["v"] for b in out]
@@ -1371,9 +1373,22 @@ def candles(sym, tf):
         b["s50"] = sum(cl[i - 49:i + 1]) / 50 if i >= 49 else None
         b["s200"] = sum(cl[i - 199:i + 1]) / 200 if i >= 199 else None
         b["va"] = sum(vo[i - 49:i + 1]) / 50 if i >= 49 else None
+    try:
+        longterm.add_overlays(out, "invest")
+    except Exception:  # noqa: BLE001
+        pass
     if tf == "3h":
         out = out[-500:]
-    return {"symbol": sym, "tf": tf, "bars": out}
+    if out and out[0].get("rs"):
+        b0 = out[0]["rs"]
+        for b in out:
+            if b.get("rs"):
+                b["rs"] = b["rs"] / b0 * 100
+    try:
+        res = longterm.results_marks(earnings(sym))
+    except Exception:  # noqa: BLE001
+        res = []
+    return {"symbol": sym, "tf": tf, "bars": out, "results": res}
 
 
 def api(method, path, q, body):

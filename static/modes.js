@@ -43,7 +43,10 @@ function modeChooser() {
 function dailyChart(p) {
   const bars = p.daily_bars || []; if (!bars.length) return '<div class="empty">No daily bars.</div>';
   const swing = p.mode === 'swing', pl = p.plan, n = bars.length;
-  const W = 960, R = 104, L = 8, T = 12, PH = 300, GAP = 8, VH = 70, B = 22, H = T + PH + GAP + VH + B;
+  const on = chartOn(), XP = 64;   // extra panels: RS vs Nifty, RSI
+  const W = 960, R = 104, L = 8, T = 12, PH = 300, GAP = 8, VH = 70, B = 22;
+  const rsTop = T + PH + GAP + VH + (on.rs ? GAP : 0), rsiTop = rsTop + (on.rs ? XP : 0) + (on.rsi ? GAP : 0);
+  const H = rsiTop + (on.rsi ? XP : 0) + B;
   const lines = [['Entry', pl.entry, 'var(--accent)'], ['Stop', pl.stop, 'var(--fail)']];
   if (pl.target) lines.unshift(['Target', pl.target, 'var(--pass)']);
   if (pl.level && Math.abs(pl.level - pl.entry) / pl.entry > 0.004) lines.push([pl.level_label === '40-day high' ? '40d high' : '52w high', pl.level, 'var(--warn)']);
@@ -85,6 +88,25 @@ function dailyChart(p) {
   // signal day marker
   const si = pl.signal_day ? bars.findIndex(b => b.d === pl.signal_day) : -1;
   if (si >= 0) { const sx = x(si), sy = y(bars[si].l) + 12; s += `<path d="M${sx} ${sy - 7} l6 10 h-12 z" fill="var(--accent)"><title>Signal: ${esc(pl.setup || '')} on ${fdate(pl.signal_day)}</title></path>`; }
+  if (on.trail) {
+    const tp = bars.map((b, i) => b.trail != null && b.trail > lo ? `${x(i).toFixed(1)},${y(b.trail).toFixed(1)}` : null).filter(Boolean);
+    if (tp.length > 1) s += `<polyline points="${tp.join(' ')}" fill="none" stroke="#7F77DD" stroke-width="1.4" stroke-dasharray="1 3"/>`;
+  }
+  if (on.res) (p.results || []).forEach(r => {
+    let k = bars.findIndex(b => (b.de || b.d) >= r.d); if (k < 0 || bars[0].d > r.d) return;
+    const gx = x(k), col = r.growth == null ? 'var(--muted)' : r.growth >= 0 ? 'var(--pass)' : 'var(--fail)';
+    s += `<g><title>Results for quarter ending ${fdate(r.q)} (date approx.)${r.growth != null ? ' · profit ' + sgn(r.growth) + ' vs previous quarter' : ''}</title><circle cx="${gx}" cy="${T + PH - 9}" r="8" fill="${col}" opacity=".9"/><text x="${gx}" y="${T + PH - 5.5}" text-anchor="middle" style="fill:#fff;font-weight:700">R</text></g>`;
+  });
+  const panel = (top, label, key, lo2, hi2, guides) => {
+    const py = v => top + XP - (v - lo2) / (hi2 - lo2 || 1) * XP;
+    let g = `<line x1="${L}" x2="${W - R}" y1="${top - GAP / 2}" y2="${top - GAP / 2}" stroke="var(--border)"/><text x="${W - R + 6}" y="${top + 10}">${label}</text>`;
+    guides.forEach(v => { g += `<line x1="${L}" x2="${W - R}" y1="${py(v)}" y2="${py(v)}" stroke="var(--border)" stroke-dasharray="3 3"/><text x="${W - R + 6}" y="${py(v) + 3}" style="font-size:9px">${v}</text>`; });
+    const pts = bars.map((b, i) => b[key] != null ? `${x(i).toFixed(1)},${py(b[key]).toFixed(1)}` : null).filter(Boolean);
+    if (pts.length > 1) g += `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1.4"/>`;
+    return g;
+  };
+  if (on.rs) { const v = bars.map(b => b.rs).filter(z => z != null); if (v.length) s += panel(rsTop, 'RS vs Nifty', 'rs', Math.min(...v), Math.max(...v), [100]); }
+  if (on.rsi) s += panel(rsiTop, 'RSI 14', 'rsi', 0, 100, [30, 70]);
   s += candleHits(bars, i => x(i), (W - L - R) / n, T, T + PH, b => (b.tl ? esc(b.tl) : fdate(b.d)) + (b.va && b.v ? ` · vol ${(b.v / b.va).toFixed(1)}× avg` : ''));
   const lab = lines.map(l => ({ l, yy: y(l[1]) })).sort((a, b) => a.yy - b.yy);
   for (let i = 1; i < lab.length; i++) if (lab[i].yy - lab[i - 1].yy < 13) lab[i].yy = lab[i - 1].yy + 13;
@@ -92,26 +114,38 @@ function dailyChart(p) {
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily candles with averages, rule levels and volume">${s}</svg>
     <div class="legend">${swing ? '<span><i style="background:var(--accent)"></i>20-day average</span>' : ''}<span><i style="background:var(--warn)"></i>50-${p.tf_unit || 'day'} average</span><span><i style="background:var(--muted)"></i>200-${p.tf_unit || 'day'} average</span>
     <span><i style="background:var(--warn);height:2px"></i>${esc(pl.level_label || 'breakout level')} (buy on a close above)</span>${si >= 0 ? '<span style="color:var(--accent)">▲ signal day</span>' : ''}
+    ${on.trail ? '<span><i style="background:#7F77DD"></i>Trailing stop (rules: best close of 60 candles − ' + (swing ? 3 : 5) + '× range)</span>' : ''}${on.res ? '<span>R = results (green profit up, red down; date approx.)</span>' : ''}${on.rs ? '<span>RS vs Nifty rising = beating the market</span>' : ''}${on.rsi ? '<span>RSI above 70 = stretched, below 30 = washed out</span>' : ''}
     <span>Solid volume bars = at least ${pl.vol_x}× the 50-${p.tf_unit || 'day'} average${p.tf_unit ? '' : " (the rule's volume test)"}</span></div>`;
 }
 
 /* chart timeframes (Investing): 3-hour, daily (the rules' view), weekly, monthly, 6-monthly */
 const TFS = [['3h', '3H'], ['1d', '1D'], ['1w', '1W'], ['1m', '1M'], ['6m', '6M']];
 const TF_INFO = { '3h': ['3-hour', '3-hour candles · last year', '3-hour'], '1w': ['week', 'Weekly candles', 'week'], '1m': ['month', 'Monthly candles', 'month'], '6m': ['6-month', '6-monthly candles', '6-month'] };
+function chartOn() { try { return Object.assign({ rs: false, trail: false, res: false, rsi: false }, JSON.parse(localStorage.getItem('ts.ind') || '{}')); } catch (e) { return { rs: false, trail: false, res: false, rsi: false }; } }
+const IND = [['rs', 'RS vs Nifty'], ['trail', 'Trailing stop'], ['res', 'Results'], ['rsi', 'RSI']];
+function indToggles() { const on = chartOn(); return `<div class="chips" id="indSeg" style="margin:0">${IND.map(([k, l]) => `<button type="button" class="chip ${on[k] ? 'on' : ''}" data-ind="${k}">${l}</button>`).join('')}</div>`; }
 function bindTf(p) {
+  let cur = p;   // the chart now on screen (daily or another timeframe)
+  const redraw = () => { $('#chartBody').innerHTML = cur.daily_bars.length ? dailyChart(cur) : '<div class="empty">No candles for this timeframe.</div>'; };
+  document.querySelectorAll('#indSeg [data-ind]').forEach(b => b.onclick = () => {
+    const on = chartOn(); on[b.dataset.ind] = !on[b.dataset.ind];
+    try { localStorage.setItem('ts.ind', JSON.stringify(on)); } catch (e) { /* ignore */ }
+    b.classList.toggle('on', on[b.dataset.ind]); redraw();
+  });
   const seg = $('#tfSeg'); if (!seg) return;
-  const daily = $('#chartBody').innerHTML, dailyTitle = $('#chartTitle').textContent;
+  const dailyTitle = $('#chartTitle').textContent;
   seg.querySelectorAll('button').forEach(b => b.onclick = async () => {
     const tf = b.dataset.tf;
     seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-    if (tf === '1d') { $('#chartBody').innerHTML = daily; $('#chartTitle').textContent = dailyTitle; return; }
+    if (tf === '1d') { cur = p; redraw(); $('#chartTitle').textContent = dailyTitle; return; }
     $('#chartBody').innerHTML = '<div class="empty">Loading candles…</div>';
     let d; try { d = await api(`/api/candles?symbol=${encodeURIComponent(p.symbol)}&tf=${tf}`); } catch (e) { $('#chartBody').innerHTML = failBox(e); return; }
     if (seg.querySelector('[aria-pressed="true"]') !== b) return;
     const [unit, title] = TF_INFO[tf];
     const yrs = d.bars.length ? ((new Date(d.bars[d.bars.length - 1].d) - new Date(d.bars[0].d)) / 3.156e10).toFixed(1) : 0;
     $('#chartTitle').textContent = `${title} · ${d.bars.length} candles${tf === '3h' ? '' : ' · ' + yrs + ' years'}`;
-    $('#chartBody').innerHTML = d.bars.length ? dailyChart(Object.assign({}, p, { daily_bars: d.bars, tf_unit: unit, plan: Object.assign({}, p.plan, { signal_day: null }) })) : '<div class="empty">No candles for this timeframe.</div>';
+    cur = Object.assign({}, p, { daily_bars: d.bars, results: d.results, tf_unit: unit, plan: Object.assign({}, p.plan, { signal_day: null }) });
+    redraw();
   });
 }
 
@@ -170,7 +204,7 @@ function renderLong(p) {
         ${pl.target ? `<p class="note" style="margin-top:8px">Profit shown after costs; about ${inr(sz.reward_after_tax, 0)} after 20% short-term capital gains tax.</p>` : ''}
       </div></div>
     <div class="card chart" id="chartCard"><div class="row" style="justify-content:space-between;margin-bottom:10px"><h2 style="margin:0" id="chartTitle">Daily chart · last ${p.daily_bars.length} sessions · ${p.mode === 'swing' ? 'Trading' : 'Investing'} rules</h2>
-      ${p.mode === 'invest' ? `<div class="seg" id="tfSeg">${TFS.map(([k, l]) => `<button type="button" data-tf="${k}" aria-pressed="${k === '1d'}">${l}</button>`).join('')}</div>` : ''}</div><div id="chartBody">${dailyChart(p)}</div></div>
+      <div class="row" style="gap:8px">${indToggles()}${p.mode === 'invest' ? `<div class="seg" id="tfSeg">${TFS.map(([k, l]) => `<button type="button" data-tf="${k}" aria-pressed="${k === '1d'}">${l}</button>`).join('')}</div>` : ''}</div></div><div id="chartBody">${dailyChart(p)}</div></div>
     <div class="card"><h2>Why this score</h2><div class="checks">${p.checks.map(checkRow).join('')}</div></div>
     <div class="grid2">${stockBacktestCard(p)}
       <div class="card"><h2>Trend and strength</h2>
