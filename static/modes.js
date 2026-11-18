@@ -51,10 +51,16 @@ function dailyChart(p) {
   let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.05 || 1; lo -= pad; hi += pad;
   const x = i => L + (i + 0.5) / n * (W - L - R), y = v => T + (hi - v) / (hi - lo) * PH, bw = Math.max(1.5, (W - L - R) / n * 0.62);
   const vTop = T + PH + GAP, vMax = Math.max(...bars.map(b => b.v || 0), 1), vy = v => vTop + VH - (v / vMax) * VH;
-  let s = '', lastM = '';
+  let s = '', lastM = '', lastX = -99;
+  const years = (new Date(bars[n - 1].d) - new Date(bars[0].d)) / 864e5 > 900;
   bars.forEach((b, i) => {
-    const m = b.d.slice(0, 7);
-    if (m !== lastM) { lastM = m; s += `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${vTop + VH}" stroke="var(--border)"/><text x="${x(i)}" y="${H - 6}" text-anchor="middle">${new Date(b.d + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short' })}${b.d.slice(5, 7) === '01' ? ' ' + b.d.slice(2, 4) : ''}</text>`; }
+    const m = years ? b.d.slice(0, 4) : b.d.slice(0, 7);
+    if (m !== lastM) {
+      lastM = m;
+      if (x(i) - lastX < 40) return;
+      lastX = x(i);
+      s += `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${vTop + VH}" stroke="var(--border)"/><text x="${x(i)}" y="${H - 6}" text-anchor="middle">${years ? b.d.slice(0, 4) : new Date(b.d + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short' }) + (b.d.slice(5, 7) === '01' ? ' ' + b.d.slice(2, 4) : '')}</text>`;
+    }
   });
   s += `<line x1="${L}" x2="${W - R}" y1="${vTop - GAP / 2}" y2="${vTop - GAP / 2}" stroke="var(--border)"/><text x="${W - R + 6}" y="${vTop + 10}">Volume</text>`;
   // volume: bars that clear the rule's volume test are drawn solid
@@ -79,14 +85,34 @@ function dailyChart(p) {
   // signal day marker
   const si = pl.signal_day ? bars.findIndex(b => b.d === pl.signal_day) : -1;
   if (si >= 0) { const sx = x(si), sy = y(bars[si].l) + 12; s += `<path d="M${sx} ${sy - 7} l6 10 h-12 z" fill="var(--accent)"><title>Signal: ${esc(pl.setup || '')} on ${fdate(pl.signal_day)}</title></path>`; }
-  s += candleHits(bars, i => x(i), (W - L - R) / n, T, T + PH, b => fdate(b.d) + (b.va && b.v ? ` · vol ${(b.v / b.va).toFixed(1)}× avg` : ''));
+  s += candleHits(bars, i => x(i), (W - L - R) / n, T, T + PH, b => (b.tl ? esc(b.tl) : fdate(b.d)) + (b.va && b.v ? ` · vol ${(b.v / b.va).toFixed(1)}× avg` : ''));
   const lab = lines.map(l => ({ l, yy: y(l[1]) })).sort((a, b) => a.yy - b.yy);
   for (let i = 1; i < lab.length; i++) if (lab[i].yy - lab[i - 1].yy < 13) lab[i].yy = lab[i - 1].yy + 13;
   for (const { l, yy } of lab) s += `<line x1="${L}" x2="${W - R}" y1="${y(l[1])}" y2="${y(l[1])}" stroke="${l[2]}" stroke-width="1.2" stroke-dasharray="${l[0].includes('high') ? '2 3' : '6 4'}"/><text x="${W - R + 6}" y="${yy + 3.5}" style="fill:${l[2]}">${l[0]} ${l[1].toFixed(1)}</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily candles with averages, rule levels and volume">${s}</svg>
-    <div class="legend">${swing ? '<span><i style="background:var(--accent)"></i>20-day average</span>' : ''}<span><i style="background:var(--warn)"></i>50-day average</span><span><i style="background:var(--muted)"></i>200-day average</span>
+    <div class="legend">${swing ? '<span><i style="background:var(--accent)"></i>20-day average</span>' : ''}<span><i style="background:var(--warn)"></i>50-${p.tf_unit || 'day'} average</span><span><i style="background:var(--muted)"></i>200-${p.tf_unit || 'day'} average</span>
     <span><i style="background:var(--warn);height:2px"></i>${esc(pl.level_label || 'breakout level')} (buy on a close above)</span>${si >= 0 ? '<span style="color:var(--accent)">▲ signal day</span>' : ''}
-    <span>Solid volume bars = at least ${pl.vol_x}× the 50-day average (the rule's volume test)</span></div>`;
+    <span>Solid volume bars = at least ${pl.vol_x}× the 50-${p.tf_unit || 'day'} average${p.tf_unit ? '' : " (the rule's volume test)"}</span></div>`;
+}
+
+/* chart timeframes (Investing): 3-hour, daily (the rules' view), weekly, monthly, 6-monthly */
+const TFS = [['3h', '3H'], ['1d', '1D'], ['1w', '1W'], ['1m', '1M'], ['6m', '6M']];
+const TF_INFO = { '3h': ['3-hour', '3-hour candles · last year', '3-hour'], '1w': ['week', 'Weekly candles', 'week'], '1m': ['month', 'Monthly candles', 'month'], '6m': ['6-month', '6-monthly candles', '6-month'] };
+function bindTf(p) {
+  const seg = $('#tfSeg'); if (!seg) return;
+  const daily = $('#chartBody').innerHTML, dailyTitle = $('#chartTitle').textContent;
+  seg.querySelectorAll('button').forEach(b => b.onclick = async () => {
+    const tf = b.dataset.tf;
+    seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    if (tf === '1d') { $('#chartBody').innerHTML = daily; $('#chartTitle').textContent = dailyTitle; return; }
+    $('#chartBody').innerHTML = '<div class="empty">Loading candles…</div>';
+    let d; try { d = await api(`/api/candles?symbol=${encodeURIComponent(p.symbol)}&tf=${tf}`); } catch (e) { $('#chartBody').innerHTML = failBox(e); return; }
+    if (seg.querySelector('[aria-pressed="true"]') !== b) return;
+    const [unit, title] = TF_INFO[tf];
+    const yrs = d.bars.length ? ((new Date(d.bars[d.bars.length - 1].d) - new Date(d.bars[0].d)) / 3.156e10).toFixed(1) : 0;
+    $('#chartTitle').textContent = `${title} · ${d.bars.length} candles${tf === '3h' ? '' : ' · ' + yrs + ' years'}`;
+    $('#chartBody').innerHTML = d.bars.length ? dailyChart(Object.assign({}, p, { daily_bars: d.bars, tf_unit: unit, plan: Object.assign({}, p.plan, { signal_day: null }) })) : '<div class="empty">No candles for this timeframe.</div>';
+  });
 }
 
 /* ---------------------------------------------------------------- predictor, Trading / Investing */
@@ -143,7 +169,8 @@ function renderLong(p) {
           <span class="note">${canTrade ? 'Risk check: PASS' : pl.trigger ? 'No confirmed entry yet.' : 'Locked until the risk check passes.'}</span></div>
         ${pl.target ? `<p class="note" style="margin-top:8px">Profit shown after costs; about ${inr(sz.reward_after_tax, 0)} after 20% short-term capital gains tax.</p>` : ''}
       </div></div>
-    <div class="card chart"><h2>Daily chart · last ${p.daily_bars.length} sessions · ${p.mode === 'swing' ? 'Trading' : 'Investing'} rules</h2>${dailyChart(p)}</div>
+    <div class="card chart" id="chartCard"><div class="row" style="justify-content:space-between;margin-bottom:10px"><h2 style="margin:0" id="chartTitle">Daily chart · last ${p.daily_bars.length} sessions · ${p.mode === 'swing' ? 'Trading' : 'Investing'} rules</h2>
+      ${p.mode === 'invest' ? `<div class="seg" id="tfSeg">${TFS.map(([k, l]) => `<button type="button" data-tf="${k}" aria-pressed="${k === '1d'}">${l}</button>`).join('')}</div>` : ''}</div><div id="chartBody">${dailyChart(p)}</div></div>
     <div class="card"><h2>Why this score</h2><div class="checks">${p.checks.map(checkRow).join('')}</div></div>
     <div class="grid2">${stockBacktestCard(p)}
       <div class="card"><h2>Trend and strength</h2>
@@ -158,6 +185,7 @@ function renderLong(p) {
         <div class="row" style="margin-top:14px"><a class="btn sm" href="#/earnings/${encodeURIComponent(p.symbol)}">Earnings detail</a><a class="btn sm" href="#/news/${encodeURIComponent(p.symbol)}">Headlines</a><a class="btn sm" href="#/deals/${encodeURIComponent(p.symbol)}">Big deals</a></div></div>
     </div></div>`;
   $('#again').onclick = () => predictor(p.symbol);
+  bindTf(p);
   bindStock(goPredict);
   $('#mkAlerts').onclick = async () => {
     const a = [{ type: 'below', symbol: p.symbol, level: +pl.stop.toFixed(2), label: 'Stop' }];

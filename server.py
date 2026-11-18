@@ -26,7 +26,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -1330,6 +1330,52 @@ def indices():
     return {"rows": rows, "clock": market_clock()}
 
 
+def candles(sym, tf):
+    """Chart candles at other timeframes: 3h (last ~1 year), 1w / 1m / 6m (up to 10 years)."""
+    if tf == "3h":
+        meta, bars = chart(sym, "1y", "60m", 300)
+        groups = {}
+        for b in bars:
+            dt = datetime.fromtimestamp(b["t"], IST)
+            blk = 0 if dt.hour * 60 + dt.minute < 735 else 1      # 09:15-12:15 and 12:15-15:30
+            groups.setdefault((dt.date().isoformat(), blk), []).append(b)
+        keys = sorted(groups)
+        label = lambda k: "%s %s" % (k[0], "09:15-12:15" if k[1] == 0 else "12:15-15:30")  # noqa: E731
+    else:
+        rows = longterm.history(sym)["bars"]
+        groups = {}
+        for d, o, h, l, c, v in rows:
+            y, m = int(d[:4]), int(d[5:7])
+            if tf == "1w":
+                iso = date.fromisoformat(d).isocalendar()
+                k = (iso[0], iso[1])
+            elif tf == "1m":
+                k = (y, m)
+            elif tf == "6m":
+                k = (y, 1 if m <= 6 else 2)
+            else:
+                raise ApiError(400, "Unknown timeframe")
+            groups.setdefault(k, []).append({"t": d, "o": o, "h": h, "l": l, "c": c, "v": v})
+        keys = sorted(groups)
+        label = None
+    out = []
+    for k in keys:
+        g = groups[k]
+        first = g[0]["t"]
+        d = datetime.fromtimestamp(first, IST).date().isoformat() if isinstance(first, (int, float)) else first
+        out.append({"d": d, "tl": label(k) if label else None, "o": g[0]["o"], "h": max(x["h"] for x in g),
+                    "l": min(x["l"] for x in g), "c": g[-1]["c"], "v": sum(x["v"] or 0 for x in g)})
+    cl = [b["c"] for b in out]
+    vo = [b["v"] for b in out]
+    for i, b in enumerate(out):
+        b["s50"] = sum(cl[i - 49:i + 1]) / 50 if i >= 49 else None
+        b["s200"] = sum(cl[i - 199:i + 1]) / 200 if i >= 199 else None
+        b["va"] = sum(vo[i - 49:i + 1]) / 50 if i >= 49 else None
+    if tf == "3h":
+        out = out[-500:]
+    return {"symbol": sym, "tf": tf, "bars": out}
+
+
 def api(method, path, q, body):
     mode = q.get("mode") or (body or {}).get("mode") or "intraday"
     if mode not in longterm.LABEL:
@@ -1398,6 +1444,8 @@ def api(method, path, q, body):
         if not long_mode:
             raise ApiError(400, "The forward test is for Trading and Investing modes.")
         return longterm.journal(mode)
+    if path == "/api/candles":
+        return candles(clean_symbol(q.get("symbol")), q.get("tf") or "1w")
     if path == "/api/indices":
         return indices()
     if path == "/api/earnings":
