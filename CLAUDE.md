@@ -187,5 +187,13 @@ LTCG 12.5% above 1.25 lakh, set-off ST loss vs LT, +4% cess, no surcharge. Tabs:
 What next (Investing rule verdicts, own limits, tax timing, Best-odds buys with room), Funds, Import & add.
 TESTING NOTE: never import server.py from a test without setting BOTH S.DATA and S.STATE_FILE to a temp folder.
 
+Scalping signal study (19 Nov 2026, 7,988 ORB trades, 250 stocks, 24 Aug-18 Nov 2026, Yahoo 5-min max 60 days,
+charges 0.11% of price per round trip): the ORB alone averaged -0.18R/trade after charges (-0.28R / -0.09R by half;
+gross ~ +0.01R) -> NO edge after costs. Only "opening range 0.5-1x ATR" better in both halves (-0.15R / +0.01R);
+stop < 0.4% of price -0.44R (charges). REJECTED (mixed/noise): NR7, daily uptrend, above prior-day high, VWAP,
+breakout by 10:30, Nifty above open / up on day, stronger than Nifty, opening volume 1.5x/2x, gap buckets.
+Scanner now shows range in ATR + charges in R per ORB, tag "range 0.5-1 ATR", warning "stop too tight for charges",
+chip "Range 0.5-1 ATR, stop not too tight" (server: scan_one orb.or_atr / risk_pct / cost_r, ORB_COST).
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).

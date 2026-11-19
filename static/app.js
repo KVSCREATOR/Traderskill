@@ -376,6 +376,7 @@ async function skillPage(key) {
 }
 
 /* ---------------------------------------------------------------- scanner */
+const orbFit = r => r.orb && r.orb.state !== 'none' && r.orb.or_atr != null && r.orb.or_atr >= 0.5 && r.orb.or_atr <= 1 && !(r.orb.cost_r > 0.27);
 async function scanner(_arg, mode) {
   if (isLong()) return scannerLong(_arg, mode);
   const title = mode === 'orb' ? 'ORB scanner' : 'Scanner';
@@ -389,12 +390,16 @@ async function scanner(_arg, mode) {
     }
     const f = mode === 'orb' ? 'orb' : S.scanFilter, ord = r => r.orb.state === 'waiting' ? 1 : ({ open: 0, target: 2, stop: 3 })[r.orb.outcome];
     const rows = mode === 'orb' ? d.rows.filter(r => r.orb.state !== 'none').sort((x, y) => ord(x) - ord(y) || y.rank - x.rank)
-      : d.rows.filter(r => f === 'all' || (f === 'mine' ? heldSyms().includes(r.symbol) : f === 'n50' ? r.nifty50 : f === 'orb' ? r.orb.state === 'confirmed' : r.setups.some(s => s.id === f)));
-    const chips = [['all', 'All 250'], ...(heldSyms().length ? [['mine', '◉ My holdings']] : []), ['n50', 'Nifty 50 only'], ['breakout', '20-day breakout'], ['flag', 'Bull flag'], ['bounce', 'Oversold bounce'], ['orb', 'Opening-range breakout']]
+      : d.rows.filter(r => f === 'all' || (f === 'mine' ? heldSyms().includes(r.symbol) : f === 'n50' ? r.nifty50 : f === 'orb' ? r.orb.state === 'confirmed' : f === 'orbfit' ? orbFit(r) : r.setups.some(s => s.id === f)));
+    const chips = [['all', 'All 250'], ...(heldSyms().length ? [['mine', '◉ My holdings']] : []), ['n50', 'Nifty 50 only'], ['breakout', '20-day breakout'], ['flag', 'Bull flag'], ['bounce', 'Oversold bounce'], ['orb', 'Opening-range breakout'], ['orbfit', '✓ Range 0.5–1 ATR, stop not too tight']]
       .map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('');
-    const orb = r => r.orb.state === 'confirmed'
+    // tested 19 Nov 2026 (7,988 ORB trades, 24 Aug - 18 Nov 2026): see the note under the table
+    const orbTags = o => o.state === 'none' ? '' : `<small class="cellsub">${o.or_atr != null ? `range ${o.or_atr.toFixed(2)} ATR` : ''}${o.cost_r != null ? ` · charges ${o.cost_r.toFixed(2)}R` : ''}</small>
+      ${o.or_atr != null && o.or_atr >= 0.5 && o.or_atr <= 1 ? '<span class="tag pass-t" title="Opening range 0.5-1x the daily range: the only signal that was better in both halves of the test">✓ range 0.5–1 ATR</span>' : ''}
+      ${o.cost_r != null && o.cost_r > 0.27 ? '<span class="tag warn" title="Stop under about 0.4% of the price: charges took about 0.44R per trade in the test">⚠ stop too tight for charges</span>' : ''}`;
+    const orb = r => (r.orb.state === 'confirmed'
       ? `<span class="pill ${r.orb.outcome === 'stop' ? 'fail' : 'pass'}">${r.orb.time}${r.orb.outcome === 'target' ? ' · target hit' : r.orb.outcome === 'stop' ? ' · stopped' : ''}</span>`
-      : r.orb.state === 'waiting' ? '<span class="pill">waiting</span>' : '<span class="muted">–</span>';
+      : r.orb.state === 'waiting' ? '<span class="pill">waiting</span>' : '<span class="muted">–</span>') + orbTags(r.orb);
     view.innerHTML = head(title, `${mode === 'orb' ? '15-minute opening-range breakouts · live trades first · ' : ''}${d.universe} · ${rows.length} of ${d.rows.length} stocks shown · scanned ${d.scanned_at} IST · ${d.rows[0] && d.rows[0].live ? 'live session' : 'last session'}`,
       `<button class="btn" id="rescan">Rescan</button>`) +
       `<div class="stack">${mode === 'orb' ? '' : `<div class="chips">${chips}</div>`}<div class="card"><div class="row tablebar" style="margin-top:0"><input type="search" data-tfind placeholder="Search stock, name or sector" style="width:240px"><button class="btn sm" data-sortreset>Default order</button><span class="note" style="margin:0">Click a column heading to sort.</span></div><div class="tablewrap"><table>
@@ -406,7 +411,8 @@ async function scanner(_arg, mode) {
         <td>${r.trend_up ? '<span class="up">Up</span>' : '<span class="muted">–</span>'}</td>
         <td class="num"><span class="rank ${r.rank >= 60 ? 'hi' : r.rank >= 30 ? 'mid' : ''}">${r.rank}</span></td></tr>`).join('') || `<tr><td colspan="9" class="empty">No stocks match this filter right now.</td></tr>`}</tbody></table></div></div>
       ${d.failed.length ? `<p class="note">No data for: ${d.failed.map(x => esc(x.symbol)).join(', ')}. Edit nifty250.json if the index has changed.</p>` : ''}
-      <p class="note">Rank is a quick sort of chart setups only. Click a row for the full 100-point score with entry, exits, odds, sizing and risk.</p></div>`;
+      <p class="note">Rank is a quick sort of chart setups only. Click a row for the full 100-point score with entry, exits, odds, sizing and risk.</p>
+      <p class="note"><b>Tested 19 Nov 2026</b> on 7,988 opening-range breakouts of the 250 stocks (24 Aug – 18 Nov 2026), with charges: the breakout alone averaged <b>−0.18R per trade</b> (−0.28R first half, −0.09R second half; about break-even before charges). Of 11 extra signals, only an opening range of <b>0.5–1× the daily range (ATR)</b> was better in both halves (−0.15R and +0.01R): better, not reliably profitable. Stops under 0.4% of the price lost −0.44R per trade, mostly to charges. Narrow-range day, uptrend, above yesterday's high, VWAP, early breakout, Nifty direction, strength vs Nifty, opening volume and gaps made no consistent difference. 60 days is a short test; results can change.</p></div>`;
     view.querySelectorAll('.chip').forEach(c => c.onclick = () => { S.scanFilter = c.dataset.f; draw(d); });
     view.querySelectorAll('tr.click').forEach(tr => { const go = () => location.hash = '#/predictor/' + encodeURIComponent(tr.dataset.s); tr.onclick = go; tr.onkeydown = e => e.key === 'Enter' && go(); });
     $('#rescan').onclick = () => run(true);

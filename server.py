@@ -825,6 +825,9 @@ def session_context(sess):
     return day, sess[day], live, clk
 
 
+ORB_COST = 0.0011   # intraday round-trip charges per share (brokerage, STT, exchange, GST, stamp) as a share of price
+
+
 def scan_one(sym):
     try:
         dmeta, daily = chart(sym, "1y", "1d", 300)
@@ -846,6 +849,16 @@ def scan_one(sym):
         if plan:
             orb = {"state": plan["state"], "or_high": plan["or_high"], "entry": plan["entry"],
                    "time": hm(plan["entry_m"]) if plan["entry_m"] else None, "outcome": plan["outcome"]}
+            # Tested 19 Nov 2026 on 7,988 ORB trades (24 Aug - 18 Nov 2026): charges decide most of the
+            # result. Opening range 0.5-1 x the daily range (ATR) was the only signal better in both
+            # halves; a stop under 0.4% of the price lost -0.44R per trade after charges.
+            prior = [b for b in daily if datetime.fromtimestamp(b["t"], IST).date().isoformat() < day]
+            a = atr(prior) if len(prior) > 15 else None
+            ent = plan["entry"] or plan["or_high"]
+            rk = (ent - plan["or_mid"]) if ent else None
+            orb.update(or_atr=(plan["or_high"] - plan["or_low"]) / a if a else None,
+                       risk_pct=rk / ent * 100 if rk and ent else None,
+                       cost_r=ORB_COST * ent / rk if rk and rk > 0 else None)
         rank = 0
         ids = [s["id"] for s in dv["setups"]]
         rank += 30 if "breakout" in ids else 12 if "near" in ids else 0

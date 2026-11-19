@@ -411,3 +411,6 @@ td.acts .btn { margin-left: 3px; }
 .pin-pad button:hover { border-color: var(--accent); }
 .pin-pad button:active { background: var(--accent-soft); }
 .nlist { margin: 0; padding-left: 18px; line-height: 1.7; }
+
+.tag.pass-t { background: var(--pass-soft); color: var(--pass); }
+
