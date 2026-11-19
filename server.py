@@ -688,8 +688,10 @@ def _news_match(title, sym, name):
             continue
         for m in re.finditer(r"\b%s\b(?:[^\w]+(\w+))?" % re.escape(key), title, re.I):
             nxt = m.group(1) or ""
+            if title[:m.start()].rstrip().endswith("&"):
+                return False   # 'Americas Gold & Silver': the headline is about another company
             if nxt[:1].isupper() and nxt.lower() not in tokens and not _NEWS_CONTEXT.fullmatch(nxt.lower()):
-                continue   # 'Astral Foods': another company's name follows
+                return False   # 'Astral Foods': another company's name follows
             if _NEWS_CONTEXT.search(low):
                 return True
     return False
