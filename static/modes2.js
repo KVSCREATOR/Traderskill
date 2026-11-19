@@ -9,8 +9,10 @@ const SKILLPAGES_LONG = {
   risk: 'Checks the buy against your portfolio limits and returns PASS or BLOCK.',
 };
 
-function equityChart(curve, start, bench) {
-  if (!curve || curve.length < 2) return '';
+function equityChart(curve0, start, bench0) {
+  const curve = sliceRange(curve0 || []);   // the range buttons show the last N sessions
+  const bench = bench0 && bench0.length > 1 ? bench0.slice(-curve.length) : bench0;
+  if (!curve || curve.length < 2) return rangeBar();
   const W = 960, H = 240, L = 64, R = 12, T = 10, B = 24;
   const bv = bench && bench.length > 1 ? bench.map(c => c[1]) : [];
   const vals = curve.map(c => c[1]), lo = Math.min(...vals, ...bv, start) * 0.97, hi = Math.max(...vals, ...bv) * 1.02;
@@ -27,7 +29,7 @@ function equityChart(curve, start, bench) {
     s += `<line x1="${L + 90}" x2="${L + 114}" y1="${T + 10}" y2="${T + 10}" stroke="var(--warn)" stroke-width="1.8" stroke-dasharray="6 4"/><text x="${L + 120}" y="${T + 14}" text-anchor="start">Nifty 50 bought and held</text>`;
   }
   s += `<polyline points="${curve.map((c, i) => x(i).toFixed(1) + ',' + y(c[1]).toFixed(1)).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2"/>`;
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Account value over the backtest">${s}</svg>`;
+  return rangeBar() + `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Account value over the backtest">${s}</svg>`;
 }
 
 async function portfolioBacktest(box, fresh) {
@@ -44,7 +46,7 @@ async function portfolioBacktest(box, fresh) {
       <div><span>Trades</span><b>${b.trades}</b></div><div><span>Won</span><b>${b.win_rate != null ? b.win_rate.toFixed(0) + '%' : '–'}</b></div>
       <div><span>Average win / loss</span><b><span class="up">${money(b.avg_win || 0)}</span> / <span class="down">${money(b.avg_loss || 0)}</span></b></div>
       <div><span>Average per trade</span><b class="${cls(b.expectancy)}">${money(b.expectancy || 0)}</b></div></div>
-    <div class="chart">${equityChart(b.curve, b.start, b.bench && b.bench.curve)}</div>
+    <div class="chart" id="eqBox">${equityChart(b.curve, b.start, b.bench && b.bench.curve)}</div>
     ${benchBlock(b)}
     <div class="facts" style="margin-top:12px">
       <div><span>Profit factor</span><b class="mono">${b.profit_factor ? b.profit_factor.toFixed(2) : '–'}</b></div><div><span>Average holding</span><b class="mono">${b.avg_held ? b.avg_held.toFixed(0) + ' days' : '–'}</b></div>
@@ -57,6 +59,7 @@ async function portfolioBacktest(box, fresh) {
     <div class="card"><h2>Latest backtest trades</h2><div class="tablewrap"><table><thead><tr><th>Stock</th><th>Bought</th><th>Sold</th><th class="num">Days</th><th class="num">Qty</th><th>Exit</th><th class="num">Result</th><th class="num">P&amp;L</th></tr></thead><tbody>
       ${b.recent.map(t => `<tr><td class="sym"><b>${esc(t.symbol)}</b><small>${esc(t.setup)}</small></td><td class="mono">${fdate(t.in)}</td><td class="mono">${fdate(t.out)}</td><td class="num">${t.held}</td><td class="num">${t.qty}</td><td><span class="tag">${esc(t.why)}</span></td><td class="num ${cls(t.r)}">${sgn(t.r, 2, 'R')}</td><td class="num ${cls(t.pnl)}">${money(t.pnl)}</td></tr>`).join('')}</tbody></table></div></div>`;
   $('#rerun', box).onclick = () => portfolioBacktest(box, true);
+  S.chartRedraw = () => { const e = $('#eqBox', box); if (e) e.innerHTML = equityChart(b.curve, b.start, b.bench && b.bench.curve); };
 }
 
 function benchBlock(b) {
@@ -417,6 +420,7 @@ async function holdingsPage() {
         <td class="num">${r.from_high != null ? sgn(r.from_high) : '–'}</td>
         <td>${r.verdict ? `<span class="pill ${VERDICT[r.verdict][1]}">${VERDICT[r.verdict][0]}</span><small class="muted" style="display:block;max-width:230px">${esc(r.why)}${r.rule_stop ? ` · rule stop ${inr(r.rule_stop)} (${sgn(-r.to_stop)} away)` : ''}</small>` : '–'}</td><td class="hnews" data-hn="${esc(r.symbol)}"><span class="muted">Loading…</span></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No holdings in this Zerodha account.</div>'}</div>
     ${d.sectors.length ? `<div class="card"><h2>By sector</h2><div class="facts">${d.sectors.map(([k, v]) => `<div><span>${esc(k)}</span><b class="mono">${inr(v, 0)} · ${(v / tot * 100).toFixed(1)}%</b></div>`).join('')}</div></div>` : ''}
+    ${pnlMap(d.rows)}
     <div id="kExtras"><div class="card"><div class="empty">Loading positions, mutual funds and funds…</div></div></div>
     ${fitBlock(d.fit)}
     <p class="note"><b>What the rules say</b> applies the ${esc(d.rules_label)} rules${S.mode === 'intraday' ? ' (Scalping is same-day only, so long-held stocks are judged by the Investing rules; switch to Trading or Investing at the top right)' : ''} to each holding. ${d.rules_mode === 'swing' ? 'Trading rules: backtested ~11.5%/yr, 39% of trades won; <b>Exit signal</b> = below the trailing stop (60-day high close minus 3× the daily range);' : 'Investing rules: backtested ~11%/yr, 38% of trades won; <b>Exit signal</b> = closed more than 3% below the 200-day average, or below the trailing stop (60-day high close minus 5× the daily range);'} <b>Weak</b> = above the stop but the trend has turned down; <b>Hold</b> = uptrend intact; <b>Buy signal</b> = the entry rules fire now. “Rule stop” is the price where the rules would sell. These are mechanical rule results, not personal advice; the rules lose on most trades and still lost money in some years.</p>
@@ -444,6 +448,37 @@ async function holdingsPage() {
   bind();
 }
 
+
+/* My holdings: profit & loss treemap. Box size = current value, colour = profit % vs your average cost.
+   Top 12 by value get their own box; the rest are grouped as "Others". Pure CSS boxes, no library. */
+function pnlMap(rows) {
+  const live = (rows || []).filter(r => (r.value || 0) > 0).sort((a, b) => b.value - a.value);
+  if (!live.length) return '';
+  const items = live.slice(0, 12).map(r => ({ label: r.symbol, v: r.value, p: r.pnl_pct, title: `${r.symbol} · ${inr(r.value, 0)} · ${r.pnl_pct != null ? sgn(r.pnl_pct) : '–'}` }));
+  const rest = live.slice(12);
+  if (rest.length) {
+    const v = rest.reduce((s, r) => s + r.value, 0), c = rest.reduce((s, r) => s + (r.cost || 0), 0);
+    items.push({ label: `Others (${rest.length})`, v, p: c ? (v / c - 1) * 100 : null, title: `${rest.length} more stocks · ${inr(v, 0)}` });
+  }
+  const rects = [];
+  const split = (its, x, y, w, h) => {   // binary split into two halves of about equal value, alternating direction
+    if (its.length === 1) { rects.push({ ...its[0], x, y, w, h }); return; }
+    const tot = its.reduce((s, i) => s + i.v, 0);
+    let acc = 0, k = its.length - 1;
+    for (let i = 0; i < its.length - 1; i++) { acc += its[i].v; if (acc >= tot / 2) { k = i + 1; break; } }
+    const a = its.slice(0, k), b = its.slice(k), fa = a.reduce((s, i) => s + i.v, 0) / tot;
+    if (w >= h) { split(a, x, y, w * fa, h); split(b, x + w * fa, y, w * (1 - fa), h); }
+    else { split(a, x, y, w, h * fa); split(b, x, y + h * fa, w, h * (1 - fa)); }
+  };
+  split(items, 0, 0, 100, 100);
+  const colour = p => p == null ? 'hsl(220 10% 45%)'
+    : p >= 0 ? `hsl(145 55% ${(62 - Math.min(p, 10) * 2.5).toFixed(1)}%)`
+    : `hsl(2 65% ${(60 - Math.min(-p, 10) * 2.2).toFixed(1)}%)`;
+  const boxes = rects.map(r => `<div class="tmap-box" title="${esc(r.title || r.label)}" style="left:${r.x}%;top:${r.y}%;width:${r.w}%;height:${r.h}%;background:${colour(r.p)}">
+      <b>${esc(r.label)}</b><span>${r.p != null ? sgn(r.p) : '–'}</span></div>`).join('');
+  return `<div class="card"><h2>Your profit &amp; loss</h2><p class="note" style="margin-top:0">Box size = current value. Colour = profit % since your average cost (green up, red down; deeper = bigger move).</p>
+    <div class="tmap">${boxes}</div></div>`;
+}
 
 /* ---------------------------------------------------------------- Zerodha holdings shown around the portal */
 async function loadHeld() { try { S.held = await api('/api/kite/held'); } catch (e) { S.held = null; } S.heldAt = Date.now(); }

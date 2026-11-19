@@ -1,28 +1,24 @@
+/* Screener-style look: light by default (the ◐ button switches), medium text, more colour.
+   Colours are tokens only: the logic never reads them. */
 :root {
-  --bg: #f3f4f7; --surface: #ffffff; --surface-2: #f7f8fa; --border: #e2e5eb; --text: #151a22;
-  --muted: #667085; --accent: #2f5bea; --accent-soft: #e8edfd; --pass: #12925a; --pass-soft: #e3f5ec;
-  --fail: #d43a4c; --fail-soft: #fdebed; --warn: #b7791f; --warn-soft: #fdf3dc; --na: #98a2b3;
-  --shadow: 0 1px 2px rgba(16,24,40,.05), 0 4px 16px rgba(16,24,40,.04);
+  --bg: #eef0f7; --surface: #ffffff; --surface-2: #f5f6fb; --border: #e3e6f0; --text: #1c2233;
+  --muted: #646e84; --accent: #4f46e5; --accent-soft: #eceafe; --pass: #059669; --pass-soft: #d9f7ea;
+  --fail: #e11d48; --fail-soft: #ffe4ea; --warn: #d97706; --warn-soft: #fff1d6; --na: #9aa3b5;
+  --info: #0891b2; --info-soft: #d9f4fa; --violet: #7c3aed; --violet-soft: #efe7ff; --pink: #db2777; --pink-soft: #fde4f0;
+  --shadow: 0 1px 2px rgba(30,36,51,.05), 0 4px 16px rgba(30,36,51,.05);
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
   --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0b0f15; --surface: #121821; --surface-2: #171f2a; --border: #232d3a; --text: #e7ecf2;
-    --muted: #8a97a8; --accent: #6f93ff; --accent-soft: #1a2545; --pass: #3ecf8e; --pass-soft: #11301f;
-    --fail: #ff6b7d; --fail-soft: #3a1820; --warn: #f2b54a; --warn-soft: #33270f; --na: #5c6878;
-    --shadow: 0 1px 2px rgba(0,0,0,.4);
-  }
-}
 :root[data-theme="dark"] {
   --bg: #0b0f15; --surface: #121821; --surface-2: #171f2a; --border: #232d3a; --text: #e7ecf2;
-  --muted: #8a97a8; --accent: #6f93ff; --accent-soft: #1a2545; --pass: #3ecf8e; --pass-soft: #11301f;
+  --muted: #8a97a8; --accent: #7c8dff; --accent-soft: #1d2650; --pass: #3ecf8e; --pass-soft: #11301f;
   --fail: #ff6b7d; --fail-soft: #3a1820; --warn: #f2b54a; --warn-soft: #33270f; --na: #5c6878;
+  --info: #3fc8e6; --info-soft: #12313b; --violet: #a78bfa; --violet-soft: #2a1f4a; --pink: #f472b6; --pink-soft: #3a1830;
   --shadow: 0 1px 2px rgba(0,0,0,.4);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+body { background: var(--bg); color: var(--text); font: 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .mono, td.num, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -35,13 +31,17 @@ p { margin: 0; }
 .brand { display: flex; gap: 11px; align-items: center; padding: 0 8px; }
 .brand svg { flex: none; width: 34px; height: 34px; }
 .brand-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.brand b { display: block; font-size: 17px; line-height: 1.1; letter-spacing: -.01em; color: var(--fail); }
+.brand b { display: block; font-size: 18px; line-height: 1.1; letter-spacing: -.01em; color: var(--accent); }
 .brand .brand-mode { align-self: flex-start; font: 600 11px var(--sans); color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
 #nav { display: flex; flex-direction: column; gap: 1px; }
 #nav h3 { margin: 10px 10px 3px; font: 600 10.5px var(--sans); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 #nav a { display: flex; align-items: center; gap: 11px; padding: 5px 10px; border-radius: 9px; color: var(--text); position: relative; }
 #nav a:hover { background: var(--surface-2); text-decoration: none; }
-#nav a.on { background: var(--accent-soft); color: var(--accent); }
+#nav a.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+#nav a:nth-child(4n+1) i { color: var(--accent); }
+#nav a:nth-child(4n+2) i { color: var(--info); }
+#nav a:nth-child(4n+3) i { color: var(--pass); }
+#nav a:nth-child(4n) i { color: var(--violet); }
 #nav i { font-style: normal; width: 20px; text-align: center; font-size: 15px; opacity: .85; }
 #nav span { font-weight: 600; font-size: 13.5px; line-height: 1.25; }
 #nav small { display: block; font: 400 10.5px var(--mono); color: var(--muted); }
@@ -392,6 +392,18 @@ td.acts .btn { margin-left: 3px; }
 .tk-line.off .tk-stub { display: flex; align-items: center; flex: 1; border: 0; background: none; color: var(--muted); font: 12px var(--sans); padding: 0 12px; cursor: pointer; text-align: left; }
 .tk-line.off .tk-stub:hover { color: var(--accent); }
 @media (max-width: 700px) { .tk-tag { width: 92px; padding: 0 6px; font-size: 10px; } }
+
+/* Sell / buy plan (What next tab) */
+.plan-card { border-top: 4px solid var(--accent); }
+.plan-sell-h { color: var(--fail) !important; }
+.plan-buy-h { color: var(--pass) !important; }
+
+/* My holdings: profit & loss treemap */
+.tmap { position: relative; width: 100%; height: 340px; border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+.tmap-box { position: absolute; box-sizing: border-box; border: 2px solid var(--surface, #fff); padding: 8px 10px; color: #fff; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; font-size: 12.5px; line-height: 1.25; }
+.tmap-box b { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tmap-box span { font: 600 12px var(--mono); opacity: .95; }
+@media (max-width: 700px) { .tmap { height: 280px; } .tmap-box { font-size: 11px; padding: 5px 6px; } }
 
 /* ---- My holdings: tabs, PIN, record */
 .htabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 14px; border-bottom: 1px solid var(--border); }

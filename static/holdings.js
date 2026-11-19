@@ -1,6 +1,40 @@
 'use strict';
 /* ---------------------------------------------------------------- My holdings: PIN gate + yearly Zerodha record */
 const HTABS = [['today', 'Today'], ['live', 'Live holdings'], ['record', 'Year record'], ['tax', 'Tax'], ['sectors', 'Sectors'], ['next', 'What next'], ['core', 'Core + satellite'], ['funds', 'Funds'], ['import', 'Import & add']];
+
+/* One plan for the whole account, Trading rules, 3-6 months: what to sell and what to buy, sector by sector.
+   Built in ledger._plan from the last snapshot. Mechanical rule results, not advice. */
+function planBlock(p) {
+  if (!p) return '';
+  if (p.stale) return `<div class="card plan-card"><h2>Your ${esc(p.horizon)} plan</h2><p class="note">${esc((p.notes || [''])[0])}</p></div>`;
+  const sells = p.sells.length ? `<ul class="nlist">${p.sells.map(s => `<li><b class="down">${s.all ? 'Sell all' : 'Sell ' + s.qty}</b> <a href="#/predictor/${encodeURIComponent(s.symbol)}"><b>${esc(s.symbol)}</b></a> · ${esc(s.sector)} · ${esc(s.reason)}${s.all ? '' : ` (${s.qty} shares, ${inr(s.value, 0)})`}${s.pnl_pct != null ? ` · <span class="${cls(s.pnl_pct)}">${sgn(s.pnl_pct)}</span>` : ''} · <span data-pn="${esc(s.symbol)}" class="muted">news…</span></li>`).join('')}</ul>`
+    : '<p class="note">Nothing to sell: holdings are within your limits.</p>';
+  const buys = p.buys.length ? `<ul class="nlist">${p.buys.map(b => `<li><b class="up">Buy ${b.qty}</b> <a href="#/predictor/${encodeURIComponent(b.symbol)}"><b>${esc(b.symbol)}</b></a> · ${esc(b.sector)} · ${esc(b.setup || '')} at ${inr(b.price)} · about ${inr(b.amount, 0)}${b.rs6 != null ? ` · 6-month vs Nifty ${sgn(b.rs6)}` : ''} · <a href="#/news/${encodeURIComponent(b.symbol)}">news</a></li>`).join('')}</ul>`
+    : '<p class="note">No buy fits right now.</p>';
+  const keeps = p.keeps.length ? `<ul class="nlist">${p.keeps.map(k => `<li><a href="#/predictor/${encodeURIComponent(k.symbol)}"><b>${esc(k.symbol)}</b></a> · ${esc(k.sector)} · ${esc(k.verdict || '')}${k.pnl_pct != null ? ` · <span class="${cls(k.pnl_pct)}">${sgn(k.pnl_pct)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="note">None.</p>';
+  return `<div class="card plan-card">
+    <h2>Your ${esc(p.horizon)} plan · Trading rules</h2>
+    <p class="note" style="margin-top:0">As of ${esc(p.as_of || '')} · holdings ${p.before.holdings} → ${p.after.holdings} of ${p.after.max} places · ${p.free_slots} free place${p.free_slots === 1 ? '' : 's'} · cash ${p.cash != null ? inr(p.cash, 0) : 'unknown'}</p>
+    <div class="grid2">
+      <div><h2 class="plan-sell-h">Sell</h2>${sells}</div>
+      <div><h2 class="plan-buy-h">Buy</h2>${buys}</div>
+    </div>
+    <h2 style="margin-top:14px">Keep</h2>${keeps}
+    <ul class="nlist">${p.notes.map(n => `<li class="muted">${esc(n)}</li>`).join('')}</ul>
+  </div>`;
+}
+// fills the news cells of the plan (same news feed as the holdings table)
+async function planNews(my) {
+  let d; try { d = await api('/api/news?holdings=1'); } catch (e) { d = null; }
+  if (my !== S.nav) return;
+  const by = {}; ((d && d.watch) || []).forEach(w => { by[w.symbol] = w; });
+  document.querySelectorAll('[data-pn]').forEach(el => {
+    const w = by[el.dataset.pn];
+    if (!w || w.error) { el.textContent = w && w.error ? 'news unavailable' : 'no news in 3 days'; return; }
+    const top = (w.items || []).slice(0, 1).map(i => `<a class="tone-${i.tone || 'neu'}" href="${esc(i.link)}" target="_blank" rel="noopener noreferrer">${esc(i.title)}</a>`).join('');
+    el.innerHTML = (top || 'no news in 3 days') + ` <small class="muted">${(w.items || []).length} in 3 days</small>`;
+  });
+}
 function hTabs(active) {
   return `<div class="htabs" role="tablist">${HTABS.map(([k, l]) => `<button type="button" role="tab" class="${k === active ? 'on' : ''}" aria-selected="${k === active}" data-htab="${k}">${l}</button>`).join('')}
     <button type="button" class="htab-lock" data-hlock title="Lock My holdings">🔒 Lock</button></div>`;
@@ -193,7 +227,7 @@ async function ledgerPage(tab, fresh) {
   } else if (tab === 'next') {
     const nx = d.next, li = (arr, f) => arr.length ? `<ul class="nlist">${arr.map(f).join('')}</ul>` : '<p class="note">None.</p>';
     const it = x => `<li><a href="#/predictor/${encodeURIComponent(x.symbol)}"><b>${esc(x.symbol)}</b></a> ${x.why ? '· ' + esc(x.why) : ''}${x.rule_stop ? ` · rule stop ${inr(x.rule_stop)}` : ''}${x.pnl != null ? ` · <span class="${cls(x.pnl)}">${money(x.pnl)}</span>` : ''}${x.next_long ? ` · long-term on ${esc(x.next_long.date)}` : ''}</li>`;
-    body = `<div class="grid2">
+    body = planBlock(nx.plan) + `<div class="grid2">
       <div class="card"><h2><span class="pill fail">Sell</span> Exit signal (rules) · ${nx.exit.length}</h2>${li(nx.exit, it)}</div>
       <div class="card"><h2><span class="pill warn">Watch</span> Weak trend · ${nx.weak.length}</h2>${li(nx.weak, it)}</div>
       <div class="card"><h2><span class="pill pass">Keep</span> Uptrend intact · ${nx.keep.length}</h2>${li(nx.keep, it)}</div>
@@ -250,6 +284,7 @@ async function ledgerPage(tab, fresh) {
       <div class="card"><h2>Your record</h2><p class="note">${d.records.trades} trades and ${d.records.snapshots} daily snapshots saved on the NAS${d.records.first_trade ? `, first trade ${esc(d.records.first_trade)}` : ''}. Nothing is deleted when Zerodha disconnects.</p></div>`;
   }
   view.innerHTML = head('My holdings', status, right) + hTabs(tab) + `<div class="stack">${startHelp}${body}</div>`;
+  if (tab === 'next') planNews(S.nav);
   $('#lFy').onchange = e => { S.ledgerFy = e.target.value; S.ledgerRange = null; S.ledger = null; ledgerPage(tab); };
   const setRange = (from, to) => {
     S.ledgerRange = from || to ? { from, to } : null;

@@ -40,8 +40,26 @@ function modeChooser() {
 }
 
 /* ---------------------------------------------------------------- daily chart */
+/* Chart range buttons (1D … Max), shared by every time-series chart. Sessions = trading days back from the latest bar. */
+const RANGE_KEYS = [['1d', '1D', 1], ['1w', '1W', 5], ['1m', '1M', 21], ['3m', '3M', 63], ['6m', '6M', 126], ['1y', '1Y', 252], ['3y', '3Y', 756], ['5y', '5Y', 1260], ['max', 'Max', Infinity]];
+function rangeBar() {
+  const cur = S.range || 'max';
+  return `<div class="seg range-seg" role="group" aria-label="Chart range">${RANGE_KEYS.map(([k, l]) => `<button type="button" data-range="${k}" aria-pressed="${k === cur}">${l}</button>`).join('')}</div>`;
+}
+function sliceRange(arr) {
+  const r = RANGE_KEYS.find(x => x[0] === (S.range || 'max'));
+  return !r || r[2] === Infinity || !arr ? arr : arr.slice(-r[2]);
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('.range-seg [data-range]'); if (!b) return;
+  S.range = b.dataset.range;
+  try { if (S.chartRedraw) S.chartRedraw(); } catch (err) { /* chart left the page */ }
+  document.querySelectorAll('.range-seg [data-range]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.range === S.range)));
+});
+
 function dailyChart(p) {
-  const bars = p.daily_bars || []; if (!bars.length) return '<div class="empty">No daily bars.</div>';
+  const all = p.daily_bars || []; if (!all.length) return '<div class="empty">No daily bars.</div>';
+  const bars = sliceRange(all);
   const swing = p.mode === 'swing', pl = p.plan, n = bars.length;
   const on = chartOn(), XP = 64;   // extra panels: RS vs Nifty, RSI
   const W = 960, R = 104, L = 8, T = 12, PH = 300, GAP = 8, VH = 70, B = 22;
@@ -111,7 +129,7 @@ function dailyChart(p) {
   const lab = lines.map(l => ({ l, yy: y(l[1]) })).sort((a, b) => a.yy - b.yy);
   for (let i = 1; i < lab.length; i++) if (lab[i].yy - lab[i - 1].yy < 13) lab[i].yy = lab[i - 1].yy + 13;
   for (const { l, yy } of lab) s += `<line x1="${L}" x2="${W - R}" y1="${y(l[1])}" y2="${y(l[1])}" stroke="${l[2]}" stroke-width="1.2" stroke-dasharray="${l[0].includes('high') ? '2 3' : '6 4'}"/><text x="${W - R + 6}" y="${yy + 3.5}" style="fill:${l[2]}">${l[0]} ${l[1].toFixed(1)}</text>`;
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily candles with averages, rule levels and volume">${s}</svg>
+  return `${rangeBar()}<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily candles with averages, rule levels and volume">${s}</svg>
     <div class="legend">${swing ? '<span><i style="background:var(--accent)"></i>20-day average</span>' : ''}<span><i style="background:var(--warn)"></i>50-${p.tf_unit || 'day'} average</span><span><i style="background:var(--muted)"></i>200-${p.tf_unit || 'day'} average</span>
     <span><i style="background:var(--warn);height:2px"></i>${esc(pl.level_label || 'breakout level')} (buy on a close above)</span>${si >= 0 ? '<span style="color:var(--accent)">▲ signal day</span>' : ''}
     ${on.trail ? '<span><i style="background:#7F77DD"></i>Trailing stop (rules: best close of 60 candles − ' + (swing ? 3 : 5) + '× range)</span>' : ''}${on.res ? '<span>R = results (green profit up, red down; date approx.)</span>' : ''}${on.rs ? '<span>RS vs Nifty rising = beating the market</span>' : ''}${on.rsi ? '<span>RSI above 70 = stretched, below 30 = washed out</span>' : ''}
@@ -127,6 +145,7 @@ function indToggles() { const on = chartOn(); return `<div class="chips" id="ind
 function bindTf(p) {
   let cur = p;   // the chart now on screen (daily or another timeframe)
   const redraw = () => { $('#chartBody').innerHTML = cur.daily_bars.length ? dailyChart(cur) : '<div class="empty">No candles for this timeframe.</div>'; };
+  S.chartRedraw = redraw;   // the range buttons redraw the chart on screen
   document.querySelectorAll('#indSeg [data-ind]').forEach(b => b.onclick = () => {
     const on = chartOn(); on[b.dataset.ind] = !on[b.dataset.ind];
     try { localStorage.setItem('ts.ind', JSON.stringify(on)); } catch (e) { /* ignore */ }
