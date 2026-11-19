@@ -195,5 +195,12 @@ breakout by 10:30, Nifty above open / up on day, stronger than Nifty, opening vo
 Scanner now shows range in ATR + charges in R per ORB, tag "range 0.5-1 ATR", warning "stop too tight for charges",
 chip "Range 0.5-1 ATR, stop not too tight" (server: scan_one orb.or_atr / risk_pct / cost_r, ORB_COST).
 
+Scalping EXIT study (19 Nov 2026, same 60 days, 8,015 ORB trades, avg R after charges, halves split 6 Oct):
+baseline (stop OR mid, 2R, 15:15) -0.28 / -0.10. No help (mixed): targets 1R/1.5R/3R/none, exit by 11:30/13:00,
+break-even after +0.5R/+1R, trailing, entries till 10:30/12:00, stop OR low (+0.10/+0.05 borderline), 0.25 ATR,
+0.75%/1%. WORSE: stop at breakout-bar low (-0.57/-0.34). BETTER both halves, monotonic: ATR stop 0.5 (-0.15/-0.02),
+0.75 (-0.11/-0.01), 1.0 (-0.08/-0.00); + OR 0.5-1 ATR filter (-0.11/+0.05). Still not positive in both halves:
+no exit makes the ORB a reliable winner after charges. Engine NOT changed (owner pref "keep Scalping as is") unless asked.
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).

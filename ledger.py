@@ -261,7 +261,7 @@ def import_tradebook(body):
     if hi is None:
         raise S.ApiError(400, "This does not look like a Zerodha tradebook: need columns Symbol, Trade Date, Trade Type, Quantity, Price.")
     cols = [re.sub(r"[^a-z]+", "_", c.strip().lower()).strip("_") for c in rows[hi]]
-    added, skipped, bad, dates = 0, 0, 0, []
+    added, skipped, dup, bad, dates = 0, 0, 0, 0, []
     with _lock:
         d = _load()
         for r in rows[hi + 1:]:
@@ -286,22 +286,26 @@ def import_tradebook(body):
             tid = x.get("trade_id") or "%s|%s|%s|%g|%g|%s" % (day, sym, side, qty, px, x.get("order_execution_time", ""))
             key = "tb|%s|%s" % (x.get("exchange", ""), tid)
             if key in d["trades"]:
-                skipped += 1
+                dup += 1
                 continue
             d["trades"][key] = {"id": key, "date": day, "time": (x.get("order_execution_time") or "")[11:19],
                                 "symbol": sym, "side": side, "qty": qty, "price": px, "product": "",
                                 "exchange": x.get("exchange") or "", "source": "tradebook", "order_id": x.get("order_id", "")}
             added += 1
             dates.append(day)
-        if not dates and not skipped:
+        if not dates and not skipped and not dup:
             raise S.ApiError(400, "No equity trades found in the file (%d rows could not be read)." % bad)
         if dates:
             d["imports"].append({"at": S.market_clock()["ist"], "file": str(body.get("name") or "")[:80],
-                                 "from": min(dates), "to": max(dates), "added": added, "skipped": skipped, "bad": bad})
+                                 "from": min(dates), "to": max(dates), "added": added, "skipped": skipped + dup, "bad": bad})
         _save(d)
-    return {"ok": True, "added": added, "skipped": skipped, "bad": bad,
-            "message": "Imported %d trades%s%s." % (added, " (%d already there or not equity, skipped)" % skipped if skipped else "",
-                                                   ", %d rows unreadable" % bad if bad else "")}
+    extra = [x for x in ("%d not equity" % skipped if skipped else "", "%d rows unreadable" % bad if bad else "") if x]
+    if not added and dup:
+        msg = "Nothing new: all %d trades in this file are already in your record%s." % (dup, " (" + ", ".join(extra) + ")" if extra else "")
+    else:
+        msg = "Imported %d new trade%s%s." % (added, "" if added == 1 else "s",
+                                             " (" + ", ".join(([("%d already in your record" % dup)] if dup else []) + extra) + ")" if dup or extra else "")
+    return {"ok": True, "added": added, "skipped": skipped, "duplicates": dup, "bad": bad, "message": msg}
 
 
 def manual(body):

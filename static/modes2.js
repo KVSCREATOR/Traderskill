@@ -520,6 +520,12 @@ function makeCollapsible(root) {
 
 /* ---------------------------------------------------------------- click a column heading to sort (every table) */
 function cellVal(td) {
+  const raw = (td ? td.innerText : '').trim().replace(/\s+/g, ' ');
+  // dates (2026-04-29, 2026-04-29 10:03, 2026-11-19 12:11:07) and times (09:40) sort as text, oldest first
+  const dt = raw.match(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (dt) return dt[1] + ' ' + (dt[2] ? dt[2].padStart(2, '0') + ':' + dt[3] + ':' + (dt[4] || '00') : '00:00:00');
+  const tm = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?!\d)/);
+  if (tm) return tm[1].padStart(2, '0') + ':' + tm[2] + ':' + (tm[3] || '00');
   const t = (td ? td.innerText : '').trim().split('\n')[0].replace(/[₹,\s]/g, '').replace(/−/g, '-').replace(/[%RL]|pts|cr|d$/g, '');
   const n = parseFloat(t);
   return /^[+-]?\d/.test(t) && !isNaN(n) ? n : (td ? td.innerText.trim().toLowerCase() : '');

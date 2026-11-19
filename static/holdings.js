@@ -90,7 +90,12 @@ async function ledgerPage(tab, fresh) {
   const empty = !d.records.trades && !d.records.snapshots;
   const startHelp = empty ? `<div class="banner">No record yet. ${d.connected ? 'The first snapshot is being saved now; ' : 'Connect Zerodha on Live holdings, and '}upload your Console tradebook under <a href="#" data-htab="import">Import &amp; add</a> to fill in past buys and sells.</div>` : '';
   const mism = d.holdings.filter(h => h.mismatch);
-  const mismBox = mism.length ? `<div class="banner">${mism.length} stock${mism.length === 1 ? '' : 's'} need${mism.length === 1 ? 's' : ''} a check: ${mism.slice(0, 4).map(h => `<b>${esc(h.symbol)}</b> ${esc(h.mismatch)}`).join(' · ')}${mism.length > 4 ? ' …' : ''} <a href="#" data-htab="import">Import &amp; add</a></div>` : '';
+  const undated = mism.filter(h => h.unknown_qty > 0), other = mism.filter(h => !(h.unknown_qty > 0));
+  const first = d.records.first_trade;
+  const prevFy = (() => { if (!first) return null; const [y, m] = first.split('-').map(Number); const s = (m >= 4 ? y : y - 1) - 1; return { label: `${s}-${String((s + 1) % 100).padStart(2, '0')}`, from: `1 Apr ${s}`, to: `31 Mar ${s + 1}` }; })();
+  const mismBox = mism.length ? `<div class="banner">${undated.length ? `<b>${undated.length} holding${undated.length === 1 ? ' has' : 's have'} shares bought before your tradebook starts${first ? ' (' + esc(first) + ')' : ''}</b>, so their buy dates and tax status are not known yet: ${undated.map(h => `${esc(h.symbol)} ${fmtQ(h.unknown_qty)}`).join(', ')}.
+      ${prevFy ? `Next: download the Console tradebook for <b>FY ${prevFy.label}</b> (${prevFy.from} – ${prevFy.to}), upload it, and repeat for earlier years until this message goes.` : ''}` : ''}
+    ${other.length ? `<div style="margin-top:6px">${other.map(h => `<b>${esc(h.symbol)}</b>: ${esc(h.mismatch)}`).join(' · ')}</div>` : ''} <a href="#" data-htab="import">Import &amp; add</a></div>` : '';
   const T = (cols, rows, emptyMsg, id) => `<div class="tablewrap"><table ${id ? `id="${id}"` : ''}><thead><tr>${cols.map(c => `<th class="${c[1] || ''}">${c[0]}</th>`).join('')}</tr></thead><tbody>${rows.join('') || `<tr><td colspan="${cols.length}" class="empty">${emptyMsg}</td></tr>`}</tbody></table></div>`;
   let body = '';
   if (tab === 'record') {
