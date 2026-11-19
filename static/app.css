@@ -423,7 +423,7 @@ td.acts .btn { margin-left: 3px; }
 tr.inper td { background: var(--accent-soft); }
 
 /* ticker speed slider under Live */
-.tk-live { position: relative; flex-wrap: nowrap; padding: 0 10px 0 22px; gap: 6px; }
+.tk-live { position: relative; flex-wrap: nowrap; padding: 0 10px 0 22px; gap: 6px; height: auto; align-self: stretch; min-height: 64px; }
 /* vertical, exactly as tall as the ticker lines (absolute, so it never makes the ticker taller); top = faster */
 .tk-speed { position: absolute; left: 7px; top: 9px; bottom: 9px; width: 6px; border-radius: 3px; background: var(--border); cursor: ns-resize; touch-action: none; }
 .tk-speed::before { content: ""; position: absolute; inset: -9px -7px; }   /* bigger grab area */
