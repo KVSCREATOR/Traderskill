@@ -794,8 +794,10 @@ async function tgCard(box) {
 const NKIND = { hello: 'NAS start greeting', morning: 'Morning plan (first start after 06:00)', update: '08:45 update (if changed)',
   login: 'Zerodha login link', signin: 'Zerodha sign-in summary', plan: '09:32 Day plan', stopalert: 'Below rule stop', move: 'Big market move',
   alert: 'Price alert', zerodha: 'Zerodha buy/sell', paper: 'Paper trade', close: '15:32 Market close', eod: '15:35 Your holdings',
-  weekly: 'Sunday 10:00 weekly', gtt: 'GTT saved' };
-const NRUN = ['morning', 'update', 'login', 'signin', 'plan', 'close', 'eod', 'weekly'];
+  weekly: 'Sunday 10:00 weekly', gtt: 'GTT saved', hindinews: '07:00 Hindi global news', exits: '10:00 Exit signals',
+  whatnext: '12:00 What next plan', roombuys: '13:00 Buy signals with room', loss10: 'Down 10%+', lossnews: 'Loss + negative news',
+  trend: 'Trend change' };
+const NRUN = ['hindinews', 'morning', 'update', 'login', 'signin', 'plan', 'exits', 'whatnext', 'roombuys', 'close', 'eod', 'weekly', 'loss10', 'lossnews', 'trend'];
 async function notifPage() {
   const my = S.nav;
   view.innerHTML = head('Notifications', 'Scheduled reports and every message the portal has sent or tried to send.') + loading(2);

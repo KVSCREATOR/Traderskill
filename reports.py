@@ -375,10 +375,12 @@ def hindi_news():
 
 def roombuys():
     """13:00 on trading days: 'Rule buy signals you have room for' (My holdings -> What next), from a fresh snapshot."""
-    try:
-        LG.snapshot("13:00")
-    except Exception:  # noqa: BLE001
-        pass
+    now = S.now_ist()
+    if 555 <= now.hour * 60 + now.minute <= 930:   # fresh snapshot in market hours only (a test run at night writes nothing)
+        try:
+            LG.snapshot("13:00")
+        except Exception:  # noqa: BLE001
+            pass
     nx = (LG.report() or {}).get("next") or {}
     buys = nx.get("buys") or []
     msg = ["🟢 Rule buy signals you have room for · %s" % S.now_ist().strftime("%a %d %b %H:%M"),
@@ -431,6 +433,95 @@ def _lw_save(lw):
         S.save_state(st)
 
 
+_TREND_RANK = {"exit": 0, "weak": 1, "hold": 2, "buy": 3}
+_TREND_NAME = {"exit": "Sell (exit signal)", "weak": "Weak", "hold": "Uptrend (hold)", "buy": "Buy signal"}
+
+
+def _trend_text(moved, rows, now):
+    by = {r["symbol"]: r for r in rows}
+    return "\n".join(["🔄 Trend changed on your holdings · %s" % now.strftime("%H:%M")]
+                     + ["  %s %s: %s → %s · %+.1f%% · %s" % ("🔴" if _TREND_RANK.get(v, 2) < _TREND_RANK.get(a, 2) else "🟢", s,
+                                                             _TREND_NAME.get(a, a), _TREND_NAME.get(v, v),
+                                                             by[s].get("pnl_pct") or 0, by[s].get("why") or "") for s, a, v in moved]
+                     + ["Judged on daily bars with today's bar still forming, so it can change back by the close.", NOTE])
+
+
+def _loss10_text(rows, now):
+    return "\n".join(["🔴 Down 10% or more from your buy price · %s" % now.strftime("%H:%M")]
+                     + ["  %s %+.1f%% · %s now %s (avg %s)%s" % (r["symbol"], r["pnl_pct"], signed(r["pnl"]), rs(r["ltp"], 2),
+                                                                rs(r["avg"], 2), " · rule: " + _TREND_NAME.get(r["verdict"], r["verdict"]) if r.get("verdict") else "")
+                        for r in rows] + [NOTE])
+
+
+def _lossnews_hits(rows, skip=()):
+    """Holdings down 5%+ whose last 3 days of headlines are mostly negative (3+ negative, more than positive)."""
+    hits = []
+    for r in rows:
+        if (r.get("pnl_pct") or 0) > NEWS_LOSS_PCT or r["symbol"] in skip:
+            continue
+        try:
+            items = S.news(r["symbol"])["items"]
+        except Exception:  # noqa: BLE001
+            continue
+        neg = [i for i in items if i.get("tone") == "neg"]
+        if len(neg) >= NEG_MIN and len(neg) > sum(1 for i in items if i.get("tone") == "pos"):
+            hits.append((r, neg))
+    return hits
+
+
+def _lossnews_text(hits, now):
+    msg = ["⚠️ In loss and the news is mostly negative · %s" % now.strftime("%H:%M")]
+    for r, neg in hits:
+        msg.append("\n%s %+.1f%% · %d negative headlines in 3 days" % (r["symbol"], r["pnl_pct"], len(neg)))
+        msg += ["  🔴 " + D._short(i["title"]) for i in neg[:3]]
+    return "\n".join(msg + [NOTE])
+
+
+# ---- "Run a report now" (Notifications page): the three market-hours alerts, any time, without the once-a-day limit
+def _now_rows(title):
+    h = _zerodha()
+    return (h["rows"], None) if h else (None, "%s\n%s\nThe check needs today's Zerodha login." % (title, _reconnect_line()))
+
+
+def loss10_now():
+    rows, err = _now_rows("🔴 Loss check")
+    if err:
+        return err
+    hit = sorted((r for r in rows if (r.get("pnl_pct") or 0) <= LOSS_PCT), key=lambda r: r["pnl_pct"])
+    return _loss10_text(hit, S.now_ist()) if hit else "✅ Loss check · no holding is down 10% or more right now."
+
+
+def lossnews_now():
+    rows, err = _now_rows("⚠️ Loss + news check")
+    if err:
+        return err
+    hits = _lossnews_hits(rows)
+    return _lossnews_text(hits, S.now_ist()) if hits else (
+        "✅ Loss + news check · no holding down 5%%+ has mostly negative news right now (needs %d+ negative headlines in 3 days, "
+        "more than positive)." % NEG_MIN)
+
+
+def trend_now():
+    """Changes since the watcher's last look, or (none / no look yet) today's trend of every holding. Does not move the saved look."""
+    rows, err = _now_rows("🔄 Trend check")
+    if err:
+        return err
+    now = S.now_ist()
+    prev = ((S.load_state().get("telegram") or {}).get("verdicts")) or {}
+    cur = {r["symbol"]: r["verdict"] for r in rows if r.get("verdict")}
+    moved = [(s, prev[s], v) for s, v in cur.items() if prev.get(s) and prev[s] != v]
+    if moved:
+        return _trend_text(moved, rows, now)
+    msg = ["🔄 Trend check · %s" % now.strftime("%d %b %H:%M"),
+           "No change since the last look." if prev else "No earlier look saved yet: the first check in market hours records the trends, later checks report changes.",
+           "Now:"]
+    for v, mark in (("exit", "🔴"), ("weak", "🟠"), ("hold", "🟢"), ("buy", "🔵")):
+        syms = sorted(s for s, x in cur.items() if x == v)
+        if syms:
+            msg.append("  %s %s (%d): %s" % (mark, _TREND_NAME[v], len(syms), ", ".join(syms)))
+    return "\n".join(msg + [NOTE])
+
+
 def loss_watch():
     """Every 5 min (news every 30 min) from 09:15 to 15:30 on trading days. Each stock alerts once a day per kind."""
     now = S.now_ist()
@@ -458,43 +549,20 @@ def loss_watch():
         prev = tg.get("verdicts") or {}
         tg["verdicts"] = cur
         S.save_state(st)
-    rank = {"exit": 0, "weak": 1, "hold": 2, "buy": 3}
-    name = {"exit": "Sell (exit signal)", "weak": "Weak", "hold": "Uptrend (hold)", "buy": "Buy signal"}
     moved = [(s, prev[s], v) for s, v in cur.items() if prev.get(s) and prev[s] != v]
     if moved:
-        by = {r["symbol"]: r for r in rows}
-        T.notify("trend", "\n".join(["🔄 Trend changed on your holdings · %s" % now.strftime("%H:%M")]
-                                    + ["  %s %s: %s → %s · %+.1f%% · %s" % ("🔴" if rank.get(v, 2) < rank.get(a, 2) else "🟢", s, name.get(a, a), name.get(v, v),
-                                                                           by[s].get("pnl_pct") or 0, by[s].get("why") or "") for s, a, v in moved]
-                                    + ["Judged on daily bars with today's bar still forming, so it can change back by the close.", NOTE]))
+        T.notify("trend", _trend_text(moved, rows, now))
     new = sorted((r for r in rows if (r.get("pnl_pct") or 0) <= LOSS_PCT and r["symbol"] not in lw["loss"]),
                  key=lambda r: r["pnl_pct"])
     if new:
         lw["loss"] += [r["symbol"] for r in new]
-        T.notify("loss10", "\n".join(["🔴 Down 10% or more from your buy price · %s" % now.strftime("%H:%M")]
-                                     + ["  %s %+.1f%% · %s now %s (avg %s)%s" % (r["symbol"], r["pnl_pct"], signed(r["pnl"]), rs(r["ltp"], 2),
-                                                                                rs(r["avg"], 2), " · rule: " + r["verdict"] if r.get("verdict") else "")
-                                        for r in new] + [NOTE]))
+        T.notify("loss10", _loss10_text(new, now))
     if time.time() - lw.get("news_at", 0) >= 1800:
         lw["news_at"] = time.time()
-        hits = []
-        for r in rows:
-            if (r.get("pnl_pct") or 0) > NEWS_LOSS_PCT or r["symbol"] in lw["news"]:
-                continue
-            try:
-                items = S.news(r["symbol"])["items"]
-            except Exception:  # noqa: BLE001
-                continue
-            neg = [i for i in items if i.get("tone") == "neg"]
-            if len(neg) >= NEG_MIN and len(neg) > sum(1 for i in items if i.get("tone") == "pos"):
-                hits.append((r, neg))
+        hits = _lossnews_hits(rows, skip=set(lw["news"]))
         if hits:
             lw["news"] += [r["symbol"] for r, _ in hits]
-            msg = ["⚠️ In loss and the news is mostly negative · %s" % now.strftime("%H:%M")]
-            for r, neg in hits:
-                msg.append("\n%s %+.1f%% · %d negative headlines in 3 days" % (r["symbol"], r["pnl_pct"], len(neg)))
-                msg += ["  🔴 " + D._short(i["title"]) for i in neg[:3]]
-            T.notify("lossnews", "\n".join(msg + [NOTE]))
+            T.notify("lossnews", _lossnews_text(hits, now))
     _lw_save(lw)
 
 
@@ -519,7 +587,8 @@ def _save_holdings(rows):
 BUILDERS = {"morning": lambda: D.morning_plan()[0],
             "update": lambda: D.morning_update() or "08:45 update: nothing changed since the morning plan (normally not sent).",
             "login": lambda: D.login_text(), "signin": lambda: D.signin_text() or "Zerodha is not connected: no sign-in summary.",
-            "plan": plan, "close": close, "eod": eod, "weekly": lambda: D.weekly(), "whatnext": whatnext, "exits": exits, "roombuys": roombuys, "hindinews": hindi_news}
+            "plan": plan, "close": close, "eod": eod, "weekly": lambda: D.weekly(), "whatnext": whatnext, "exits": exits, "roombuys": roombuys, "hindinews": hindi_news,
+            "loss10": loss10_now, "lossnews": lossnews_now, "trend": trend_now}
 
 
 def run(kind):
