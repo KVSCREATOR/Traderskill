@@ -1471,6 +1471,8 @@ def api(method, path, q, body):
         if not long_mode:
             raise ApiError(400, "The forward test is for Trading and Investing modes.")
         return longterm.journal(mode)
+    if path == "/api/history":
+        return history.history()
     if path == "/api/notify_log":
         return reports.history(int(q.get("limit") or 500), q.get("kind") or None)
     if path == "/api/reports/run" and method == "POST":
@@ -1638,6 +1640,8 @@ telegram.R = reports
 import daily  # noqa: E402  (start greeting, morning plan, Zerodha reminders, market-hours watches)
 daily.S, daily.L, daily.K, daily.T, daily.R = sys.modules[__name__], longterm, kite, telegram, reports
 kite.D = reports.D = telegram.D = daily
+import history  # noqa: E402  (full history: actions, orders, GTTs, alerts, messages)
+history.S, history.L, history.R = sys.modules[__name__], longterm, reports
 
 # ----------------------------------------------------------------- self-restart (edit files on the NAS, no rebuild)
 _reload = {"error": None, "checked": None}
@@ -1773,7 +1777,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api(self, method, path, q, body):
         try:
-            self._send(200, api(method, path, q, body or {}))
+            res = api(method, path, q, body or {})
+            if method == "POST":   # keep a permanent record of what you do (History page)
+                try:
+                    history.log_post(path, body or {}, res, q.get("mode") or (body or {}).get("mode") or "intraday")
+                except Exception:  # noqa: BLE001
+                    pass
+            self._send(200, res)
         except ApiError as e:
             self._send(e.code, {"error": e.msg})
         except Exception as e:  # noqa: BLE001

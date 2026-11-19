@@ -94,6 +94,39 @@ def place(mode, body):
     return {"ok": True, "order": order}
 
 
+def _event_text(o):
+    """Telegram text when a GTT triggers, is rejected or expires."""
+    rs = S.telegram._rs
+    label = S.longterm.LABEL.get(o["mode"], o["mode"])
+    way = "rose to" if o["direction"] == "above" else "fell to"
+    if o["status"] == "triggered" and o.get("fill"):
+        qty, fill = o.get("qty") or 0, o["fill"]
+        stop = o.get("stop_used") or o.get("stop")
+        lines = ["🎯🟢 GTT TRIGGERED (paper, %s): bought %s %s" % (label, qty, o["symbol"]),
+                 "Trigger %s %s · bought at %s on %s" % (way, rs(o["trigger"], 2), rs(fill, 2), o.get("triggered_date", "")),
+                 "Amount %s" % rs(qty * fill)]
+        if stop:
+            lines.append("Stop %s · max loss about %s" % (rs(stop, 2), rs(max(fill - stop, 0) * qty)))
+        if o.get("target"):
+            lines.append("Target %s" % rs(o["target"], 2))
+        elif o["mode"] != "intraday":
+            lines.append("Exit: trailing stop by the %s rules" % label)
+        else:
+            lines.append("Square-off by 15:15 if neither is hit")
+        lines.append("If you placed the same GTT in Zerodha, check it filled: https://kite.zerodha.com/orders/gtt")
+    else:
+        icon = "⚠️" if o["status"] == "rejected" else "⌛"
+        lines = ["%s GTT %s (paper, %s): %s" % (icon, o["status"].upper(), label, o["symbol"]),
+                 "Trigger %s %s" % ("above" if o["direction"] == "above" else "below", rs(o["trigger"], 2)),
+                 "Why: %s" % (o.get("note") or "–")]
+    try:
+        lines.append("🌐 Portal: %s/#/broker" % (S.PUBLIC_URL or "http://127.0.0.1:%d" % S.PORT))
+    except Exception:  # noqa: BLE001
+        pass
+    lines.append("Paper only: the portal never places real orders.")
+    return "\n".join(lines)
+
+
 def cancel(oid):
     with S._state_lock:
         st = S.load_state()
@@ -243,9 +276,7 @@ def check(mode=None):
                 changed = True
                 if before["status"] == "active" and o["status"] != "active":
                     try:
-                        msg = ("bought %s %s at %.2f" % (o.get("qty"), o["symbol"], o["fill"])) if o["status"] == "triggered" and o.get("fill")                             else "%s %s · %s" % (o["symbol"], o["status"], o.get("note") or "")
-                        S.telegram.notify("paper", "%s Paper GTT (%s): %s" % ("🟢" if o["status"] == "triggered" else "⚪",
-                                                                             S.longterm.LABEL.get(o["mode"], o["mode"]), msg))
+                        S.telegram.notify("gtt", _event_text(o))
                     except Exception:  # noqa: BLE001
                         pass
         if changed:

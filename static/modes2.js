@@ -700,3 +700,57 @@ async function codeBox(after) {
     catch (e) { toast(e.message, 'bad'); }
   };
 }
+
+/* ---------------------------------------------------------------- History: everything in one place (replaces Notifications) */
+const HCAT = [['all', 'All'], ['order', 'Paper orders'], ['gtt', 'GTT'], ['alert', 'Alerts'], ['message', 'Messages'], ['action', 'Your actions']];
+const HICON = { order: '₹', gtt: '🎯', alert: '🔔', message: '✉', action: '✎' };
+async function historyPage() {
+  const my = S.nav;
+  view.innerHTML = head('History', 'Everything in the portal: your paper orders, GTTs, alerts, Telegram messages and your actions.') + loading(3);
+  let d, err; try { d = await api('/api/history'); } catch (e) { err = e; }
+  if (my !== S.nav) return;
+  if (err) { view.innerHTML = head('History', '') + failBox(err); return; }
+  let f = S.histCat || 'all', q = '', mf = 'all';
+  const statusCls = s => /sent|win|triggered|done/.test(s || '') ? 'pass' : /fail|loss|rejected|error/.test(s || '') ? 'fail' : /active|open/.test(s || '') ? 'warn' : '';
+  const draw = () => {
+    const rows = d.rows.filter(r => (f === 'all' || r.cat === f) && (mf === 'all' || r.mode === mf)
+      && (!q || (r.title + ' ' + (r.detail || '')).toLowerCase().includes(q)));
+    const chips = HCAT.map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-hc="${k}">${esc(l)}${k !== 'all' ? ` <small class="muted">${d.counts[k] || 0}</small>` : ''}</button>`).join('');
+    const mchips = [['all', 'All modes'], ['intraday', 'Scalping'], ['swing', 'Trading'], ['invest', 'Investing']]
+      .map(([k, l]) => `<button class="chip ${mf === k ? 'on' : ''}" data-hm="${k}">${l}</button>`).join('');
+    view.innerHTML = head('History', `${d.total} records · newest first · kept permanently on the NAS`,
+      '<button class="btn" id="hCsv">Download CSV</button><a class="btn" href="#/settings">Telegram settings</a>') +
+      `<div class="stack">
+      ${f === 'message' ? `<div class="card"><h2>Run a report now</h2><div class="row" style="flex-wrap:wrap">${NRUN.map(k => `<button class="btn" data-run="${k}">${esc(NKIND[k])}</button>`).join('')}</div>
+        <p class="note" style="margin-top:8px">Builds the message from live data right away, logs it here and sends it to Telegram if that kind is switched on.</p></div>` : ''}
+      <div class="card"><div class="row tablebar"><input id="hSearch" type="search" placeholder="Search history" value="${esc(q)}" style="width:220px">
+        <div class="chips" style="margin:0">${chips}</div></div>
+        <div class="row tablebar"><div class="chips" style="margin:0">${mchips}</div><span class="note" style="margin:0">${rows.length} shown</span>
+          <button class="btn sm" data-sortreset>Default order</button></div>
+        ${rows.length ? `<div class="tablewrap"><table class="htable"><thead><tr><th>When (IST)</th><th>Type</th><th>Mode</th><th>What</th><th>Status</th></tr></thead><tbody>
+        ${rows.slice(0, 1500).map(r => `<tr><td class="mono" style="white-space:nowrap">${esc((r.ts || '').slice(0, 16))}</td>
+          <td><span class="pill">${HICON[r.cat] || ''} ${esc((HCAT.find(c => c[0] === r.cat) || [0, r.cat])[1])}${r.kind ? ' · ' + esc(NKIND[r.kind] || r.kind) : ''}</span></td>
+          <td>${esc(r.mode_label || '–')}</td>
+          <td><b>${esc(r.title)}</b>${r.detail && r.detail !== r.title ? `<details><summary class="muted">details</summary><pre class="hpre">${esc(r.detail)}</pre></details>` : ''}</td>
+          <td><span class="pill ${statusCls(r.status)}">${esc(r.status || '')}</span>${r.error ? `<small class="down" style="display:block">${esc(r.error)}</small>` : ''}</td></tr>`).join('')}
+        </tbody></table></div>${rows.length > 1500 ? '<p class="note">Showing the newest 1,500. Search or filter to narrow down, or download the CSV for everything.</p>' : ''}`
+        : '<div class="empty">Nothing here yet.</div>'}</div></div>`;
+    view.querySelectorAll('[data-hc]').forEach(b => b.onclick = () => { f = S.histCat = b.dataset.hc; draw(); });
+    view.querySelectorAll('[data-hm]').forEach(b => b.onclick = () => { mf = b.dataset.hm; draw(); });
+    const si = $('#hSearch'); si.oninput = () => { q = si.value.trim().toLowerCase(); const pos = si.selectionStart; draw(); const n = $('#hSearch'); n.focus(); n.setSelectionRange(pos, pos); };
+    view.querySelectorAll('[data-run]').forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = 'Building…';
+      try { await api('/api/reports/run', { kind: b.dataset.run }); toast('Report built and logged.'); } catch (e) { toast(e.message, 'bad'); }
+      historyPage();
+    });
+    $('#hCsv').onclick = () => {
+      const cell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      const csv = ['When,Type,Kind,Mode,What,Status,Details'].concat(d.rows.map(r => [r.ts, r.cat, r.kind || '', r.mode_label || '', r.title, r.status || '', r.detail || ''].map(cell).join(','))).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = 'tradeskill-history-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    };
+  };
+  draw();
+}
