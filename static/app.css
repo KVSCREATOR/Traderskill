@@ -425,6 +425,8 @@ tr.inper td { background: var(--accent-soft); }
 /* ticker speed slider under Live */
 .tk-live { position: relative; flex-wrap: nowrap; padding: 0 10px 0 22px; gap: 6px; }
 /* vertical, exactly as tall as the ticker lines (absolute, so it never makes the ticker taller); top = faster */
-.tk-speed { position: absolute; left: 3px; top: 3px; bottom: 3px; width: 14px; cursor: ns-resize; }
-.tk-speed span { display: none; }
-.tk-speed input { writing-mode: vertical-lr; direction: rtl; width: 14px; height: 100%; accent-color: var(--accent); margin: 0; padding: 0; cursor: ns-resize; }
+.tk-speed { position: absolute; left: 7px; top: 9px; bottom: 9px; width: 6px; border-radius: 3px; background: var(--border); cursor: ns-resize; touch-action: none; }
+.tk-speed::before { content: ""; position: absolute; inset: -9px -7px; }   /* bigger grab area */
+.tk-speed .tk-fill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 3px; background: var(--accent); opacity: .45; }
+.tk-speed .tk-thumb { position: absolute; left: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.tk-speed:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }

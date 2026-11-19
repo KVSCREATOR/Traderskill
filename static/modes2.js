@@ -617,9 +617,17 @@ function tkApplySpeed() {
 function tkSpeedCtl() {
   const live = document.querySelector('#ticker .tk-live');
   if (!live || live.querySelector('.tk-speed')) return;
-  live.insertAdjacentHTML('beforeend', `<label class="tk-speed" title="Scroll speed: up = faster, down = slower"><span>Speed</span><input type="range" min="5" max="120" step="5" value="${TK_SPEED}" aria-label="Ticker scroll speed"></label>`);
-  const r = live.querySelector('.tk-speed input');
-  r.oninput = () => { TK_SPEED = +r.value; tkApplySpeed(); try { localStorage.setItem('ts.tkspeed', String(TK_SPEED)); } catch (e) { /* ignore */ } };
+  // drawn vertical slider (track + handle): works the same in every browser; top = fastest
+  const MIN = 5, MAX = 120;
+  live.insertAdjacentHTML('beforeend', `<div class="tk-speed" role="slider" tabindex="0" aria-label="Ticker scroll speed" aria-valuemin="${MIN}" aria-valuemax="${MAX}" title="Scroll speed: drag up = faster, down = slower"><i class="tk-fill"></i><i class="tk-thumb"></i></div>`);
+  const tr = live.querySelector('.tk-speed'), th = tr.querySelector('.tk-thumb'), fill = tr.querySelector('.tk-fill');
+  const show = () => { const f = (TK_SPEED - MIN) / (MAX - MIN); th.style.top = ((1 - f) * 100) + '%'; fill.style.height = (f * 100) + '%'; tr.setAttribute('aria-valuenow', TK_SPEED); tr.title = `Scroll speed ${TK_SPEED}: drag up = faster, down = slower`; };
+  const set = v => { TK_SPEED = Math.max(MIN, Math.min(MAX, Math.round(v / 5) * 5)); show(); tkApplySpeed(); try { localStorage.setItem('ts.tkspeed', String(TK_SPEED)); } catch (e) { /* ignore */ } };
+  const at = y => { const b = tr.getBoundingClientRect(); set(MIN + (1 - Math.max(0, Math.min(1, (y - b.top) / b.height))) * (MAX - MIN)); };
+  tr.addEventListener('pointerdown', e => { e.preventDefault(); tr.setPointerCapture(e.pointerId); at(e.clientY); tr.onpointermove = ev => at(ev.clientY); });
+  tr.addEventListener('pointerup', () => { tr.onpointermove = null; });
+  tr.addEventListener('keydown', e => { if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { set(TK_SPEED + 5); e.preventDefault(); } if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { set(TK_SPEED - 5); e.preventDefault(); } });
+  show();
 }
 
 /* show / hide each ticker line (remembered on this device) */
