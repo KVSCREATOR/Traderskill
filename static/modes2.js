@@ -587,7 +587,44 @@ async function tickerLoad() {
   }), 50);
 }
 const TK_SPEED = 45;   // pixels per second, same for every line
-addEventListener("load", () => { tickerLoad(); setInterval(tickerLoad, 60000); });
+
+/* show / hide each ticker line (remembered on this device) */
+const TK_OFF_KEY = 'ts.tkoff';
+let TK_OFF = null;   // kept in memory too, so hiding works even where storage is blocked
+function tkOffList() {
+  if (!TK_OFF) { try { TK_OFF = JSON.parse(localStorage.getItem(TK_OFF_KEY) || '[]'); } catch (e) { TK_OFF = []; } }
+  if (!Array.isArray(TK_OFF)) TK_OFF = [];
+  return TK_OFF;
+}
+function tkToggles() {
+  const off = tkOffList();
+  document.querySelectorAll('#ticker .tk-line').forEach(line => {
+    const run = line.querySelector('.tk-run'), tag = line.querySelector('.tk-tag');
+    if (!run || !tag) return;
+    const id = run.id;
+    if (!tag.querySelector('.tk-eye')) {
+      const label = tag.textContent.trim();
+      tag.innerHTML = `<span class="tk-name">${esc(label)}</span><button type="button" class="tk-eye" data-tk="${esc(id)}"></button>`;
+      line.querySelector('.tk-view').insertAdjacentHTML('afterend', `<button type="button" class="tk-stub" data-tk="${esc(id)}">${esc(label)} line hidden · click to show</button>`);
+    }
+    const isOff = off.includes(id);
+    line.classList.toggle('off', isOff);
+    const eye = tag.querySelector('.tk-eye');
+    eye.textContent = isOff ? '◌' : '◉';
+    eye.title = (isOff ? 'Show the ' : 'Hide the ') + tag.querySelector('.tk-name').textContent + ' line';
+    eye.setAttribute('aria-pressed', String(!isOff));
+  });
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('#ticker [data-tk]');
+  if (!b) return;
+  e.preventDefault();
+  const id = b.dataset.tk, off = tkOffList(), i = off.indexOf(id);
+  if (i >= 0) off.splice(i, 1); else off.push(id);
+  try { localStorage.setItem(TK_OFF_KEY, JSON.stringify(off)); } catch (err) { /* storage blocked: works until reload */ }
+  tkToggles();
+});
+addEventListener("load", () => { tkToggles(); tickerLoad(); setInterval(tickerLoad, 60000); });
 
 
 /* ---------------------------------------------------------------- Telegram (send-only) on the Limits page */

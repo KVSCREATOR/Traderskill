@@ -380,3 +380,15 @@ td.acts .btn { margin-left: 3px; }
 .spark-k i { display: inline-block; width: 14px; height: 3px; margin-right: -6px; }
 .k-c { background: var(--accent); } .k-50 { background: var(--warn); } .k-200 { background: var(--fail); }
 .checks li.ok { color: var(--text); } .checks li.bad { color: var(--fail); }
+
+/* show / hide button on each ticker line */
+.tk-tag { width: 108px; justify-content: space-between; gap: 4px; }
+.tk-eye { flex: none; border: 1px solid var(--border); background: var(--surface-2); color: var(--accent); border-radius: 6px; font-size: 12px; line-height: 1; width: 22px; height: 20px; padding: 0; cursor: pointer; }
+.tk-eye:hover { border-color: var(--accent); }
+.tk-line.off .tk-eye { color: var(--muted); }
+.tk-stub { display: none; }
+.tk-line.off { height: 22px; }
+.tk-line.off .tk-view { display: none; }
+.tk-line.off .tk-stub { display: flex; align-items: center; flex: 1; border: 0; background: none; color: var(--muted); font: 12px var(--sans); padding: 0 12px; cursor: pointer; text-align: left; }
+.tk-line.off .tk-stub:hover { color: var(--accent); }
+@media (max-width: 700px) { .tk-tag { width: 92px; padding: 0 6px; font-size: 10px; } }
