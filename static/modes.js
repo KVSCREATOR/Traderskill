@@ -70,7 +70,7 @@ function dailyChart(p) {
   const bars = sliceRange(all);
   const swing = p.mode === 'swing', pl = p.plan, n = bars.length;
   const on = chartOn(), XP = 64;   // extra panels: RS vs Nifty, RSI
-  const W = 960, R = 104, L = 8, T = 12, PH = 300, GAP = 8, VH = 70, B = 22;
+  const W = 960, R = 150, L = 8, T = 12, PH = 300, GAP = 8, VH = 70, B = 22;
   const rsTop = T + PH + GAP + VH + (on.rs ? GAP : 0), rsiTop = rsTop + (on.rs ? XP : 0) + (on.rsi ? GAP : 0);
   const H = rsiTop + (on.rsi ? XP : 0) + B;
   const lines = [['Entry', pl.entry, 'var(--accent)'], ['Stop', pl.stop, 'var(--fail)']];
@@ -91,6 +91,11 @@ function dailyChart(p) {
       s += `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${vTop + VH}" stroke="var(--border)"/><text x="${x(i)}" y="${H - 6}" text-anchor="middle">${years ? b.d.slice(0, 4) : new Date(b.d + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short' }) + (b.d.slice(5, 7) === '01' ? ' ' + b.d.slice(2, 4) : '')}</text>`;
     }
   });
+  // price scale on the right edge: about 6 round levels between the chart's low and high
+  { const raw = (hi - lo) / 6, mag = 10 ** Math.floor(Math.log10(raw || 1)), step = [1, 2, 2.5, 5, 10].map(k => k * mag).find(z => z >= raw) || mag * 10;
+    for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+      s += `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--border)" stroke-dasharray="2 4"/><text x="${W - 4}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end" style="fill:var(--muted);font-size:10px">${v >= 1000 ? v.toLocaleString('en-IN', { maximumFractionDigits: 0 }) : +v.toFixed(2)}</text>`;
+    } }
   s += `<line x1="${L}" x2="${W - R}" y1="${vTop - GAP / 2}" y2="${vTop - GAP / 2}" stroke="var(--border)"/><text x="${W - R + 6}" y="${vTop + 10}">Volume</text>`;
   // volume: bars that clear the rule's volume test are drawn solid
   bars.forEach((b, i) => {
