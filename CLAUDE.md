@@ -229,5 +229,21 @@ NEXT TODO (19 Nov 2026, not done): index funds in the core list (NIFTYBEES etc.)
 per-stock Rs 25,000 cap or the 10-stock limit in ledger.report "next.limits" / n_held. Today tab not yet viewed in a
 browser (server function tested on test data).
 
+19 Nov 2026 (evening session), all committed + pushed, checked in the owner's Chrome:
+- Look: screener-style, light by default (◐ for dark), 15px text, more colour tokens (--info/--violet/--pink).
+  Every page's title bar (.head) is a header card; card h2 indigo; every .kv tile has a coloured top edge.
+  Predictor, Scanner (all modes) and every My holdings tab have scHead() big-number card + scTiles() count tiles
+  (helpers in modes.js). My holdings button moved to the top bar. P&L treemap on Live holdings (pnlMap, modes2.js).
+- Range buttons 1D…Max (rangeBar/sliceRange in modes.js) on the predictor daily chart and the backtest equity chart.
+- 3-6 month plan (What next tab, ledger._plan): sells/buys from the TRADING rules (kite adds verdict_t and fit_t,
+  snapshot stores them), limits = the owner's Investing limits (same as the rest of My holdings). Sells: exit,
+  over per-stock cap (trim), sector over limit, over stock count; weak-trend holdings swapped for Best-odds buys;
+  cash includes sale proceeds; "next in line" buys when no place is free. News per sell line (planNews).
+- News matching (server._news_match): one-word matches need market words and must not be part of another
+  company's name ("Astral Foods", "Gold & Silver"); 12 real headlines tested.
+- Investing default max per stock = 50,000 (owner's saved value is still 1,00,000).
+- Git on the NAS share needs: git -c safe.directory='%(prefix)///192.168.1.200/docker/tradeskill' -C Z:\ ...
+- The in-app browser rejects the NAS certificate; use the owner's Chrome (owner types the PIN).
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).
