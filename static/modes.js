@@ -204,10 +204,13 @@ function renderLong(p) {
     `<div class="stack">
     ${p.source !== 'Yahoo Finance' ? `<div class="banner">Yahoo Finance has no data for this stock, so prices come from the ${esc(p.source)} (about 75 days only). The 200-day average and the backtest need more history.</div>` : ''}
     <div class="skills">${strip}</div>
-    <div class="hero">
+    <div class="card sc-head">
+      <div class="sc-price"><span class="sc-label">Last price</span><span class="sc-px">${inr(p.price)}</span><span class="sc-pill ${p.change_pct >= 0 ? 'up' : 'down'}">${pct(p.change_pct)}</span><span class="muted" style="font-size:13px">on the day</span></div>
+      <div class="sc-sub">${esc(p.mode_label)} rules · daily prices to ${fdate(p.asof)}${p.live ? ' · today\'s bar still forming' : ''}</div>
+    </div>
+    <div class="sc-grid">
       <div class="card score">${gauge(p.score, p.verdict)}<div class="verdict ${p.verdict}">${verdictText}</div><p>${esc(p.why)}</p><p class="note">${p.points} of ${p.max_points} points</p></div>
       <div class="card">
-        <div class="quote"><span class="px">${inr(p.price)}</span><span class="${cls(p.change_pct)} mono">${pct(p.change_pct)}</span><span class="muted">on the day</span></div>
         <div class="kv">
           <div><span>${pl.trigger ? 'Buy above' : 'Entry'}</span><b>${inr(pl.entry)}</b></div>
           <div><span>Stop (${pl.risk_pct.toFixed(1)}%)</span><b class="down">${inr(pl.stop)}</b></div>

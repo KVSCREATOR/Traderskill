@@ -236,12 +236,14 @@ function renderPredict(p) {
     `<div class="stack">
     ${!p.intraday ? `<div class="banner">${p.source.startsWith('NSE') ? 'Yahoo Finance has no data for this stock, so prices come from NSE\'s end-of-day file' : p.source.startsWith('BSE') ? 'Neither Yahoo Finance nor NSE has data for this stock, so prices come from BSE\'s end-of-day file' : 'No 5-minute bars are available for this stock'}. Daily chart, news and earnings are scored; entry, stop, target, odds and sizing need intraday data and are not available.</div>` : p.live ? '' : `<div class="banner">The market is not open, so entry and risk gates cannot pass. The score below replays the last session to show how the plan is built.</div>`}
     <div class="skills" aria-label="Skills used">${strip}</div>
-    <div class="hero">
+    <div class="card sc-head">
+      <div class="sc-price"><span class="sc-label">Last price</span><span class="sc-px">${inr(p.price)}</span><span class="sc-pill ${p.change_pct >= 0 ? 'up' : 'down'}">${pct(p.change_pct)}</span>
+        <span class="muted" style="font-size:13px">vs yesterday's close ${inr(p.prev_close)}</span></div>
+    </div>
+    <div class="sc-grid">
       <div class="card score">${gauge(p.score, p.verdict)}<div class="verdict ${p.verdict}">${verdictText}</div><p>${esc(p.why)}</p>
         <p class="note">${p.points} of ${p.max_points} points</p></div>
       <div class="card">
-        <div class="quote"><span class="px">${inr(p.price)}</span><span class="${cls(p.change_pct)} mono">${pct(p.change_pct)}</span>
-          <span class="muted">vs yesterday's close ${inr(p.prev_close)}</span></div>
         ${pl ? `<div class="kv">
           <div><span>${pl.trigger ? 'Entry trigger' : 'Entry'}</span><b>${inr(pl.entry)}</b></div>
           <div><span>Stop</span><b class="down">${inr(pl.stop)}</b></div>
