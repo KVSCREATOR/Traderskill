@@ -617,7 +617,7 @@ function tkApplySpeed() {
 function tkSpeedCtl() {
   const live = document.querySelector('#ticker .tk-live');
   if (!live || live.querySelector('.tk-speed')) return;
-  live.insertAdjacentHTML('beforeend', `<label class="tk-speed" title="Scroll speed"><span>Speed</span><input type="range" min="5" max="120" step="5" value="${TK_SPEED}" aria-label="Ticker scroll speed"></label>`);
+  live.insertAdjacentHTML('beforeend', `<label class="tk-speed" title="Scroll speed: up = faster, down = slower"><span>Speed</span><input type="range" min="5" max="120" step="5" value="${TK_SPEED}" aria-label="Ticker scroll speed"></label>`);
   const r = live.querySelector('.tk-speed input');
   r.oninput = () => { TK_SPEED = +r.value; tkApplySpeed(); try { localStorage.setItem('ts.tkspeed', String(TK_SPEED)); } catch (e) { /* ignore */ } };
 }
