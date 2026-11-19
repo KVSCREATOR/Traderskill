@@ -10,11 +10,13 @@ function planBlock(p) {
   const sells = p.sells.length ? `<ul class="nlist">${p.sells.map(s => `<li><b class="down">${s.all ? 'Sell all' : 'Sell ' + s.qty}</b> <a href="#/predictor/${encodeURIComponent(s.symbol)}"><b>${esc(s.symbol)}</b></a> · ${esc(s.sector)} · ${esc(s.reason)}${s.all ? '' : ` (${s.qty} shares, ${inr(s.value, 0)})`}${s.pnl_pct != null ? ` · <span class="${cls(s.pnl_pct)}">${sgn(s.pnl_pct)}</span>` : ''} · <span data-pn="${esc(s.symbol)}" class="muted">news…</span></li>`).join('')}</ul>`
     : '<p class="note">Nothing to sell: holdings are within your limits.</p>';
   const buys = p.buys.length ? `<ul class="nlist">${p.buys.map(b => `<li><b class="up">Buy ${b.qty}</b> <a href="#/predictor/${encodeURIComponent(b.symbol)}"><b>${esc(b.symbol)}</b></a> · ${esc(b.sector)} · ${esc(b.setup || '')} at ${inr(b.price)} · about ${inr(b.amount, 0)}${b.rs6 != null ? ` · 6-month vs Nifty ${sgn(b.rs6)}` : ''} · <a href="#/news/${encodeURIComponent(b.symbol)}">news</a></li>`).join('')}</ul>`
-    : '<p class="note">No buy fits right now.</p>';
+    : (p.waiting && p.waiting.length
+      ? `<p class="note">No free place after the sells. Next in line when a place frees up:</p><ul class="nlist">${p.waiting.map(b => `<li><a href="#/predictor/${encodeURIComponent(b.symbol)}"><b>${esc(b.symbol)}</b></a> · ${esc(b.sector)} · ${esc(b.setup || '')}${b.price ? ' at ' + inr(b.price) : ''}${b.rs6 != null ? ` · 6-month vs Nifty ${sgn(b.rs6)}` : ''} · <a href="#/news/${encodeURIComponent(b.symbol)}">news</a></li>`).join('')}</ul>`
+      : '<p class="note">No buy signal fits right now.</p>');
   const keeps = p.keeps.length ? `<ul class="nlist">${p.keeps.map(k => `<li><a href="#/predictor/${encodeURIComponent(k.symbol)}"><b>${esc(k.symbol)}</b></a> · ${esc(k.sector)} · ${esc(k.verdict || '')}${k.pnl_pct != null ? ` · <span class="${cls(k.pnl_pct)}">${sgn(k.pnl_pct)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="note">None.</p>';
   return `<div class="card plan-card">
     <h2>Your ${esc(p.horizon)} plan · Trading rules</h2>
-    <p class="note" style="margin-top:0">As of ${esc(p.as_of || '')} · holdings ${p.before.holdings} → ${p.after.holdings} of ${p.after.max} places · ${p.free_slots} free place${p.free_slots === 1 ? '' : 's'} · cash ${p.cash != null ? inr(p.cash, 0) : 'unknown'}</p>
+    <p class="note" style="margin-top:0">As of ${esc(p.as_of || '')} · holdings ${p.before.holdings} → ${p.after.holdings} of ${p.after.max} places · ${p.free_slots} free place${p.free_slots === 1 ? '' : 's'} · cash ${p.cash != null ? inr(p.cash, 0) : 'unknown'}${p.cash_after != null ? ` → ${inr(p.cash_after, 0)} after the sells` : ''}${p.per_stock ? ` · your limit ${inr(p.per_stock, 0)} per stock (Limits › Investing)` : ''}</p>
     <div class="grid2">
       <div><h2 class="plan-sell-h">Sell</h2>${sells}</div>
       <div><h2 class="plan-buy-h">Buy</h2>${buys}</div>

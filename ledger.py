@@ -972,7 +972,7 @@ def report(fy=None, d_from=None, d_to=None):
         nxt["cash"] = (snap.get("funds") or {}).get("net")
     nxt["slots"] = max(0, cfg["max_positions"] - n_held)
     nxt["per_stock"] = cfg["max_per_stock"]
-    nxt["plan"] = _plan(snap, L.settings_for("swing"))
+    nxt["plan"] = _plan(snap, cfg)   # same limits as the rest of My holdings (your Investing limits); verdicts and buys: Trading rules
     funds_hist = [{"date": k, "at": v["at"], **(v.get("funds") or {}), "value": v.get("total_value"), "cost": v.get("total_cost")}
                   for k, v in sorted(snaps.items())]
     fys = sorted({fy_of(t["date"]) for t in trades} | {fy_of(k) for k in snaps} | {fy_of(today)}, reverse=True)
@@ -1070,15 +1070,22 @@ def _plan(snap, cfg):
     while len(act) > maxn:   # more stocks than your limit
         sell_all(weakest(list(act.values()))[0], "over your %d-stock limit" % maxn)
 
+    # swap: a holding whose Trading trend has turned weak makes room for a Best-odds buy signal
+    fit = snap.get("fit_t") or {}
+    regime = fit.get("regime")
+    cash = (snap.get("funds") or {}).get("net")
+    cands = [b for b in (fit.get("buys") or []) if regime and b.get("price") and b["symbol"] not in act]
+    weak = weakest([r for r in act.values() if r.get("verdict") == "weak"])
+    for r in weak[:max(0, min(len(weak), len(cands) - (maxn - len(act))))]:
+        sell_all(r, "weak trend: swap for a stronger buy signal")
+
     free = maxn - len(act)
     T = total()
     sec_n, sec_v = {}, {}
     for r in act.values():
         sec_n[sec(r)] = sec_n.get(sec(r), 0) + 1
         sec_v[sec(r)] = sec_v.get(sec(r), 0) + r["value"]
-    fit = snap.get("fit_t") or {}
-    regime = fit.get("regime")
-    cash = (snap.get("funds") or {}).get("net")
+    cash_after = None if cash is None else cash + sum(s["value"] for s in sells)   # cash plus what the sells bring in
     buys, notes = [], []
     if not regime:
         notes.append("Market filter is off: the Investing rules hold off new buys.")
@@ -1090,7 +1097,7 @@ def _plan(snap, cfg):
             continue
         if s != "Other" and (sec_n.get(s, 0) >= maxs or sec_v.get(s, 0) / (T or 1) * 100 >= 25):
             continue
-        budget = cap if not cash else min(cap, cash / max(free, 1))
+        budget = cap if cash_after is None else min(cap, cash_after / max(free, 1))
         qty = int(budget // price)
         if qty < 1:
             continue
@@ -1099,6 +1106,11 @@ def _plan(snap, cfg):
         sec_n[s] = sec_n.get(s, 0) + 1
         sec_v[s] = sec_v.get(s, 0) + qty * price
         T += qty * price
+    bought = {b["symbol"] for b in buys}
+    waiting = [{"symbol": b["symbol"], "sector": b.get("sector") or "Other", "setup": b.get("setup"), "rs6": b.get("rs6"),
+                "price": b.get("price")} for b in cands if b["symbol"] not in bought][:6]
+    if not free and waiting:
+        notes.append("Every place is taken after the sells (limit %d stocks), so the buy signals wait until a place frees up." % maxn)
     if free > len(buys):
         notes.append("%d free slot%s not filled: no Best-odds buy fits the sector and cash limits." % (
             free - len(buys), "" if free - len(buys) == 1 else "s"))
@@ -1108,7 +1120,7 @@ def _plan(snap, cfg):
             "sells": sells, "keeps": [{"symbol": r["symbol"], "verdict": r.get("verdict"), "pnl_pct": r.get("pnl_pct"), "sector": sec(r)}
                                       for r in act.values()],
             "buys": buys, "free_slots": free, "after": {"holdings": len(act) + len(buys), "max": maxn},
-            "cash": cash, "notes": notes + [
+            "waiting": waiting, "cash": cash, "cash_after": cash_after, "per_stock": cap, "notes": notes + [
                 "Built from the Trading rules (holds up to 2–3 months), backtested Nov 2017–Nov 2026 (~11.5%/yr, 39% of trades won, losing years too). "
                 "Not a promise of profit and not personal advice."]}
 

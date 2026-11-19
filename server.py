@@ -666,6 +666,35 @@ def _rss(data, strip_source=False):
     return items
 
 
+_NAME_SUFFIX = {"ltd", "ltd.", "limited", "the"}
+_NEWS_CONTEXT = re.compile(r"\b(shares?|stocks?|nse|bse|sensex|nifty|q[1-4]|results?|profits?|revenue|target|ratings?|buy|sell|"
+                           r"dividend|orders?|ipo|rall(y|ies)|jumps?|falls?|gains?|slumps?|surges?|crore|rs|market|price|futures)\b")
+
+
+def _news_match(title, sym, name):
+    """Is this headline about this company? (Fixes 'Astral Foods' showing for ASTRAL, silver-mine news for SILVER.)
+
+    - The full company name (without Ltd / Limited), when it has 2+ words: yes.
+    - Only the symbol or the name's first word: the next word must not be another Capitalised name
+      (e.g. 'Astral Foods', 'Silver Lake') and the headline must read like market news (share, stock, results...).
+    """
+    low = title.lower()
+    core = [t for t in name.lower().split() if t not in _NAME_SUFFIX]
+    if len(core) >= 2 and " ".join(core) in low:
+        return True
+    tokens = set(core)
+    for key in {sym.lower(), core[0] if core else ""}:
+        if len(key) < 3:
+            continue
+        for m in re.finditer(r"\b%s\b(?:[^\w]+(\w+))?" % re.escape(key), title, re.I):
+            nxt = m.group(1) or ""
+            if nxt[:1].isupper() and nxt.lower() not in tokens and not _NEWS_CONTEXT.fullmatch(nxt.lower()):
+                continue   # 'Astral Foods': another company's name follows
+            if _NEWS_CONTEXT.search(low):
+                return True
+    return False
+
+
 def news(sym, name=None):
     name = name or NAMES.get(sym) or sym
     q = urllib.parse.quote("%s share" % name)
@@ -680,7 +709,7 @@ def news(sym, name=None):
         items = _rss(fetch("https://www.bing.com/news/search?q=%s&format=rss&cc=IN" % q, 600))
         source = "Bing News"
     cutoff = time.time() - 3 * 86400
-    items = sorted([i for i in items if i["ts"] >= cutoff and any(k in i["title"].lower() for k in keys)],
+    items = sorted([i for i in items if i["ts"] >= cutoff and _news_match(i["title"], sym, name)],
                    key=lambda i: -i["ts"])[:12]
     seen = set(load_state()["seen_news"])
     for i in items:
