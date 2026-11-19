@@ -429,7 +429,7 @@ def held():
                         continue
                     syms.append(sym)
                     avg, ltp, close = _num(h.get("average_price")), _num(h.get("last_price")), _num(h.get("close_price"))
-                    items.append({"symbol": sym, "qty": qty, "ltp": ltp,
+                    items.append({"symbol": sym, "qty": qty, "ltp": ltp, "avg": avg,
                                   "day_pct": (ltp / close - 1) * 100 if ltp and close else _num(h.get("day_change_percentage")),
                                   "pnl_pct": (ltp / avg - 1) * 100 if ltp and avg else None})
                 out = {"connected": True, "symbols": syms, "items": items}
