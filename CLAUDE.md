@@ -220,6 +220,14 @@ Core + satellite BUILT (19 Nov 2026): Time machine shows the mix table (longterm
 My holdings tab "Core + satellite" (ledger._core_view): target % (default 50) + list of index ETFs counted as core
 (ledger.CORE_DEFAULT, editable) + Nifty/Sensex index mutual funds (snapshot now saves Coin MFs); shows actual split,
 amount to move, "rebalance due" in April or when > 10 points off. POST /api/ledger/core. Stored in ledger.json "core".
+Today checklist BUILT (19 Nov 2026): first tab of My holdings (ledger.today, GET /api/ledger/today, ticks POST
+/api/ledger/today/done kept 30 days in ledger.json "today_done"); groups act / watch / for tomorrow / info: Zerodha not
+connected, exit + weak verdicts, own limits, rebalance due, lots turning long-term within 30 days, results within 7 days,
+paper positions near stop / closed today, paper GTTs, Trading-rule buy signals with room, list stocks within 3% of
+breakout. Same list (short) appended to the 15:35 Telegram eod message (reports.eod -> LG.today_lines).
+NEXT TODO (19 Nov 2026, not done): index funds in the core list (NIFTYBEES etc.) should NOT count against the
+per-stock Rs 25,000 cap or the 10-stock limit in ledger.report "next.limits" / n_held. Today tab not yet viewed in a
+browser (server function tested on test data).
 
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).
