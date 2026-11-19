@@ -202,5 +202,12 @@ break-even after +0.5R/+1R, trailing, entries till 10:30/12:00, stop OR low (+0.
 0.75 (-0.11/-0.01), 1.0 (-0.08/-0.00); + OR 0.5-1 ATR filter (-0.11/+0.05). Still not positive in both halves:
 no exit makes the ORB a reliable winner after charges. Engine NOT changed (owner pref "keep Scalping as is") unless asked.
 
+Nifty comparison (added 19 Nov 2026, longterm.benchmark, Time machine for Trading/Investing): same capital, same days,
+ETF-like costs, Nifty taxed once at the end (LTCG), dividends estimated +1.3%/yr (NIFTY_DIV), plus a monthly SIP (XIRR).
+Result Dec 2017-Nov 2026 (default limits): Trading rules 11.4%/yr, 9.6% after tax, worst fall -25%; Investing 10.7%,
+9.1% after tax, -34%. Nifty bought and held: 10.8% price only / ~12.2% with dividends, ~11.5% / 10.8% after tax,
+worst fall -38%. SIP XIRR ~10.4%. => After tax the rules TRAIL holding the Nifty by ~1.7-1.9%/yr; their only edge is a
+smaller worst fall. Owner's next questions pending: goal, time per day, real vs paper, AI API budget.
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).

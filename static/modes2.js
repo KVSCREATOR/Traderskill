@@ -9,16 +9,23 @@ const SKILLPAGES_LONG = {
   risk: 'Checks the buy against your portfolio limits and returns PASS or BLOCK.',
 };
 
-function equityChart(curve, start) {
+function equityChart(curve, start, bench) {
   if (!curve || curve.length < 2) return '';
   const W = 960, H = 240, L = 64, R = 12, T = 10, B = 24;
-  const vals = curve.map(c => c[1]), lo = Math.min(...vals, start) * 0.97, hi = Math.max(...vals) * 1.02;
+  const bv = bench && bench.length > 1 ? bench.map(c => c[1]) : [];
+  const vals = curve.map(c => c[1]), lo = Math.min(...vals, ...bv, start) * 0.97, hi = Math.max(...vals, ...bv) * 1.02;
   const x = i => L + i / (curve.length - 1) * (W - L - R), y = v => T + (hi - v) / (hi - lo) * (H - T - B);
   let s = '';
   for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--border)"/><text x="${L - 6}" y="${y(v) + 3}" text-anchor="end">${(v / 1e5).toFixed(1)}L</text>`; }
   let ly = '';
   curve.forEach((c, i) => { const yr = c[0].slice(0, 4); if (yr !== ly) { ly = yr; s += `<text x="${x(i)}" y="${H - 7}" text-anchor="middle">${yr}</text>`; } });
   s += `<line x1="${L}" x2="${W - R}" y1="${y(start)}" y2="${y(start)}" stroke="var(--muted)" stroke-dasharray="4 4"/>`;
+  if (bv.length) {   // Nifty 50 bought and held with the same money, same days (dashed)
+    const bx = i => L + i / (bench.length - 1) * (W - L - R);
+    s += `<polyline points="${bench.map((c, i) => bx(i).toFixed(1) + ',' + y(c[1]).toFixed(1)).join(' ')}" fill="none" stroke="var(--warn)" stroke-width="1.8" stroke-dasharray="6 4"/>`;
+    s += `<line x1="${L + 10}" x2="${L + 34}" y1="${T + 10}" y2="${T + 10}" stroke="var(--accent)" stroke-width="2"/><text x="${L + 40}" y="${T + 14}" text-anchor="start">Rules</text>`;
+    s += `<line x1="${L + 90}" x2="${L + 114}" y1="${T + 10}" y2="${T + 10}" stroke="var(--warn)" stroke-width="1.8" stroke-dasharray="6 4"/><text x="${L + 120}" y="${T + 14}" text-anchor="start">Nifty 50 bought and held</text>`;
+  }
   s += `<polyline points="${curve.map((c, i) => x(i).toFixed(1) + ',' + y(c[1]).toFixed(1)).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2"/>`;
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Account value over the backtest">${s}</svg>`;
 }
@@ -37,17 +44,37 @@ async function portfolioBacktest(box, fresh) {
       <div><span>Trades</span><b>${b.trades}</b></div><div><span>Won</span><b>${b.win_rate != null ? b.win_rate.toFixed(0) + '%' : '–'}</b></div>
       <div><span>Average win / loss</span><b><span class="up">${money(b.avg_win || 0)}</span> / <span class="down">${money(b.avg_loss || 0)}</span></b></div>
       <div><span>Average per trade</span><b class="${cls(b.expectancy)}">${money(b.expectancy || 0)}</b></div></div>
-    <div class="chart">${equityChart(b.curve, b.start)}</div>
+    <div class="chart">${equityChart(b.curve, b.start, b.bench && b.bench.curve)}</div>
+    ${benchBlock(b)}
     <div class="facts" style="margin-top:12px">
       <div><span>Profit factor</span><b class="mono">${b.profit_factor ? b.profit_factor.toFixed(2) : '–'}</b></div><div><span>Average holding</span><b class="mono">${b.avg_held ? b.avg_held.toFixed(0) + ' days' : '–'}</b></div>
       <div><span>Money invested, on average</span><b class="mono">${b.exposure.toFixed(0)}%</b></div><div><span>Drawdown pauses</span><b class="mono">${b.pauses}</b></div>
       <div><span>Tax estimate</span><b class="mono">${inr(b.tax_est, 0)}</b></div><div><span>Profit after costs and tax</span><b class="mono ${cls(b.after_tax)}">${money(b.after_tax)}</b></div>
       <div><span>Exits: target / trailing / stop</span><b class="mono">${b.exits.target} / ${b.exits.trail} / ${b.exits.stop}</b></div><div><span>Exits: time / trend broken</span><b class="mono">${b.exits.time} / ${b.exits['trend broken']}</b></div></div>
-    <h2 style="margin-top:18px">Year by year</h2><div class="years">${b.yearly.map(y => `<div><span>${y.year}</span><b class="${cls(y.ret)}">${sgn(y.ret, 0)}</b></div>`).join('')}</div>
+    <h2 style="margin-top:18px">Year by year${b.bench && b.bench.price ? ' · rules vs Nifty' : ''}</h2><div class="years">${b.yearly.map((y, i) => { const n = b.bench && b.bench.price ? b.bench.price.yearly.find(z => z.year === y.year) : null;
+      return `<div><span>${y.year}</span><b class="${cls(y.ret)}">${sgn(y.ret, 0)}</b>${n ? `<small class="${n.ret > y.ret ? 'down' : 'muted'}" style="display:block">Nifty ${sgn(n.ret, 0)}</small>` : ''}</div>`; }).join('')}</div>
     <p class="note" style="margin-top:12px">Rules: risk ${inr(cfg.risk_per_trade, 0)} per trade, max ${inr(cfg.max_per_stock, 0)} per stock, up to ${cfg.max_positions} stocks, ${cfg.max_per_sector} per sector; buys at the next day's open, only when the Nifty filter allows; costs about 0.12% per side plus ₹16 per sale. Tax is a rough estimate (20% short-term, 12.5% long-term above ₹1.25 lakh a year). It uses today's index members, which flatters the past a little, and ${b.stocks} stocks had enough history. Past results do not promise future returns.</p></div>
     <div class="card"><h2>Latest backtest trades</h2><div class="tablewrap"><table><thead><tr><th>Stock</th><th>Bought</th><th>Sold</th><th class="num">Days</th><th class="num">Qty</th><th>Exit</th><th class="num">Result</th><th class="num">P&amp;L</th></tr></thead><tbody>
       ${b.recent.map(t => `<tr><td class="sym"><b>${esc(t.symbol)}</b><small>${esc(t.setup)}</small></td><td class="mono">${fdate(t.in)}</td><td class="mono">${fdate(t.out)}</td><td class="num">${t.held}</td><td class="num">${t.qty}</td><td><span class="tag">${esc(t.why)}</span></td><td class="num ${cls(t.r)}">${sgn(t.r, 2, 'R')}</td><td class="num ${cls(t.pnl)}">${money(t.pnl)}</td></tr>`).join('')}</tbody></table></div></div>`;
   $('#rerun', box).onclick = () => portfolioBacktest(box, true);
+}
+
+function benchBlock(b) {
+  const n = b.bench;
+  if (!n || n.error || !n.price) return n && n.error ? `<p class="note">Nifty comparison unavailable: ${esc(n.error)}</p>` : '';
+  const money = v => (v < 0 ? '−' : '') + inr(Math.abs(v), 0), p = n.price, w = n.with_div, sip = n.sip;
+  const row = (name, end, cagr, cat, dd, at, note) => `<tr><td><b>${name}</b>${note ? `<small class="muted" style="display:block">${note}</small>` : ''}</td><td class="num">${inr(end, 0)}</td><td class="num ${cls(cagr)}">${cagr != null ? sgn(cagr) : '–'}</td><td class="num ${cls(cat)}">${cat != null ? sgn(cat) : '–'}</td><td class="num down">${dd != null ? '−' + dd.toFixed(1) + '%' : '–'}</td><td class="num ${cls(at)}">${money(at)}</td></tr>`;
+  const edge = b.cagr_after_tax != null ? b.cagr_after_tax - w.cagr_after_tax : null;
+  const verdict = edge == null ? '' : edge >= 1 ? `<b class="up">The rules beat simply holding the Nifty (with dividends) by about ${edge.toFixed(1)}% a year after tax</b>, with ${b.max_dd > w.max_dd ? 'a deeper' : 'a smaller'} worst fall.`
+    : edge > -1 ? `<b>The rules did about the same as simply holding the Nifty (within 1% a year after tax)</b>, for far more work and ${b.trades} trades.`
+    : `<b class="down">Simply holding the Nifty (with dividends) did about ${(-edge).toFixed(1)}% a year better after tax than the rules.</b>`;
+  return `<h2 style="margin-top:18px">Compared with the Nifty 50 · same ${inr(b.start, 0)}, same days</h2>
+    <div class="tablewrap"><table><thead><tr><th>Way to invest</th><th class="num">End value</th><th class="num">Per year</th><th class="num">Per year after tax</th><th class="num">Worst fall</th><th class="num">Profit after tax</th></tr></thead><tbody>
+    ${row(esc(b.label) + ' rules', b.final, b.cagr, b.cagr_after_tax, b.max_dd, b.after_tax, `${b.trades} trades · money invested ${b.exposure.toFixed(0)}% of the time`)}
+    ${row('Nifty 50, bought and held', p.final, p.cagr, p.cagr_after_tax, p.max_dd, p.after_tax, 'price only, as the index is quoted')}
+    ${row('Nifty 50 with dividends (estimate)', w.final, w.cagr, w.cagr_after_tax, w.max_dd, w.after_tax, 'about 1.3% a year dividends added, like an index fund such as NIFTYBEES')}
+    ${row('Nifty 50, monthly SIP', sip.final, sip.xirr, null, null, sip.after_tax, `${inr(sip.monthly, 0)} a month for ${sip.months} months · per year = XIRR`)}</tbody></table></div>
+    <p class="note" style="margin-top:8px">${verdict} Both sides pay delivery costs; the Nifty is taxed once when sold at the end (long-term 12.5% above ₹1.25 lakh), the rules every year on short-term gains. The rules use today's index members (flatters them a little). Past results do not promise future returns.</p>`;
 }
 
 function skillLong(key, p, h1) {

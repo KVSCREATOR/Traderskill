@@ -488,8 +488,98 @@ def portfolio_backtest(mode, refresh=False):
                 pending = sorted(sigs.get(day, []), reverse=True)
         data = _summarise(mode, cfg, trades, curve, max_dd, invested_sum, pos, len(uni), time.time() - t0)
         data["pauses"] = pauses
+        try:
+            data["bench"] = benchmark(curve, float(cfg["capital"]), mkt)
+            y = max(len(curve) / 248, 0.01)
+            data["cagr_after_tax"] = (((data["start"] + data["after_tax"]) / data["start"]) ** (1 / y) - 1) * 100
+        except Exception as e:  # noqa: BLE001  (the comparison must never break the backtest)
+            data["bench"] = {"error": str(e)[:150]}
         _bt_cache[mode] = {"at": time.time(), "data": data}
         return data
+
+
+NIFTY_DIV = 0.013   # Nifty 50 dividend yield, about 1.2-1.4% a year: the price index leaves it out
+
+
+def _xirr(flows):
+    """Yearly return from dated cash flows [(date, amount)], invested amounts negative."""
+    d0 = flows[0][0]
+    f = lambda r: sum(a / (1 + r) ** ((d - d0).days / 365.0) for d, a in flows)  # noqa: E731
+    lo, hi = -0.99, 5.0
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        if f(mid) > 0:
+            lo = mid
+        else:
+            hi = mid
+    return mid * 100
+
+
+def benchmark(curve, start, mkt):
+    """The same money in the Nifty 50 over the same days: all at once, and as a monthly SIP.
+    Bought like an index ETF (NIFTYBEES): delivery costs on buy and sell, LTCG 12.5% above
+    Rs 1.25 lakh when sold at the end (held > 12 months)."""
+    if not curve:
+        return None
+    n = mkt.ind
+    px = []
+    for d, _ in curve:
+        i = mkt.at(d)
+        px.append(n["c"][i] if i is not None else None)
+    if px[0] is None:
+        return None
+    days = [d for d, _ in curve]
+    years = max(len(curve) / 248, 0.01)
+
+    def path(with_div):
+        units = start * (1 - COST_SIDE) / px[0]
+        vals = []
+        for k, p in enumerate(px):
+            g = (1 + NIFTY_DIV) ** (k / 248) if with_div else 1.0
+            vals.append(units * (p or px[k - 1]) * g)
+        return vals
+    out = {}
+    for key, wd in (("price", False), ("with_div", True)):
+        v = path(wd)
+        peak, dd = v[0], 0.0
+        for x in v:
+            peak = max(peak, x)
+            dd = max(dd, (peak - x) / peak)
+        final = v[-1] * (1 - COST_SIDE) - DP_FEE
+        gain = final - start
+        tax = 0.125 * max(gain - 125000, 0) if len(curve) > 248 else 0.20 * max(gain, 0)
+        yearly, prev = [], v[0]
+        for i, d in enumerate(days):
+            if i == len(days) - 1 or days[i + 1][:4] != d[:4]:
+                yearly.append({"year": d[:4], "ret": (v[i] / prev - 1) * 100})
+                prev = v[i]
+        out[key] = {"final": final, "cagr": ((final / start) ** (1 / years) - 1) * 100, "max_dd": dd * 100,
+                    "tax_est": tax, "after_tax": gain - tax,
+                    "cagr_after_tax": (((final - tax) / start) ** (1 / years) - 1) * 100, "yearly": yearly}
+    # monthly SIP: the same total spread over the months, first trading day of each month
+    months = []
+    for k, d in enumerate(days):
+        if k == 0 or d[:7] != days[k - 1][:7]:
+            months.append(k)
+    amt = start / len(months)
+    units, flows, lots = 0.0, [], []
+    for k in months:
+        u = amt * (1 - COST_SIDE) / px[k]
+        units += u
+        lots.append((days[k], u, amt))
+        flows.append((date.fromisoformat(days[k]), -amt))
+    final = units * px[-1] * (1 - COST_SIDE) - DP_FEE
+    end = date.fromisoformat(days[-1])
+    st_gain = sum(u * px[-1] - a for d, u, a in lots if (end - date.fromisoformat(d)).days <= 365)
+    lt_gain = sum(u * px[-1] - a for d, u, a in lots if (end - date.fromisoformat(d)).days > 365)
+    tax = 0.20 * max(st_gain, 0) + 0.125 * max(lt_gain - 125000, 0)
+    flows.append((end, final))
+    out["sip"] = {"monthly": amt, "months": len(months), "invested": start, "final": final, "xirr": _xirr(flows),
+                  "tax_est": tax, "after_tax": final - start - tax}
+    step_n = max(1, len(curve) // 260)
+    pv = path(False)
+    out["curve"] = [[days[k], round(pv[k])] for k in range(0, len(days), step_n)] + [[days[-1], round(pv[-1])]]
+    return out
 
 
 def _summarise(mode, cfg, trades, curve, max_dd, invested_sum, pos, n_stocks, secs):
