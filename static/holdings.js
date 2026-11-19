@@ -107,7 +107,9 @@ async function todayPage() {
   const item = x => `<li class="${x.done ? 'done' : ''}"><label><input type="checkbox" data-tid="${esc(x.id)}" ${x.done ? 'checked' : ''}> <span>${esc(x.text)}</span></label>${x.link ? ` <a href="${esc(x.link)}" class="tlink">open →</a>` : ''}</li>`;
   view.innerHTML = head('My holdings', `Today · ${new Date(t.date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })} · buy ideas by the ${esc(t.mode_label)} rules · built ${esc(t.at.slice(11, 16))} IST`,
     '<button class="btn" id="tRefresh">Refresh</button>') + hTabs('today') +
-    `<div class="stack"><div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${total ? `${done} of ${total} checked` : 'Nothing to act on today'}</h2>
+    `<div class="stack">${scHead("Today's checklist", total ? `${done} <span class="muted" style="font-size:16px">of ${total} done</span>` : '0', null, t.connected ? 'Zerodha connected' : 'Zerodha not connected')}
+    ${(() => { const n = g => t.items.filter(x => x.group === g).length; return scTiles([['Act today', n('act'), n('act') ? 'down' : ''], ['Watch', n('watch'), ''], ['For tomorrow', n('tomorrow'), ''], ['For information', n('info'), '']]); })()}
+    <div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${total ? `${done} of ${total} checked` : 'Nothing to act on today'}</h2>
       <span class="note" style="margin:0">${t.connected ? 'Zerodha connected' : 'Zerodha not connected'}${t.snapshot_at ? ' · holdings as of ' + esc(t.snapshot_at) : ''}</span></div>
       ${total ? `<div class="capbar" style="margin-top:10px"><i style="width:${(done / total * 100).toFixed(0)}%"></i></div>` : ''}</div>
     ${G.map(([g, label, pill]) => { const xs = t.items.filter(x => x.group === g); return xs.length ? `<div class="card"><h2>${pill ? `<span class="pill ${pill}">${xs.length}</span> ` : ''}${label}</h2><ul class="tlist">${xs.map(item).join('')}</ul></div>` : ''; }).join('')}
@@ -154,7 +156,7 @@ async function ledgerPage(tab, fresh) {
     <label>To<input type="date" id="lfTo" value="${rg.custom ? esc(rg.to) : ''}"></label>
     <button type="button" class="btn" id="lfApply">Show range</button>
     <span class="note" style="margin:0">Showing <b>${esc(per_)}</b>${rg.custom ? ' · tax stays for the whole FY ' + esc(d.fy) : ''}</span></div></div>`;
-  const summary = `<div class="kv" style="margin:0">
+  const summary = `<div class="kv sc-kv" style="margin:0">
     ${tile('Bought · ' + esc(per_), plain(totals(d).buy_value), null, `${totals(d).buys} trades · ${fmtQ(totals(d).buy_qty)} shares`)}
     ${tile('Sold · ' + esc(per_), plain(totals(d).sell_value), null, `${totals(d).sells} trades · ${fmtQ(totals(d).sell_qty)} shares`)}
     ${(() => { const k = kind => d.realised.filter(r => r.kind === kind && r.pnl != null).reduce((s, r) => s + r.pnl, 0);
@@ -283,7 +285,9 @@ async function ledgerPage(tab, fresh) {
       <p class="note">Only this financial year's hand-added trades are listed here; switch the year at the top to see others.</p></div>
       <div class="card"><h2>Your record</h2><p class="note">${d.records.trades} trades and ${d.records.snapshots} daily snapshots saved on the NAS${d.records.first_trade ? `, first trade ${esc(d.records.first_trade)}` : ''}. Nothing is deleted when Zerodha disconnects.</p></div>`;
   }
-  view.innerHTML = head('My holdings', status, right) + hTabs(tab) + `<div class="stack">${startHelp}${body}</div>`;
+  const tv = totals(d), scTop = scHead('Holdings value', plain(tv.value), tv.cost ? tv.unrealised / tv.cost * 100 : null,
+    `${esc(per_)} · invested ${plain(tv.cost)} · ${d.holdings.length} holding${d.holdings.length === 1 ? '' : 's'} · pill = profit not yet booked`);
+  view.innerHTML = head('My holdings', status, right) + hTabs(tab) + `<div class="stack">${scTop}${startHelp}${body}</div>`;
   if (tab === 'next') planNews(S.nav);
   $('#lFy').onchange = e => { S.ledgerFy = e.target.value; S.ledgerRange = null; S.ledger = null; ledgerPage(tab); };
   const setRange = (from, to) => {
