@@ -19,9 +19,9 @@ S = None  # the server module, set by server.py
 
 LABEL = {"intraday": "Scalping", "swing": "Trading", "invest": "Investing"}
 DEFAULTS = {
-    "swing": {"capital": 200000, "risk_per_trade": 2500, "max_per_stock": 25000, "max_positions": 10,
+    "swing": {"capital": 200000, "risk_per_trade": 2500, "max_per_stock": 50000, "max_positions": 10,
               "max_open_risk": 25000, "max_per_sector": 2, "dd_pause_pct": 10},
-    "invest": {"capital": 200000, "risk_per_trade": 2500, "max_per_stock": 25000, "max_positions": 10,
+    "invest": {"capital": 200000, "risk_per_trade": 2500, "max_per_stock": 50000, "max_positions": 10,
                "max_open_risk": 25000, "max_per_sector": 2, "dd_pause_pct": 15},
 }
 RULES = {

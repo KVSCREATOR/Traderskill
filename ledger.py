@@ -20,6 +20,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -234,9 +235,11 @@ def snapshot(reason="page"):
     snap = {"at": S.market_clock()["ist"], "reason": reason, "funds": funds, "mfs": mfs,
             "total_value": h.get("total_value"), "total_cost": h.get("total_cost"),
             "holdings": [{k: r.get(k) for k in ("symbol", "exchange", "qty", "avg", "ltp", "value", "cost", "pnl", "pnl_pct",
-                                                 "day_pct", "day_pnl", "sector", "trend", "verdict", "why", "rule_stop", "flags")}
+                                                 "day_pct", "day_pnl", "sector", "trend", "verdict", "why", "rule_stop", "flags",
+                                                 "verdict_t", "why_t")}
                          for r in h["rows"]],
-            "fit": {"buys": (h.get("fit") or {}).get("buys") or [], "regime": (h.get("fit") or {}).get("regime")}}
+            "fit": {"buys": (h.get("fit") or {}).get("buys") or [], "regime": (h.get("fit") or {}).get("regime")},
+            "fit_t": {"buys": (h.get("fit_t") or {}).get("buys") or [], "regime": (h.get("fit_t") or {}).get("regime")}}
     with _lock:
         d = _load()
         d["snapshots"][today] = snap
@@ -969,6 +972,7 @@ def report(fy=None, d_from=None, d_to=None):
         nxt["cash"] = (snap.get("funds") or {}).get("net")
     nxt["slots"] = max(0, cfg["max_positions"] - n_held)
     nxt["per_stock"] = cfg["max_per_stock"]
+    nxt["plan"] = _plan(snap, L.settings_for("swing"))
     funds_hist = [{"date": k, "at": v["at"], **(v.get("funds") or {}), "value": v.get("total_value"), "cost": v.get("total_cost")}
                   for k, v in sorted(snaps.items())]
     fys = sorted({fy_of(t["date"]) for t in trades} | {fy_of(k) for k in snaps} | {fy_of(today)}, reverse=True)
@@ -1000,6 +1004,113 @@ def report(fy=None, d_from=None, d_to=None):
             "records": {"trades": len(d["trades"]), "snapshots": len(snaps), "first_trade": trades[0]["date"] if trades else None},
             "settings": {"max_positions": cfg["max_positions"], "max_per_stock": cfg["max_per_stock"], "max_per_sector": cfg["max_per_sector"]},
             "clock": S.market_clock()}
+
+
+PLAN_HORIZON = "3–6 months"
+
+
+def _plan(snap, cfg):
+    """One rebalance plan from your last snapshot: what to sell and what to buy, sector by sector.
+
+    Sells, in order: rule exit fired; over the per-stock limit (trim the excess); sector over its
+    limit (weakest first); more stocks than your limit (weakest first). Weak trends are sold only
+    when a limit forces it. Buys: the Best-odds Investing signals (confirmed, top-half strength,
+    market filter on) in sectors with room after the sells, strongest 6-month strength first,
+    one per free slot, sized to the per-stock limit and your cash. Mechanical rule results, not advice.
+    """
+    if not snap or not snap.get("holdings"):
+        return None
+    cap, maxn, maxs = cfg["max_per_stock"], cfg["max_positions"], cfg["max_per_sector"]
+    if not any("verdict_t" in r for r in snap["holdings"]):   # snapshot taken before the Trading verdicts existed
+        return {"horizon": PLAN_HORIZON, "as_of": snap.get("at"), "stale": True, "before": {}, "after": {}, "sells": [], "keeps": [],
+                "buys": [], "free_slots": 0, "cash": None,
+                "notes": ["Open My holdings while Zerodha is connected once to take a fresh snapshot, then the plan appears."]}
+    act = {r["symbol"]: dict(r, verdict=r.get("verdict_t"), why=r.get("why_t")) for r in snap["holdings"] if (r.get("value") or 0) > 0}
+    before = {"holdings": len(act), "value": sum(r["value"] for r in act.values()), "max": maxn}
+    sells = []
+
+    def sec(r):
+        return r.get("sector") or "Other"
+
+    def total():
+        return sum(r["value"] for r in act.values()) or 1
+
+    def weakest(rs):   # weak trend first, then the biggest loss first (keep the winners)
+        return sorted(rs, key=lambda r: (0 if r.get("verdict") == "weak" else 1, r.get("pnl_pct") or 0))
+
+    def sell_all(r, reason):
+        sells.append({"symbol": r["symbol"], "sector": sec(r), "qty": r.get("qty") or 0, "value": r["value"],
+                      "pnl_pct": r.get("pnl_pct"), "verdict": r.get("verdict"), "reason": reason, "all": True})
+        act.pop(r["symbol"], None)
+
+    for r in list(act.values()):
+        if r.get("verdict") == "exit":
+            sell_all(r, "rule exit fired")
+    for r in list(act.values()):
+        if r["value"] > cap and r.get("ltp"):
+            q = math.ceil((r["value"] - cap) / r["ltp"])
+            why = "over your ₹%s per-stock limit" % format(int(cap), ",")
+            if q >= (r.get("qty") or 0):
+                sell_all(r, why)
+            else:
+                sells.append({"symbol": r["symbol"], "sector": sec(r), "qty": q, "value": q * r["ltp"], "pnl_pct": r.get("pnl_pct"),
+                              "verdict": r.get("verdict"), "reason": why, "all": False})
+                r["value"] -= q * r["ltp"]
+                r["qty"] = (r.get("qty") or 0) - q
+    while True:   # sector over its stock count or 25% of the value: sell its weakest, one at a time
+        T, by = total(), {}
+        for r in act.values():
+            if sec(r) != "Other":
+                by.setdefault(sec(r), []).append(r)
+        bad = next(((s, rs) for s, rs in by.items()
+                    if len(rs) > maxs or sum(x["value"] for x in rs) / T * 100 > 25), None)
+        if not bad:
+            break
+        sell_all(weakest(bad[1])[0], "%s is over its sector limit" % bad[0])
+    while len(act) > maxn:   # more stocks than your limit
+        sell_all(weakest(list(act.values()))[0], "over your %d-stock limit" % maxn)
+
+    free = maxn - len(act)
+    T = total()
+    sec_n, sec_v = {}, {}
+    for r in act.values():
+        sec_n[sec(r)] = sec_n.get(sec(r), 0) + 1
+        sec_v[sec(r)] = sec_v.get(sec(r), 0) + r["value"]
+    fit = snap.get("fit_t") or {}
+    regime = fit.get("regime")
+    cash = (snap.get("funds") or {}).get("net")
+    buys, notes = [], []
+    if not regime:
+        notes.append("Market filter is off: the Investing rules hold off new buys.")
+    for b in (fit.get("buys") or []) if regime else []:
+        if len(buys) >= free:
+            break
+        s, price = b.get("sector") or "Other", b.get("price")
+        if b["symbol"] in act or not price:
+            continue
+        if s != "Other" and (sec_n.get(s, 0) >= maxs or sec_v.get(s, 0) / (T or 1) * 100 >= 25):
+            continue
+        budget = cap if not cash else min(cap, cash / max(free, 1))
+        qty = int(budget // price)
+        if qty < 1:
+            continue
+        buys.append({"symbol": b["symbol"], "name": b.get("name"), "sector": s, "setup": b.get("setup"), "rs6": b.get("rs6"),
+                     "price": price, "qty": qty, "amount": qty * price})
+        sec_n[s] = sec_n.get(s, 0) + 1
+        sec_v[s] = sec_v.get(s, 0) + qty * price
+        T += qty * price
+    if free > len(buys):
+        notes.append("%d free slot%s not filled: no Best-odds buy fits the sector and cash limits." % (
+            free - len(buys), "" if free - len(buys) == 1 else "s"))
+    if not sells and not buys:
+        notes.append("Nothing to change: holdings are within your limits and there is no buy signal with room.")
+    return {"horizon": PLAN_HORIZON, "as_of": snap.get("at"), "before": before,
+            "sells": sells, "keeps": [{"symbol": r["symbol"], "verdict": r.get("verdict"), "pnl_pct": r.get("pnl_pct"), "sector": sec(r)}
+                                      for r in act.values()],
+            "buys": buys, "free_slots": free, "after": {"holdings": len(act) + len(buys), "max": maxn},
+            "cash": cash, "notes": notes + [
+                "Built from the Trading rules (holds up to 2–3 months), backtested Nov 2017–Nov 2026 (~11.5%/yr, 39% of trades won, losing years too). "
+                "Not a promise of profit and not personal advice."]}
 
 
 def _rs(v):

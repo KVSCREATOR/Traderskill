@@ -226,7 +226,7 @@ def call(tool, args=None):
 SECTOR_MAX_PCT = 25.0   # flag a sector above a quarter of the portfolio
 
 
-def _sector_fit(rows, total, cfg):
+def _sector_fit(rows, total, cfg, mode="invest"):
     """Sector balance from your limits plus the tested stock rules.
 
     - Too much in one sector: more than SECTOR_MAX_PCT of the value, or more stocks than
@@ -238,7 +238,7 @@ def _sector_fit(rows, total, cfg):
     - Rule buy signals: 'Best odds' Investing signals (confirmed, top-half strength, market
       filter on) in sectors you are not over the limit in and do not already hold.
     """
-    scan = L.scan_long("invest")
+    scan = L.scan_long(mode)
     per = {}
     for r in scan["rows"]:
         sec = r.get("industry") or "Other"
@@ -374,6 +374,8 @@ def holdings(mode="invest"):
             row["from_high"] = (c / hh - 1) * 100
             row["vs_50"] = (c / s50 - 1) * 100 if s50 else None
             row.update(_verdict(ind, mkt, rmode))
+            tv_ = _verdict(ind, mkt, "swing")   # the Trading rules too: used by the 3-6 month plan
+            row["verdict_t"], row["why_t"] = tv_["verdict"], tv_["why"]
         except Exception:  # noqa: BLE001
             row["trend"] = "–"
         if value > cfg["max_per_stock"]:
@@ -391,7 +393,11 @@ def holdings(mode="invest"):
         fit = _sector_fit(out, tv, cfg)
     except Exception as e:  # noqa: BLE001
         fit = {"error": str(e)[:150]}
-    return {"connected": True, "rules_mode": rmode, "rules_label": L.LABEL[rmode], "fit": fit, "rows": out, "total_value": tv, "total_cost": tc, "pnl": tv - tc,
+    try:   # the 3-6 month plan: Trading rules, Trading limits
+        fit_t = _sector_fit([dict(x, verdict=x.get("verdict_t"), why=x.get("why_t")) for x in out], tv, L.settings_for("swing", st), mode="swing")
+    except Exception as e:  # noqa: BLE001
+        fit_t = {"error": str(e)[:150]}
+    return {"connected": True, "rules_mode": rmode, "rules_label": L.LABEL[rmode], "fit": fit, "fit_t": fit_t, "rows": out, "total_value": tv, "total_cost": tc, "pnl": tv - tc,
             "pnl_pct": (tv / tc - 1) * 100 if tc else None, "day_pnl": sum(x["day_pnl"] or 0 for x in out),
             "sectors": sorted(([k_, v] for k_, v in secs.items()), key=lambda z: -z[1]), "warnings": warn,
             "connected_at": k.get("connected_at"), "clock": S.market_clock()}
