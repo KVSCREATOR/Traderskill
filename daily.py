@@ -20,6 +20,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import threading
 import time
 import urllib.parse
@@ -86,9 +87,13 @@ def greeting(m=None):
         return "🌅 Good morning"
     if 720 <= m < 1020:
         return "🌞 Good afternoon"
-    if 1020 <= m < 1260:
-        return "🌆 Good evening"
-    return "🌙 Good night"
+    return "🌆 Good evening"   # after 17:00 and through the night (owner: no "good night")
+
+
+def _short(title, n=90):
+    """Long headline -> its first ~n characters, cut at a word, source suffix removed."""
+    t = re.sub(r"\s+[-|–]\s+[^-|–]{2,40}$", "", title.strip())   # drop ' - Economic Times' style endings
+    return t if len(t) <= n else t[:n].rsplit(" ", 1)[0].rstrip(",;:-–") + "…"
 
 
 def _send(kind, text):
@@ -198,7 +203,8 @@ def morning_plan(update=False):
         hs = [h for h in r["news"] if h["label"] == label][:5]
         if hs:
             msg.append("\n%s news:" % label)
-            msg += ["  %s %s" % ({"pos": "🟢", "neg": "🔴"}.get(h["tone"], "⚪"), h["title"][:140]) for h in hs]
+            # 🟢 positive · 🔴 negative · ⚪ no impact (Telegram cannot colour text)
+            msg += ["  %s %s" % ({"pos": "🟢", "neg": "🔴"}.get(h["tone"], "⚪"), _short(h["title"])) for h in hs]
     if v and v["price"] and v["price"] > 20:
         msg.append("\n⚠️ India VIX above 20: expect wider swings; the rules size smaller trades.")
     if not update:

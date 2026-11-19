@@ -19,7 +19,7 @@ L = None   # longterm
 K = None   # kite
 T = None   # telegram
 
-SCHEDULE = [("plan", 572), ("close", 932), ("eod", 935)]   # morning plan + 08:45 update now live in daily.py
+SCHEDULE = [("plan", 572), ("exits", 600), ("whatnext", 720), ("roombuys", 780), ("close", 932), ("eod", 935)]   # morning plan + 08:45 update now live in daily.py
 D = None   # daily module   # minutes after midnight IST
 NOTE = "Rule results and data, not personal advice."
 _log_lock = threading.Lock()
@@ -323,6 +323,154 @@ def eod():
     return "\n".join(msg)
 
 
+def exits():
+    """10:00 daily: holdings whose rules say Exit (Sell · Exit signal), weakest first. Sent only when there is one."""
+    h = _zerodha()
+    if not h:
+        return "🔴 10:00 exit check\n" + _reconnect_line() + "\nThe exit check needs today's Zerodha login."
+    ex = sorted((r for r in h["rows"] if r.get("verdict") == "exit"), key=lambda r: r.get("pnl_pct") or 0)
+    if not ex:
+        return None
+    return "\n".join(["🔴 Sell · Exit signal (rules) · %s" % S.now_ist().strftime("%a %d %b %H:%M")]
+                     + ["  %s %+.1f%% (%s) · %s%s" % (r["symbol"], r.get("pnl_pct") or 0, signed(r["pnl"]), r.get("why") or "rule exit",
+                                                      " · rule stop " + rs(r["rule_stop"], 2) if r.get("rule_stop") else "") for r in ex]
+                     + [NOTE])
+
+
+def roombuys():
+    """13:00 on trading days: 'Rule buy signals you have room for' (My holdings -> What next), from a fresh snapshot."""
+    try:
+        LG.snapshot("13:00")
+    except Exception:  # noqa: BLE001
+        pass
+    nx = (LG.report() or {}).get("next") or {}
+    buys = nx.get("buys") or []
+    msg = ["🟢 Rule buy signals you have room for · %s" % S.now_ist().strftime("%a %d %b %H:%M"),
+           "%s free place%s · up to %s each · funds %s%s" % (nx.get("slots", 0), "" if nx.get("slots") == 1 else "s", rs(nx.get("per_stock") or 0),
+                                                         rs(nx["cash"]) if nx.get("cash") is not None else "unknown",
+                                                         "" if nx.get("regime") is not False else " · market filter is off: rules hold off new buys")]
+    if not buys:
+        return None
+    msg += ["  %s · %s · %s at %s%s" % (b["symbol"], b.get("sector") or "", b.get("setup") or "", rs(b.get("price") or 0, 2),
+                                        " · 6-month vs Nifty %+.1f%%" % b["rs6"] if b.get("rs6") is not None else "") for b in buys]
+    return "\n".join(msg + [NOTE])
+
+
+def whatnext():
+    """12:00 daily: the What next sell / buy plan (Trading rules, your limits), as on My holdings."""
+    msg = ["🧭 What next · 3–6 month plan (Trading rules) · %s" % S.now_ist().strftime("%a %d %b")]
+    p = ((LG.report() or {}).get("next") or {}).get("plan")
+    if not p or p.get("stale"):
+        msg.append((p or {}).get("notes", ["No holdings snapshot yet: open My holdings while Zerodha is connected."])[0])
+        return "\n".join(msg + [NOTE])
+    b = p["before"]
+    msg.append("Holdings %d now → %d after the sells → %d with the buys (limit %d) · your limit %s per stock" % (
+        b["holdings"], p["after"]["max"] - p["free_slots"], p["after"]["holdings"], p["after"]["max"], rs(p.get("per_stock") or 0)))
+    if p["sells"]:
+        msg.append("\n🔴 Sell:")
+        msg += ["  %s %s · %s%s" % ("Sell all" if s["all"] else "Sell %d" % s["qty"], s["symbol"], s["reason"],
+                                     " (%+.1f%%)" % s["pnl_pct"] if s.get("pnl_pct") is not None else "") for s in p["sells"]]
+    if p["buys"]:
+        msg.append("\n🟢 Buy:")
+        msg += ["  Buy %d %s · %s · %s at %s · about %s" % (x["qty"], x["symbol"], x["sector"], x.get("setup") or "", rs(x["price"], 2),
+                                                          rs(x["amount"])) for x in p["buys"]]
+    if p.get("waiting"):
+        msg.append("\n⚪ Next in line when a place frees up: " + ", ".join(w["symbol"] for w in p["waiting"]))
+    if p.get("cash_after") is not None:
+        msg.append("Cash %s → %s after the sells" % (rs(p.get("cash") or 0), rs(p["cash_after"])))
+    msg += p["notes"][:-1]
+    msg.append(NOTE)
+    return "\n".join(msg)
+
+
+# ---- loss watch (market hours): a holding down 10%+, or down 5%+ with mostly negative news
+LOSS_PCT, NEWS_LOSS_PCT, NEG_MIN = -10.0, -5.0, 3
+_lw_lock = threading.Lock()
+
+
+def _lw_save(lw):
+    with S._state_lock:
+        st = S.load_state()
+        st.setdefault("telegram", {})["losswatch"] = lw
+        S.save_state(st)
+
+
+def loss_watch():
+    """Every 5 min (news every 30 min) from 09:15 to 15:30 on trading days. Each stock alerts once a day per kind."""
+    now = S.now_ist()
+    m, today = now.hour * 60 + now.minute, now.date().isoformat()
+    if not 555 <= m <= 930:
+        return
+    lw = ((S.load_state().get("telegram") or {}).get("losswatch")) or {}
+    if lw.get("day") != today:
+        lw = {"day": today, "loss": [], "news": [], "at": 0, "news_at": 0}
+    if time.time() - lw.get("at", 0) < 300:
+        return
+    lw["at"] = time.time()
+    _lw_save(lw)
+    if not is_trading_day(check_traded=True):
+        return
+    h = _zerodha()
+    if not h:
+        return
+    rows = h["rows"]
+    # trend change: the rules' verdict moved since the last look (first look ever: just remember)
+    cur = {r["symbol"]: r["verdict"] for r in rows if r.get("verdict")}
+    with S._state_lock:
+        st = S.load_state()
+        tg = st.setdefault("telegram", {})
+        prev = tg.get("verdicts") or {}
+        tg["verdicts"] = cur
+        S.save_state(st)
+    rank = {"exit": 0, "weak": 1, "hold": 2, "buy": 3}
+    name = {"exit": "Sell (exit signal)", "weak": "Weak", "hold": "Uptrend (hold)", "buy": "Buy signal"}
+    moved = [(s, prev[s], v) for s, v in cur.items() if prev.get(s) and prev[s] != v]
+    if moved:
+        by = {r["symbol"]: r for r in rows}
+        T.notify("trend", "\n".join(["🔄 Trend changed on your holdings · %s" % now.strftime("%H:%M")]
+                                    + ["  %s %s: %s → %s · %+.1f%% · %s" % ("🔴" if rank.get(v, 2) < rank.get(a, 2) else "🟢", s, name.get(a, a), name.get(v, v),
+                                                                           by[s].get("pnl_pct") or 0, by[s].get("why") or "") for s, a, v in moved]
+                                    + ["Judged on daily bars with today's bar still forming, so it can change back by the close.", NOTE]))
+    new = sorted((r for r in rows if (r.get("pnl_pct") or 0) <= LOSS_PCT and r["symbol"] not in lw["loss"]),
+                 key=lambda r: r["pnl_pct"])
+    if new:
+        lw["loss"] += [r["symbol"] for r in new]
+        T.notify("loss10", "\n".join(["🔴 Down 10% or more from your buy price · %s" % now.strftime("%H:%M")]
+                                     + ["  %s %+.1f%% · %s now %s (avg %s)%s" % (r["symbol"], r["pnl_pct"], signed(r["pnl"]), rs(r["ltp"], 2),
+                                                                                rs(r["avg"], 2), " · rule: " + r["verdict"] if r.get("verdict") else "")
+                                        for r in new] + [NOTE]))
+    if time.time() - lw.get("news_at", 0) >= 1800:
+        lw["news_at"] = time.time()
+        hits = []
+        for r in rows:
+            if (r.get("pnl_pct") or 0) > NEWS_LOSS_PCT or r["symbol"] in lw["news"]:
+                continue
+            try:
+                items = S.news(r["symbol"])["items"]
+            except Exception:  # noqa: BLE001
+                continue
+            neg = [i for i in items if i.get("tone") == "neg"]
+            if len(neg) >= NEG_MIN and len(neg) > sum(1 for i in items if i.get("tone") == "pos"):
+                hits.append((r, neg))
+        if hits:
+            lw["news"] += [r["symbol"] for r, _ in hits]
+            msg = ["⚠️ In loss and the news is mostly negative · %s" % now.strftime("%H:%M")]
+            for r, neg in hits:
+                msg.append("\n%s %+.1f%% · %d negative headlines in 3 days" % (r["symbol"], r["pnl_pct"], len(neg)))
+                msg += ["  🔴 " + D._short(i["title"]) for i in neg[:3]]
+            T.notify("lossnews", "\n".join(msg + [NOTE]))
+    _lw_save(lw)
+
+
+def _loss_watch_bg():
+    try:
+        loss_watch()
+    except Exception as e:  # noqa: BLE001
+        log("loss10", "Loss watch failed: %s" % str(e)[:200], "error", str(e)[:200])
+    finally:
+        _lw_lock.release()
+
+
 def _save_holdings(rows):
     with S._state_lock:
         st = S.load_state()
@@ -335,7 +483,7 @@ def _save_holdings(rows):
 BUILDERS = {"morning": lambda: D.morning_plan()[0],
             "update": lambda: D.morning_update() or "08:45 update: nothing changed since the morning plan (normally not sent).",
             "login": lambda: D.login_text(), "signin": lambda: D.signin_text() or "Zerodha is not connected: no sign-in summary.",
-            "plan": plan, "close": close, "eod": eod, "weekly": lambda: D.weekly()}
+            "plan": plan, "close": close, "eod": eod, "weekly": lambda: D.weekly(), "whatnext": whatnext, "exits": exits, "roombuys": roombuys}
 
 
 def run(kind):
@@ -345,7 +493,8 @@ def run(kind):
     except Exception as e:  # noqa: BLE001
         log(kind, "Report could not be built: %s" % str(e)[:200], "error", str(e)[:200])
         return None
-    T.notify(kind, text)
+    if text:   # a builder may return None: nothing to report today
+        T.notify(kind, text)
     return text
 
 
@@ -356,6 +505,8 @@ def due():
     today = now.date().isoformat()
     st = S.load_state()
     sent = (st.get("telegram") or {}).get("sched") or {}
+    if _lw_lock.acquire(blocking=False):   # loss / negative-news watch runs in the background, one at a time
+        threading.Thread(target=_loss_watch_bg, daemon=True).start()
     for kind, at in SCHEDULE:
         if at <= m < at + 20 and sent.get(kind) != today:
             if not is_trading_day(check_traded=at >= 570):

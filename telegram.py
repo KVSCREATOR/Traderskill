@@ -28,7 +28,13 @@ KINDS = [("hello", "Greeting when the NAS / portal starts"), ("morning", "Mornin
          ("weekly", "Sunday 10:00 weekly summary"), ("gtt", "GTT saved: details + Zerodha GTT link"), ("plan", "09:32 Day plan: market, your holdings, best setups"),
          ("close", "15:32 Market close summary"), ("eod", "15:35 Your holdings: today's gains and losses, rule actions"),
          ("zerodha", "Your real Zerodha buys and sells (seen within ~2 minutes)"), ("alert", "Price alerts ringing"),
-         ("paper", "Paper trades: GTT fills, stops, targets, sells")]
+         ("paper", "Paper trades: GTT fills, stops, targets, sells"),
+         ("exits", "10:00 Sell · Exit signal (rules) for your holdings, only when there is one"),
+         ("whatnext", "12:00 What next: 3–6 month sell / buy plan"),
+         ("roombuys", "13:00 Rule buy signals you have room for (trading days, only when there is one)"),
+         ("loss10", "A holding is down 10% or more from your buy price"),
+         ("trend", "Trend change on a holding (e.g. Uptrend → Weak → Sell), market hours"),
+         ("lossnews", "A holding down 5%+ with mostly negative news")]
 R = None   # reports module (scheduled messages + history log)
 _send_lock = threading.Lock()
 
