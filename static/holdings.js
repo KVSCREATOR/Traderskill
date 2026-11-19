@@ -86,7 +86,9 @@ async function ledgerPage(tab, fresh) {
     ${tile('Holdings value', plain(totals(d).value), null, `invested ${plain(totals(d).cost)}`)}
     ${tile('Not yet booked (unrealised)', money(totals(d).unrealised), totals(d).unrealised, `short-term ${money(totals(d).unreal_short)} · long-term ${money(totals(d).unreal_long)}`)}
     ${tile('Funds available', d.funds && d.funds.net != null ? inr(d.funds.net, 0) : '–', null, d.funds ? `cash ${d.funds.cash != null ? inr(d.funds.cash, 0) : '–'} · used ${d.funds.used != null ? inr(d.funds.used, 0) : '–'}` : 'no record yet')}
-    ${tile('Charges (estimate)', inr(d.charges.total, 0), null, `delivery ${inr(d.charges.delivery, 0)} · intraday ${inr(d.charges.intraday, 0)}`)}</div>`;
+    ${d.charges.zerodha != null ? tile('Charges (Zerodha P&amp;L)', inr(d.charges.zerodha, 0), null, `my estimate was ${inr(d.charges.total, 0)}`)
+      : tile('Charges (estimate)', inr(d.charges.total, 0), null, `delivery ${inr(d.charges.delivery, 0)} · intraday ${inr(d.charges.intraday, 0)}`)}</div>
+    ${d.pnl ? `<p class="note" style="margin:6px 0 0">Zerodha P&amp;L statement (${esc(d.pnl.file || '')}${d.pnl.from ? ', ' + esc(d.pnl.from) + ' – ' + esc(d.pnl.to) : ''}): realised ${money(d.pnl.realised)}${d.pnl.differ.length ? ` · <b class="down">differs from the tradebook for ${d.pnl.differ.map(esc).join(', ')}</b> (usually trades before the tradebook starts, or a bonus / split)` : ' · matches the tradebook'}.</p>` : ''}`;
   const empty = !d.records.trades && !d.records.snapshots;
   const startHelp = empty ? `<div class="banner">No record yet. ${d.connected ? 'The first snapshot is being saved now; ' : 'Connect Zerodha on Live holdings, and '}upload your Console tradebook under <a href="#" data-htab="import">Import &amp; add</a> to fill in past buys and sells.</div>` : '';
   const mism = d.holdings.filter(h => h.mismatch);
@@ -100,13 +102,17 @@ async function ledgerPage(tab, fresh) {
   let body = '';
   if (tab === 'record') {
     body = `${summary}${mismBox}
-      <div class="card"><h2>Stock by stock · FY ${esc(d.fy)}</h2>${T([['Stock'], ['Bought', 'num'], ['Avg buy', 'num'], ['Sold', 'num'], ['Avg sell', 'num'], ['Holding now', 'num'], ['Booked profit', 'num'], ['First / last trade']],
+      <div class="card"><h2>Stock by stock · FY ${esc(d.fy)}</h2>${T([['Stock'], ['Bought', 'num'], ['Avg buy', 'num'], ['Sold', 'num'], ['Avg sell', 'num'], ['Holding now', 'num'], ['Booked profit', 'num'], ...(d.pnl ? [['Zerodha P&amp;L', 'num']] : []), ['First / last trade']],
         d.per_stock.map(p => `<tr><td class="sym"><a href="#/predictor/${encodeURIComponent(p.symbol)}"><b>${esc(p.symbol)}</b></a><small>${esc(p.sector)}</small></td>
           <td class="num">${fmtQ(p.buy_qty)}<small class="chg" style="display:block">${inr(p.buy_value, 0)}</small></td><td class="num">${p.avg_buy != null ? inr(p.avg_buy) : '–'}</td>
           <td class="num">${fmtQ(p.sell_qty)}<small class="chg" style="display:block">${inr(p.sell_value, 0)}</small></td><td class="num">${p.avg_sell != null ? inr(p.avg_sell) : '–'}</td>
           <td class="num">${fmtQ(p.remaining)}</td>
           <td class="num ${cls(p.realised)}">${p.buy_qty || p.sell_qty ? money(p.realised) : '–'}<small class="chg" style="display:block">${[p.short ? 'ST ' + money(p.short) : '', p.long ? 'LT ' + money(p.long) : '', p.intraday ? 'intraday ' + money(p.intraday) : '', p.unknown_qty ? fmtQ(p.unknown_qty) + ' sh cost unknown' : ''].filter(Boolean).join(' · ')}</small></td>
-          <td class="mono">${esc(p.first)}<small class="muted" style="display:block">${esc(p.last)}</small></td></tr>`), 'No buys or sells recorded in this year yet.')}</div>
+          ${d.pnl ? `<td class="num ${cls(p.z_realised)}">${p.z_realised != null ? money(p.z_realised) : '–'}${d.pnl.differ.includes(p.symbol) ? '<small class="down" style="display:block">differs</small>' : p.only_zerodha ? '<small class="muted" style="display:block">not in tradebook</small>' : ''}</td>` : ''}
+          <td class="mono">${esc(p.first || '–')}<small class="muted" style="display:block">${esc(p.last || '')}</small></td></tr>`), 'No buys or sells recorded in this year yet.')}</div>
+      ${d.pnl && (Object.keys(d.pnl.summary || {}).length || (d.pnl.other || []).length) ? `<div class="card"><h2>From Zerodha's P&amp;L statement</h2><div class="grid2">
+        <div>${T([['Item'], ['Amount', 'num']], Object.entries(d.pnl.summary || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${inr(v, 2)}</td></tr>`), 'No summary lines.')}</div>
+        <div>${T([['Date'], ['Other debits and credits'], ['Amount', 'num']], (d.pnl.other || []).map(o => `<tr><td class="mono">${esc(o.date || '–')}</td><td>${esc(o.what)}</td><td class="num ${cls(o.amount)}">${inr(o.amount, 2)}</td></tr>`), 'None.')}</div></div></div>` : ''}
       <div class="card"><h2>Month by month</h2>${T([['Month'], ['Buys', 'num'], ['Bought', 'num'], ['Sells', 'num'], ['Sold', 'num'], ['Booked profit', 'num']],
         d.months.map(m => `<tr><td class="mono">${esc(m.month)}</td><td class="num">${m.buys}</td><td class="num">${inr(m.buy_value, 0)}</td><td class="num">${m.sells}</td><td class="num">${inr(m.sell_value, 0)}</td><td class="num ${cls(m.realised)}">${money(m.realised)}</td></tr>`), 'Nothing this year yet.')}</div>
       <div class="card"><h2>Every buy and sell · ${d.trades.length}</h2><div class="row tablebar"><input type="search" data-tfind placeholder="Search stock or date" style="width:220px"></div>${T([['Date'], ['Stock'], ['Buy / sell'], ['Qty', 'num'], ['Price', 'num'], ['Value', 'num'], ['From']],
@@ -161,7 +167,10 @@ async function ledgerPage(tab, fresh) {
       <p class="note">Saved whenever you open My holdings while Zerodha is connected, and every trading day after the close. Kept on the NAS even when Zerodha is disconnected.</p></div>`;
   } else if (tab === 'import') {
     const man = Object.values(d.trades).filter(x => x.source === 'manual');
-    body = `${mismBox}<div class="card"><h2>Upload your Zerodha tradebook</h2>
+    body = `${mismBox}<div class="card"><h2>Upload Zerodha's P&amp;L statement</h2>
+      <p class="note">Console → Reports → P&amp;L → Segment Equity → pick the financial year → Download (Excel or CSV). Adds Zerodha's own profit per stock beside the record, stocks the tradebook misses, the real charges and other debits / credits. Uploading the same year again replaces it. ${d.pnl ? `<b>FY ${esc(d.fy)} saved ${esc(d.pnl.at)}</b> (${esc(d.pnl.file || '')}).` : 'Nothing saved for this year yet.'}</p>
+      <div class="row"><input type="file" id="plFile" accept=".xlsx,.csv"><button class="btn primary" id="plGo">Import P&amp;L</button></div></div>
+      <div class="card"><h2>Upload your Zerodha tradebook</h2>
       <ol class="note" style="line-height:1.8;margin:0 0 12px 18px"><li>Open <a href="https://console.zerodha.com/reports/tradebook" target="_blank" rel="noopener">Zerodha Console → Reports → Tradebook</a> and sign in there.</li>
       <li>Segment <b>Equity</b>; date range from your <b>first ever purchase</b> of the shares you still hold up to today (Console allows one year per download: download each year).</li>
       <li>Click Download → CSV, then pick the file(s) here. Uploading the same trades twice is safe: duplicates are skipped.</li></ol>
@@ -192,6 +201,16 @@ async function ledgerPage(tab, fresh) {
         try { const r = await api('/api/ledger/import', { csv: await f.text(), name: f.name }); toast(`${f.name}: ${r.message}`); } catch (e) { toast(`${f.name}: ${e.message}`, 'bad'); }
       }
       S.ledger = null; ledgerPage('import');
+    };
+    $('#plGo').onclick = async () => {
+      const f = $('#plFile').files[0]; if (!f) { toast('Pick the P&L file first.', 'bad'); return; }
+      $('#plGo').disabled = true;
+      try {
+        const bytes = new Uint8Array(await f.arrayBuffer()); let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        const r = await api('/api/ledger/pnl', { b64: btoa(bin), name: f.name }); toast(r.message);
+        S.ledgerFy = r.fy; S.ledger = null; ledgerPage('record');
+      } catch (e) { $('#plGo').disabled = false; toast(e.message, 'bad'); }
     };
     $('#manF').onsubmit = async e => {
       e.preventDefault(); const body = Object.fromEntries(new FormData(e.target)); body.action = 'add';

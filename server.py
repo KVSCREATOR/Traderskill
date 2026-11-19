@@ -1650,6 +1650,8 @@ def api(method, path, q, body):
             return out
         if path == "/api/ledger/import" and method == "POST":
             return ledger.import_tradebook(body)
+        if path == "/api/ledger/pnl" and method == "POST":
+            return ledger.import_pnl(body)
         if path == "/api/ledger/manual" and method == "POST":
             return ledger.manual(body)
         if path == "/api/ledger/csv":

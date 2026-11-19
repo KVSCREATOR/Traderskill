@@ -67,6 +67,8 @@ def log_post(path, body, result, mode):
             add("action", "My holdings PIN changed")
         elif path == "/api/ledger/import":
             add("action", "Zerodha tradebook imported", (result or {}).get("message", "")[:200])
+        elif path == "/api/ledger/pnl":
+            add("action", "Zerodha P&L statement imported", (result or {}).get("message", "")[:200])
         elif path == "/api/ledger/manual":
             add("action", "My holdings record: trade %s by hand" % ("deleted" if b.get("action") == "delete" else "added"), (result or {}).get("message", "")[:200])
         elif path == "/api/admin/restart":

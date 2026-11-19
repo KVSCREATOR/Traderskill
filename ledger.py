@@ -308,6 +308,140 @@ def import_tradebook(body):
     return {"ok": True, "added": added, "skipped": skipped, "duplicates": dup, "bad": bad, "message": msg}
 
 
+def _xlsx_sheets(raw):
+    """{sheet name: [[cell text, ...], ...]} from an .xlsx, standard library only."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    rel_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+    z = zipfile.ZipFile(io.BytesIO(raw))
+    shared = []
+    if "xl/sharedStrings.xml" in z.namelist():
+        for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall("m:si", ns):
+            shared.append("".join(t.text or "" for t in si.iter("{%s}t" % ns["m"])))
+    rels = {}
+    try:
+        for r in ET.fromstring(z.read("xl/_rels/workbook.xml.rels")):
+            rels[r.get("Id")] = r.get("Target").lstrip("/").replace("xl/", "")
+    except KeyError:
+        pass
+    out = {}
+    for sh in ET.fromstring(z.read("xl/workbook.xml")).find("m:sheets", ns):
+        path = "xl/" + rels.get(sh.get(rel_ns), "worksheets/sheet1.xml")
+        rows = []
+        for row in ET.fromstring(z.read(path)).iter("{%s}row" % ns["m"]):
+            cells = {}
+            for c in row.findall("m:c", ns):
+                ref = re.match(r"([A-Z]+)", c.get("r") or "A")
+                col = 0
+                for ch in ref.group(1):
+                    col = col * 26 + ord(ch) - 64
+                v = c.find("m:v", ns)
+                t = c.get("t")
+                if t == "s" and v is not None:
+                    val = shared[int(v.text)]
+                elif t == "inlineStr":
+                    val = "".join(x.text or "" for x in c.iter("{%s}t" % ns["m"]))
+                else:
+                    val = v.text if v is not None else ""
+                cells[col - 1] = (val or "").strip()
+            if cells:
+                rows.append([cells.get(i, "") for i in range(max(cells) + 1)])
+        out[sh.get("name")] = rows
+    return out
+
+
+def _num(x):
+    try:
+        return float(str(x).replace(",", "").replace("₹", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def import_pnl(body):
+    """Zerodha Console -> Reports -> P&L (Equity), Excel or CSV: Zerodha's own realised P&L per stock,
+    open quantity / value, and the real charges and other debits and credits."""
+    import base64
+    name = str(body.get("name") or "")[:80]
+    try:
+        raw = base64.b64decode(body.get("b64") or "")
+    except ValueError:
+        raise S.ApiError(400, "Could not read the file.")
+    if len(raw) > 15_000_000:
+        raise S.ApiError(400, "File too big (15 MB max).")
+    if raw[:2] == b"PK":
+        try:
+            sheets = _xlsx_sheets(raw)
+        except Exception:  # noqa: BLE001
+            raise S.ApiError(400, "Could not open this Excel file. Save it again as .xlsx or download the CSV.")
+    else:
+        sheets = {"Equity": list(csv.reader(io.StringIO(raw.decode("utf-8-sig", "replace"))))}
+    norm = lambda s: re.sub(r"[^a-z]+", "_", str(s).lower()).strip("_")  # noqa: E731
+    eq = None
+    for nm, rows in sheets.items():
+        for i, r in enumerate(rows[:60]):
+            cols = [norm(c) for c in r]
+            if "symbol" in cols and any(c.startswith("realized_p_l") or c.startswith("realised_p_l") for c in cols):
+                eq = (nm, i, cols)
+                break
+        if eq:
+            break
+    if not eq:
+        raise S.ApiError(400, "This does not look like a Zerodha P&L statement: need columns Symbol and Realized P&L.")
+    nm, hi, cols = eq
+    rows = sheets[nm]
+    text = " ".join(" ".join(r) for r in rows[:hi])
+    dts = re.findall(r"(\d{4}-\d{2}-\d{2})", text)
+    p_from, p_to = (dts[0], dts[1]) if len(dts) >= 2 else (None, None)
+    summary = {}
+    for r in rows[:hi]:   # label / amount pairs above the table (Charges, Net Realized P&L, ...)
+        cells = [c for c in r if c != ""]
+        if len(cells) >= 2 and _num(cells[-1]) is not None and _num(cells[0]) is None:
+            summary[cells[0].strip()[:60]] = _num(cells[-1])
+    stocks = {}
+    for r in rows[hi + 1:]:
+        x = dict(zip(cols, r))
+        sym = (x.get("symbol") or "").strip().upper()
+        if not sym:
+            if stocks:
+                break
+            continue
+        g = lambda *ks: next((_num(x[k]) for k in ks if k in x and _num(x[k]) is not None), None)  # noqa: E731
+        stocks[sym] = {"isin": x.get("isin", ""), "qty": g("quantity"), "buy_value": g("buy_value"), "sell_value": g("sell_value"),
+                       "realised": g("realized_p_l", "realised_p_l"), "realised_pct": g("realized_p_l_pct", "realised_p_l_pct"),
+                       "prev_close": g("previous_closing_price"), "open_qty": g("open_quantity"), "open_value": g("open_value"),
+                       "unrealised": g("unrealized_p_l", "unrealised_p_l")}
+    if not stocks:
+        raise S.ApiError(400, "No stock rows found under the header.")
+    other = []
+    for snm, srows in sheets.items():   # 'Other Debits and Credits' sheet
+        if snm == nm or not srows:
+            continue
+        h = next((i for i, r in enumerate(srows[:40]) if any(norm(c) in ("particulars", "description", "narration") for c in r)), None)
+        if h is None:
+            continue
+        oc = [norm(c) for c in srows[h]]
+        for r in srows[h + 1:]:
+            x = dict(zip(oc, r))
+            if not any(r):
+                continue
+            desc = x.get("particulars") or x.get("description") or x.get("narration") or ""
+            amt = _num(x.get("amount"))
+            if amt is None:
+                dr, cr = _num(x.get("debit")) or 0, _num(x.get("credit")) or 0
+                amt = cr - dr
+            if desc and amt is not None:
+                other.append({"date": _norm_date(x.get("posting_date") or x.get("date") or ""), "what": desc[:120], "amount": amt})
+    fy = fy_of(p_to or p_from or S.now_ist().date())
+    with _lock:
+        d = _load()
+        d.setdefault("pnl", {})[fy] = {"at": S.market_clock()["ist"], "file": name, "from": p_from, "to": p_to,
+                                       "stocks": stocks, "summary": summary, "other": other}
+        _save(d)
+    return {"ok": True, "fy": fy, "message": "Zerodha P&L for FY %s saved: %d stocks%s%s." % (
+        fy, len(stocks), ", %d summary lines" % len(summary) if summary else "", ", %d other debits/credits" % len(other) if other else "")}
+
+
 def manual(body):
     act = body.get("action")
     with _lock:
@@ -520,7 +654,17 @@ def report(fy=None):
         else:
             p[r["kind"]] += r["pnl"]
     hq = {h["symbol"]: h["qty"] for h in holdings}
+    zp = (d.get("pnl") or {}).get(fy)
+    if zp:   # Zerodha's own P&L statement for this year: add stocks it has that the tradebook does not
+        for sym, z in zp["stocks"].items():
+            if sym not in per and ((z.get("buy_value") or 0) or (z.get("sell_value") or 0) or (z.get("realised") or 0)):
+                per[sym] = {"symbol": sym, "buy_qty": 0, "buy_value": 0.0, "sell_qty": 0, "sell_value": 0.0, "first": "", "last": "",
+                            "intraday": 0.0, "short": 0.0, "long": 0.0, "unknown_qty": 0, "only_zerodha": True}
     for p in per.values():
+        z = (zp or {}).get("stocks", {}).get(p["symbol"]) if zp else None
+        p["z_realised"] = z.get("realised") if z else None
+        p["z_buy_value"] = z.get("buy_value") if z else None
+        p["z_sell_value"] = z.get("sell_value") if z else None
         p["remaining"] = hq.get(p["symbol"], 0)
         p["realised"] = p["intraday"] + p["short"] + p["long"]
         p["avg_buy"] = p["buy_value"] / p["buy_qty"] if p["buy_qty"] else None
@@ -540,6 +684,10 @@ def report(fy=None):
     sell_days = len({(t["date"], t["symbol"]) for t in fy_trades if t["side"] == "sell"})
     charges = {"delivery": max(deliv_turn, 0) * DELIVERY_SIDE + sell_days * DP_FEE, "intraday": intra_turn * INTRADAY_COST}
     charges["total"] = charges["delivery"] + charges["intraday"]
+    if zp:
+        ch = next((v for k, v in zp["summary"].items() if re.fullmatch(r"(total )?charges", k.strip().lower())), None)
+        if ch is not None:
+            charges["zerodha"] = abs(ch)
     tax = _tax(fy, realised)
     # if everything open were sold today (adds to the current FY only)
     if fy == fy_of(today):
@@ -609,7 +757,14 @@ def report(fy=None):
               "cost": sum(h["cost"] or 0 for h in holdings if h["counted"]),
               "unreal_short": sum(h["unreal_short"] for h in holdings), "unreal_long": sum(h["unreal_long"] for h in holdings)}
     totals["unrealised"] = totals["value"] - totals["cost"]
-    return {"fy": fy, "fys": fys, "fy_from": f0.isoformat(), "fy_to": f1.isoformat(), "connected": connected, "totals": totals,
+    pnl_info = None
+    if zp:
+        pnl_info = {k: zp.get(k) for k in ("at", "file", "from", "to", "summary", "other")}
+        pnl_info["realised"] = sum(z.get("realised") or 0 for z in zp["stocks"].values())
+        pnl_info["other_total"] = sum(o["amount"] for o in zp.get("other") or [])
+        pnl_info["differ"] = [p["symbol"] for p in per.values() if p.get("z_realised") is not None and not p.get("only_zerodha")
+                              and abs(p["z_realised"] - p["realised"]) > max(50, abs(p["z_realised"]) * 0.02)]
+    return {"fy": fy, "fys": fys, "fy_from": f0.isoformat(), "fy_to": f1.isoformat(), "connected": connected, "totals": totals, "pnl": pnl_info,
             "snapshot_at": snap["at"] if snap else None, "funds": (snap or {}).get("funds"),
             "holdings": holdings, "per_stock": sorted(per.values(), key=lambda p: -(p["buy_value"] + p["sell_value"])),
             "trades": [dict(t, value=t["qty"] * t["price"]) for t in reversed(fy_trades)],
