@@ -1,6 +1,6 @@
 'use strict';
 /* ---------------------------------------------------------------- My holdings: PIN gate + yearly Zerodha record */
-const HTABS = [['live', 'Live holdings'], ['record', 'Year record'], ['tax', 'Tax'], ['sectors', 'Sectors'], ['next', 'What next'], ['funds', 'Funds'], ['import', 'Import & add']];
+const HTABS = [['live', 'Live holdings'], ['record', 'Year record'], ['tax', 'Tax'], ['sectors', 'Sectors'], ['next', 'What next'], ['core', 'Core + satellite'], ['funds', 'Funds'], ['import', 'Import & add']];
 function hTabs(active) {
   return `<div class="htabs" role="tablist">${HTABS.map(([k, l]) => `<button type="button" role="tab" class="${k === active ? 'on' : ''}" aria-selected="${k === active}" data-htab="${k}">${l}</button>`).join('')}
     <button type="button" class="htab-lock" data-hlock title="Lock My holdings">🔒 Lock</button></div>`;
@@ -175,6 +175,26 @@ async function ledgerPage(tab, fresh) {
       <div class="card"><h2>Rule buy signals you have room for</h2><p class="note">${nx.slots} free place${nx.slots === 1 ? '' : 's'} of ${d.settings.max_positions} · up to ${inr(nx.per_stock, 0)} each · funds available ${nx.cash != null ? inr(nx.cash, 0) : 'unknown'}${nx.regime === false ? ' · <b>market filter is off: the Investing rules hold off new buys</b>' : ''}</p>
         ${li(nx.buys || [], b => `<li><a href="#/predictor/${encodeURIComponent(b.symbol)}"><b>${esc(b.symbol)}</b></a> · ${esc(b.sector || '')} · ${esc(b.setup || '')} at ${inr(b.price)}${b.rs6 != null ? ` · 6-month vs Nifty ${sgn(b.rs6)}` : ''}</li>`)}</div>
       <p class="note">Sell / keep / add come from the Investing rules (backtested Nov 2017–Nov 2026: ~11%/yr, 38% of trades won, losing years too). Buy ideas are the scanner's “Best odds” signals in sectors where you are under your limit. These are mechanical rule results and facts about your own records, not personal investment advice; decide and place any real order yourself in Zerodha.</p>`;
+  } else if (tab === 'core') {
+    const c = d.core, pctA = c.actual;
+    const bar = pctA == null ? '' : `<div class="corebar" title="Core ${pctA.toFixed(0)}% · target ${c.target}%"><i style="width:${pctA.toFixed(1)}%"></i><b style="left:${c.target}%"></b></div>
+      <div class="row" style="justify-content:space-between;font-size:12px;color:var(--muted)"><span>Index funds (core) ${pctA.toFixed(0)}%</span><span>target ${c.target}% ▲</span><span>Stocks (satellite) ${(100 - pctA).toFixed(0)}%</span></div>`;
+    const act = !c.total ? '<p class="note">No holdings recorded yet: connect Zerodha once.</p>'
+      : Math.abs(c.move) < Math.max(2000, c.total * 0.02) ? `<p><b class="up">On target.</b> Nothing to move.</p>`
+      : `<p>${c.due ? '<b>Rebalance due</b>' : 'Next check: April'} · to get back to ${c.target}% index funds: <b>${c.move > 0 ? 'move about ' + inr(c.move, 0) + ' from stocks into the index fund' : 'move about ' + inr(-c.move, 0) + ' from the index fund into stocks'}</b>${c.due ? '' : ` (now ${c.off.toFixed(0)} points off; the plan rebalances each April or when more than 10 points off)`}.</p>`;
+    const li = arr => arr.length ? `<ul class="nlist">${arr.map(x => `<li>${esc(x.name)} <small class="muted">${esc(x.kind)}</small> · ${inr(x.value, 0)}</li>`).join('')}</ul>` : '<p class="note">None.</p>';
+    body = `<div class="card"><h2>Your split: index funds (core) vs stocks (satellite)</h2>
+      <div class="kv" style="margin:0 0 12px"><div><span>Core · index funds</span><b>${inr(c.core_value, 0)}</b></div><div><span>Satellite · stocks</span><b>${inr(c.sat_value, 0)}</b></div>
+        <div><span>Core share now</span><b>${pctA != null ? pctA.toFixed(1) + '%' : '–'}</b></div><div><span>Your target</span><b>${c.target}%</b></div></div>
+      ${bar}${act}</div>
+      <div class="grid2"><div class="card"><h2>Core · ${c.core.length}</h2>${li(c.core)}</div><div class="card"><h2>Satellite · ${c.satellite.length}</h2>${li(c.satellite)}</div></div>
+      ${c.other_mf.length ? `<div class="card"><h2>Other mutual funds (not counted)</h2>${li(c.other_mf)}</div>` : ''}
+      <div class="card"><h2>Your target</h2><form id="coreF" class="grid">
+        <label>Share in index funds (%)<input name="target" type="number" min="0" max="100" step="5" value="${c.target}"></label>
+        <label style="grid-column:span 2">Index funds that count as core (NSE symbols, comma separated)<input name="symbols" value="${esc(c.symbols.join(', '))}" style="text-transform:uppercase"></label>
+        <label class="row" style="gap:6px;align-self:end"><input type="checkbox" name="count_mf" ${c.count_mf ? 'checked' : ''}> Count Nifty / Sensex index mutual funds as core</label>
+        <div class="row" style="grid-column:1/-1"><button class="btn primary">Save target</button></div></form>
+      <p class="note">Tested 19 Nov 2026 (Dec 2017 – Nov 2026, before tax): 50% Nifty with dividends + 50% Trading rules made about 12.2% a year with a worst fall of −22.5%, against 12.2% and −38.3% for the Nifty alone; 70/30 made 12.3% with −28.7%. See Time machine for the full table. The satellite part is your other stocks, best run by the rules (Scanner / What next). Rule results, not personal advice.${c.mf_known ? '' : ' Mutual funds are counted from the next snapshot while Zerodha is connected.'}</p></div>`;
   } else if (tab === 'funds') {
     const f = d.funds;
     body = `${f ? `<div class="kv" style="margin:0"><div><span>Funds available</span><b>${f.net != null ? inr(f.net, 0) : '–'}</b></div><div><span>Cash balance</span><b>${f.cash != null ? inr(f.cash, 0) : '–'}</b></div><div><span>Opening balance</span><b>${f.opening != null ? inr(f.opening, 0) : '–'}</b></div><div><span>Used (margin)</span><b>${f.used != null ? inr(f.used, 0) : '–'}</b></div></div>` : '<div class="banner">No funds recorded yet: connect Zerodha.</div>'}
@@ -220,6 +240,15 @@ async function ledgerPage(tab, fresh) {
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([r.csv], { type: 'text/csv' })); a.download = r.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     } catch (e) { toast(e.message, 'bad'); }
   };
+  if (tab === 'core') {
+    $('#coreF').onsubmit = async e => {
+      e.preventDefault(); const f = new FormData(e.target);
+      try {
+        const r = await api('/api/ledger/core', { target: +f.get('target'), symbols: String(f.get('symbols') || '').split(',').map(x => x.trim()).filter(Boolean), count_mf: f.get('count_mf') === 'on' });
+        toast(r.message); S.ledger = null; ledgerPage('core');
+      } catch (err) { toast(err.message, 'bad'); }
+    };
+  }
   if (tab === 'import') {
     $('#tbGo').onclick = async () => {
       const files = [...$('#tbFile').files]; if (!files.length) { toast('Pick the tradebook CSV file first.', 'bad'); return; }

@@ -430,3 +430,8 @@ tr.inper td { background: var(--accent-soft); }
 .tk-speed .tk-fill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 3px; background: var(--accent); opacity: .45; }
 .tk-speed .tk-thumb { position: absolute; left: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,.3); }
 .tk-speed:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+/* core + satellite split bar */
+.corebar { position: relative; height: 16px; border-radius: 8px; background: var(--warn-soft); border: 1px solid var(--border); margin: 6px 0 4px; }
+.corebar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); opacity: .75; border-radius: 8px 0 0 8px; }
+.corebar b { position: absolute; top: -5px; bottom: -5px; width: 3px; margin-left: -1px; background: var(--text); border-radius: 2px; }

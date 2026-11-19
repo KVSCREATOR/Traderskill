@@ -74,6 +74,10 @@ function benchBlock(b) {
     ${row('Nifty 50, bought and held', p.final, p.cagr, p.cagr_after_tax, p.max_dd, p.after_tax, 'price only, as the index is quoted')}
     ${row('Nifty 50 with dividends (estimate)', w.final, w.cagr, w.cagr_after_tax, w.max_dd, w.after_tax, 'about 1.3% a year dividends added, like an index fund such as NIFTYBEES')}
     ${row('Nifty 50, monthly SIP', sip.final, sip.xirr, null, null, sip.after_tax, `${inr(sip.monthly, 0)} a month for ${sip.months} months · per year = XIRR`)}</tbody></table></div>
+    ${b.mixes ? `<h2 style="margin-top:18px">Core + satellite · part in a Nifty index fund, the rest run by these rules</h2>
+    <div class="tablewrap"><table><thead><tr><th>Mix (rebalanced each April)</th><th class="num">Per year</th><th class="num">Per year after tax (est.)</th><th class="num">Worst fall</th><th class="num">Worst fall to Jun 2022</th><th class="num">Worst fall from Jul 2022</th></tr></thead><tbody>
+    ${b.mixes.map(m => `<tr class="${m.core_pct === 50 ? 'inper' : ''}"><td><b>${m.core_pct}% Nifty + ${100 - m.core_pct}% rules</b>${m.core_pct === 100 ? ' <small class="muted">(index only)</small>' : m.core_pct === 0 ? ' <small class="muted">(rules only)</small>' : ''}</td><td class="num ${cls(m.cagr)}">${sgn(m.cagr)}</td><td class="num ${cls(m.cagr_after_tax)}">${sgn(m.cagr_after_tax)}</td><td class="num down">−${m.max_dd.toFixed(1)}%</td><td class="num">−${m.dd_a.toFixed(1)}%</td><td class="num">${m.dd_b != null ? '−' + m.dd_b.toFixed(1) + '%' : '–'}</td></tr>`).join('')}</tbody></table></div>
+    <p class="note" style="margin-top:6px">A mix keeps most of the index's return while the rules' cash periods soften the deep falls. Set your target split and see your real split under My holdings → Core + satellite.</p>` : ''}
     <p class="note" style="margin-top:8px">${verdict} Both sides pay delivery costs; the Nifty is taxed once when sold at the end (long-term 12.5% above ₹1.25 lakh), the rules every year on short-term gains. The rules use today's index members (flatters them a little). Past results do not promise future returns.</p>`;
 }
 

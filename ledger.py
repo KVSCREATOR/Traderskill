@@ -223,7 +223,15 @@ def snapshot(reason="page"):
                                        "exchange": p.get("exchange"), "source": "zerodha"})
     except Exception:  # noqa: BLE001
         pass
-    snap = {"at": S.market_clock()["ist"], "reason": reason, "funds": funds,
+    mfs = []
+    try:   # Coin mutual funds: index funds can count as the "core" of the account
+        for m in K._rows(K.call("mutual_funds", {"mode": "holdings"})):
+            q, avg, nav = K._num(m.get("quantity")) or 0, K._num(m.get("average_price")) or 0, K._num(m.get("last_price")) or 0
+            if q:
+                mfs.append({"fund": m.get("fund") or m.get("tradingsymbol") or "", "units": q, "value": q * nav, "cost": q * avg})
+    except Exception:  # noqa: BLE001
+        mfs = None
+    snap = {"at": S.market_clock()["ist"], "reason": reason, "funds": funds, "mfs": mfs,
             "total_value": h.get("total_value"), "total_cost": h.get("total_cost"),
             "holdings": [{k: r.get(k) for k in ("symbol", "exchange", "qty", "avg", "ltp", "value", "cost", "pnl", "pnl_pct",
                                                  "day_pct", "day_pnl", "sector", "trend", "verdict", "why", "rule_stop", "flags")}
@@ -440,6 +448,56 @@ def import_pnl(body):
         _save(d)
     return {"ok": True, "fy": fy, "message": "Zerodha P&L for FY %s saved: %d stocks%s%s." % (
         fy, len(stocks), ", %d summary lines" % len(summary) if summary else "", ", %d other debits/credits" % len(other) if other else "")}
+
+
+CORE_DEFAULT = ["NIFTYBEES", "SETFNIF50", "NIFTYIETF", "UTINIFTETF", "HDFCNIFTY", "BSLNIFTY", "AXISNIFTY",
+                "NIFTY1", "LICNETFN50", "MOM50", "NIFTYETF"]
+INDEX_MF = re.compile(r"nifty ?50|nifty index|sensex|index fund", re.I)
+
+
+def _core_cfg(d):
+    c = d.get("core") or {}
+    return {"target": c.get("target", 50), "symbols": c.get("symbols") or list(CORE_DEFAULT), "count_mf": c.get("count_mf", True)}
+
+
+def core_set(body):
+    """Your target split: share in Nifty index funds (core) vs stocks run by the rules (satellite)."""
+    try:
+        t = int(body.get("target"))
+    except (TypeError, ValueError):
+        raise S.ApiError(400, "Target must be a whole number from 0 to 100.")
+    if not 0 <= t <= 100:
+        raise S.ApiError(400, "Target must be from 0 to 100.")
+    syms = [S.clean_symbol(x) for x in (body.get("symbols") or []) if str(x).strip()][:30]
+    with _lock:
+        d = _load()
+        d["core"] = {"target": t, "symbols": syms or list(CORE_DEFAULT), "count_mf": bool(body.get("count_mf", True))}
+        _save(d)
+    return {"ok": True, "message": "Target saved: %d%% in index funds, %d%% in stocks." % (t, 100 - t)}
+
+
+def _core_view(d, snap, holdings, today):
+    cfg = _core_cfg(d)
+    core_set_ = set(cfg["symbols"])
+    core, sat = [], []
+    for h in holdings:
+        if not h.get("counted"):
+            continue
+        (core if h["symbol"] in core_set_ else sat).append({"name": h["symbol"], "value": h["value"] or 0, "kind": "ETF" if h["symbol"] in core_set_ else "stock"})
+    other_mf = []
+    for m in ((snap or {}).get("mfs") or []):
+        item = {"name": m["fund"], "value": m["value"], "kind": "mutual fund"}
+        (core if cfg["count_mf"] and INDEX_MF.search(m["fund"] or "") else other_mf).append(item)
+    cv, sv = sum(x["value"] for x in core), sum(x["value"] for x in sat)
+    tot = cv + sv
+    actual = cv / tot * 100 if tot else None
+    move = tot * cfg["target"] / 100 - cv if tot else 0
+    off = abs(actual - cfg["target"]) if actual is not None else 0
+    due = tot > 0 and (today.month == 4 or off > 10)
+    return {"target": cfg["target"], "symbols": cfg["symbols"], "count_mf": cfg["count_mf"], "core": sorted(core, key=lambda x: -x["value"]),
+            "satellite": sorted(sat, key=lambda x: -x["value"]), "other_mf": other_mf, "core_value": cv, "sat_value": sv, "total": tot,
+            "actual": actual, "move": move, "off": off, "due": due, "april": today.month == 4,
+            "mf_known": (snap or {}).get("mfs") is not None}
 
 
 def manual(body):
@@ -773,6 +831,7 @@ def report(fy=None, d_from=None, d_to=None):
                               and abs(p["z_realised"] - p["realised"]) > max(50, abs(p["z_realised"]) * 0.02)]
     return {"fy": fy, "fys": fys, "fy_from": f0.isoformat(), "fy_to": f1.isoformat(), "connected": connected, "totals": totals, "pnl": pnl_info,
             "range": {"from": f0.isoformat(), "to": f1.isoformat(), "custom": custom},
+            "core": _core_view(d, snap, holdings, today),
             "snapshot_at": snap["at"] if snap else None, "funds": (snap or {}).get("funds"),
             "holdings": holdings, "per_stock": sorted(per.values(), key=lambda p: -(p["buy_value"] + p["sell_value"])),
             "trades": [dict(t, value=t["qty"] * t["price"]) for t in reversed(fy_trades)],

@@ -216,6 +216,10 @@ Core + satellite test (19 Nov 2026, Nifty with ~1.3% dividends + rules, rebalanc
 50/50 Nifty/Investing 11.6% -25.7%. => 50/50 Nifty + Trading rules keeps about the Nifty's return with ~40% smaller
 worst fall (after-tax roughly 11.0% vs Nifty ~11.6%). REJECTED: Nifty 200-day rule (hold only above 200-day, else
 liquid fund 6%): worst fall ~19% but only 7.8-8.8%/yr pre-tax (vs 12.3%) plus extra short-term tax.
+Core + satellite BUILT (19 Nov 2026): Time machine shows the mix table (longterm.mixes, from the daily backtest curve);
+My holdings tab "Core + satellite" (ledger._core_view): target % (default 50) + list of index ETFs counted as core
+(ledger.CORE_DEFAULT, editable) + Nifty/Sensex index mutual funds (snapshot now saves Coin MFs); shows actual split,
+amount to move, "rebalance due" in April or when > 10 points off. POST /api/ledger/core. Stored in ledger.json "core".
 
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).

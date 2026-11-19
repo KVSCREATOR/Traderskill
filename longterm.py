@@ -492,6 +492,8 @@ def portfolio_backtest(mode, refresh=False):
             data["bench"] = benchmark(curve, float(cfg["capital"]), mkt)
             y = max(len(curve) / 248, 0.01)
             data["cagr_after_tax"] = (((data["start"] + data["after_tax"]) / data["start"]) ** (1 / y) - 1) * 100
+            wd = data["bench"]["with_div"]
+            data["mixes"] = mixes(curve, mkt, data["cagr"] - data["cagr_after_tax"], wd["cagr"] - wd["cagr_after_tax"])
         except Exception as e:  # noqa: BLE001  (the comparison must never break the backtest)
             data["bench"] = {"error": str(e)[:150]}
         _bt_cache[mode] = {"at": time.time(), "data": data}
@@ -579,6 +581,44 @@ def benchmark(curve, start, mkt):
     step_n = max(1, len(curve) // 260)
     pv = path(False)
     out["curve"] = [[days[k], round(pv[k])] for k in range(0, len(days), step_n)] + [[days[-1], round(pv[-1])]]
+    return out
+
+
+def mixes(curve, mkt, rules_drag, nifty_drag, weights=(1.0, 0.7, 0.5, 0.3, 0.0)):
+    """Core + satellite: w in a Nifty index fund (with dividends), 1-w in the rules, rebalanced each April.
+    Tested 19 Nov 2026: 50/50 with the Trading rules kept the Nifty's return with ~40% smaller worst fall."""
+    days = [d for d, _ in curve]
+    rv = [v for _, v in curve]
+    n = mkt.ind
+    nc = {d: c for d, c in zip(n["d"], n["c"])}
+    nr, last = [0.0], None
+    for a, b in zip(days, days[1:]):
+        pa, pb = nc.get(a) or last, nc.get(b)
+        nr.append((pb / pa) * (1 + NIFTY_DIV) ** (1 / 248) - 1 if pa and pb else 0.0)
+        last = pb or pa
+    rr = [0.0] + [b / a - 1 if a else 0.0 for a, b in zip(rv, rv[1:])]
+    yrs = max(len(days) / 248, 0.01)
+    split = next((k for k, d in enumerate(days) if d >= "2022-07-01"), len(days) // 2)
+    out = []
+    for w in weights:
+        core, sat, vals = w, 1 - w, []
+        for k, d in enumerate(days):
+            core *= 1 + nr[k]
+            sat *= 1 + rr[k]
+            if k and d[5:7] == "04" and days[k - 1][5:7] != "04":
+                tot = core + sat
+                core, sat = tot * w, tot * (1 - w)
+            vals.append(core + sat)
+
+        def dd(vs):
+            peak, m = vs[0], 0.0
+            for v in vs:
+                peak = max(peak, v)
+                m = max(m, (peak - v) / peak)
+            return m * 100
+        cagr = (vals[-1] / vals[0]) ** (1 / yrs) * 100 - 100
+        out.append({"core_pct": round(w * 100), "cagr": cagr, "cagr_after_tax": cagr - (w * nifty_drag + (1 - w) * rules_drag),
+                    "max_dd": dd(vals), "dd_a": dd(vals[:split + 1]), "dd_b": dd(vals[split:]) if split < len(vals) - 1 else None})
     return out
 
 
