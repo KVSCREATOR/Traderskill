@@ -113,7 +113,7 @@ async function scannerLong(_arg, sub) {
       `<div class="stack">${d.regime ? '' : '<div class="banner">The Nifty is below its key moving averages. The rules hold off new buys until the market recovers; the list is for watching.</div>'}
       ${strength ? `<p class="note">Stocks ranked by how much they beat the Nifty over ${inv ? '6' : '3'} months. Leaders tend to keep leading; laggards tend to keep lagging.</p>` : `<div class="chips">${chips}</div>${bestNote}`}
       <div class="card"><div class="row tablebar" style="margin-top:0"><input type="search" data-tfind placeholder="Search stock, name or sector" style="width:240px"><button class="btn sm" data-sortreset>Default order</button><span class="note" style="margin:0">Click a column heading to sort.</span></div><div class="tablewrap"><table><thead><tr><th>Stock</th><th class="num">Price</th><th class="num">Day</th><th>Setup</th><th>Trend</th><th class="num">vs Nifty 3m</th><th class="num">vs Nifty 6m</th><th class="num">From 52w high</th>${inv ? '<th class="num">Revenue</th><th class="num">Profit</th>' : ''}<th class="num">Rank</th></tr></thead>
-      <tbody>${rows.map(r => `<tr class="click" data-s="${esc(r.symbol)}" tabindex="0"><td class="sym"><b>${esc(r.symbol)}</b><small>${esc(r.name)}${r.source !== 'Yahoo' ? ' · ' + esc(r.source) : ''}</small></td>
+      <tbody>${rows.map(r => `<tr class="click" data-s="${esc(r.symbol)}" tabindex="0"><td class="sym">${starBtn(r.symbol)}<b>${esc(r.symbol)}</b><small>${esc(r.name)}${r.source !== 'Yahoo' ? ' · ' + esc(r.source) : ''}</small></td>
         <td class="num">${inr(r.price)}</td><td class="num ${cls(r.change_pct)}">${pct(r.change_pct)}</td>
         <td>${r.setup ? `<div class="row" style="gap:4px"><span class="tag hot" title="${esc(r.setup_detail)}">${esc(r.setup)}</span>${statusPill(r)}</div>` : r.trigger ? `<span class="muted">above ${inr(r.trigger, 0)}</span>` : '<span class="muted">–</span>'}</td>
         <td>${r.up_long && r.up_mid ? '<span class="up">Strong up</span>' : r.up_long || r.up_mid ? '<span class="up">Up</span>' : '<span class="muted">–</span>'}</td>
@@ -234,7 +234,7 @@ async function settingsAll() {
       <label>Entries allowed until (IST)<input name="entry_end" type="time" value="${esc(s.entry_end)}" required></label>
       <button class="btn primary">Save Scalping limits</button></form>` : longForm(m)}</div>
     <div class="card" id="tgBox"><h2>Telegram notifications</h2><div class="empty">Loading…</div></div>
-    <div class="card"><h2>News watchlist</h2><form class="row" id="wf"><input name="watchlist" value="${esc(s.watchlist.join(', '))}" style="text-transform:uppercase;flex:1;min-width:220px"><button class="btn">Save watchlist</button></form></div>
+    <div class="card"><h2>News watchlist</h2><p class="note" style="margin:0">News and the Telegram buy-signal message now follow your <a href="#/myscan">My scanner</a> lists (${s.watchlist.length} stock${s.watchlist.length === 1 ? '' : 's'}: ${esc(s.watchlist.slice(0, 12).join(', '))}${s.watchlist.length > 12 ? '…' : ''}). Add or remove stocks there.</p></div>
     <div class="card"><h2>${MODES[m].label} paper account</h2><form class="row" id="pf"><label>Starting cash (₹)<input name="paper_cash" type="number" min="1000" step="1000" value="${m === 'intraday' ? 100000 : st.modes[m].capital}"></label>
       <button class="btn danger" style="align-self:flex-end">Reset paper account</button></form>
       <p class="note" style="margin-top:10px">Each mode has its own paper account. Resetting clears this mode's positions and history only.</p></div></div>`;
@@ -243,7 +243,6 @@ async function settingsAll() {
   else $('#lf').onsubmit = e => { e.preventDefault(); save({ mode_settings: { [m]: Object.fromEntries(new FormData(e.target)) } }, `${MODES[m].label} limits saved.`); };
   tgCard($('#tgBox'));
   codeBox($('#tgBox'));
-  $('#wf').onsubmit = e => { e.preventDefault(); save({ watchlist: new FormData(e.target).get('watchlist').split(',').map(x => x.trim()).filter(Boolean) }, 'Watchlist saved.'); };
   $('#pf').onsubmit = e => {
     e.preventDefault(); const cash = +new FormData(e.target).get('paper_cash'), d = $('#dlg');
     $('#dlgBody').innerHTML = `<h3>Reset the ${MODES[m].label} paper account?</h3><p class="note">Its positions and history will be cleared and cash set to ${inr(cash, 0)}. This cannot be undone.</p>
@@ -256,7 +255,7 @@ async function settingsAll() {
 /* ---------------------------------------------------------------- GTT (good till triggered) paper orders, all modes */
 function gttBtn(p) {
   S.gttP = p;
-  return `<button class="btn" data-gtt>Set GTT order</button>`;
+  return `<button class="btn" data-gtt>Set GTT order</button>${typeof starBtn === 'function' ? starBtn(p.symbol, true) : ''}`;
 }
 function gttDialog(p) {
   const pl = p.plan || {}, intra = p.mode === 'intraday' || S.mode === 'intraday', d = $('#dlg');

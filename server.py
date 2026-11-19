@@ -1617,6 +1617,14 @@ def api(method, path, q, body):
         return kite.held()
     if path == "/api/kite/extras":
         return kite.extras()
+    if path == "/api/mylists" and method == "GET":
+        return mylist.get_lists()
+    if path == "/api/mylists" and method == "POST":
+        return mylist.update(body or {})
+    if path == "/api/myscan":
+        return mylist.myscan(mode, q)
+    if path == "/api/spark":
+        return mylist.spark(clean_symbol(q.get("symbol")))
     if path == "/api/gtt" and method == "GET":
         return gtt.listing(mode)
     if path == "/api/gtt" and method == "POST":
@@ -1642,6 +1650,8 @@ daily.S, daily.L, daily.K, daily.T, daily.R = sys.modules[__name__], longterm, k
 kite.D = reports.D = telegram.D = daily
 import history  # noqa: E402  (full history: actions, orders, GTTs, alerts, messages)
 history.S, history.L, history.R = sys.modules[__name__], longterm, reports
+import mylist  # noqa: E402  (My scanner: named lists of stocks + extra columns)
+mylist.S, mylist.L, mylist.K = sys.modules[__name__], longterm, kite
 
 # ----------------------------------------------------------------- self-restart (edit files on the NAS, no rebuild)
 _reload = {"error": None, "checked": None}

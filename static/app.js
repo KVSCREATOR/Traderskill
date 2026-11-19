@@ -398,7 +398,7 @@ async function scanner(_arg, mode) {
       `<div class="stack">${mode === 'orb' ? '' : `<div class="chips">${chips}</div>`}<div class="card"><div class="row tablebar" style="margin-top:0"><input type="search" data-tfind placeholder="Search stock, name or sector" style="width:240px"><button class="btn sm" data-sortreset>Default order</button><span class="note" style="margin:0">Click a column heading to sort.</span></div><div class="tablewrap"><table>
       <thead><tr><th>Stock</th><th class="num">Price</th><th class="num">Day</th><th>Daily setups</th><th>15-min ORB</th><th class="num">RSI</th><th class="num">Rel vol</th><th>Trend</th><th class="num">Rank</th></tr></thead>
       <tbody>${rows.map(r => `<tr class="click" data-s="${esc(r.symbol)}" tabindex="0">
-        <td class="sym"><b>${esc(r.symbol)}</b><small>${esc(r.name)}${r.source !== 'Yahoo' ? ' · ' + esc(r.source) : ''}</small></td><td class="num">${inr(r.price)}</td><td class="num ${cls(r.change_pct)}">${pct(r.change_pct)}</td>
+        <td class="sym">${starBtn(r.symbol)}<b>${esc(r.symbol)}</b><small>${esc(r.name)}${r.source !== 'Yahoo' ? ' · ' + esc(r.source) : ''}</small></td><td class="num">${inr(r.price)}</td><td class="num ${cls(r.change_pct)}">${pct(r.change_pct)}</td>
         <td><div class="row" style="gap:4px">${r.setups.map(s => `<span class="tag ${s.id === 'near' ? '' : 'hot'}" title="${esc(s.detail)}">${esc(s.label)}</span>`).join('') || '<span class="muted">–</span>'}</div></td>
         <td>${orb(r)}</td><td class="num">${r.rsi != null ? r.rsi.toFixed(0) : '–'}</td><td class="num">${r.rvol != null ? r.rvol.toFixed(1) + 'x' : '–'}</td>
         <td>${r.trend_up ? '<span class="up">Up</span>' : '<span class="muted">–</span>'}</td>

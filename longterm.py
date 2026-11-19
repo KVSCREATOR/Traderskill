@@ -3,6 +3,7 @@
 Daily bars only. Wired into server.py, which sets `S` to its own module so this file
 can reuse fetch, earnings, news, deals, state and the price-source fallbacks.
 """
+import bisect
 import json
 import math
 import os
@@ -790,10 +791,7 @@ def add_earn(checks, mode, earn, mx):
     score = 0.3 * ((c.get("revenue") or 0) > 0) + 0.3 * ((c.get("net_income") or 0) > 0) + \
         0.2 * (rev_up / steps) + 0.1 * (pr_up / steps) + 0.1 * ((c.get("margin_delta") or 0) >= 0)
     pts = int(round(mx * score))
-    qe = date.fromisoformat(latest["date"])
-    nxt_q = date(qe.year + (qe.month + 3 > 12), (qe.month + 3 - 1) % 12 + 1, 28)
-    nxt_q = (nxt_q.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-    nxt = nxt_q + timedelta(days=60 if nxt_q.month == 3 else 45)
+    nxt = next_results(latest["date"])
     hold_end = S.now_ist().date() + timedelta(days=int(RULES[mode]["hold"] * 1.45))
     pc = lambda v: "n/a" if v is None else "%+.1f%%" % v  # noqa: E731
     d = "Latest quarter %s (%s): revenue %s, net profit %s. Revenue rose in %d of the last %d quarters, profit in %d." % (
@@ -802,6 +800,15 @@ def add_earn(checks, mode, earn, mx):
         d += " Next results expected by about %s, inside your holding period: expect a price swing around that date." % nxt.strftime("%d %b %Y")
     checks.append({"id": "earnings", "skill": "analyst", "title": "Earnings trend", "status": "pass" if score >= 0.7 else "warn" if score >= 0.4 else "fail",
                    "points": pts, "max": mx, "detail": d})
+
+
+def next_results(quarter_end):
+    """Latest results 'by about' date for the quarter after `quarter_end` (YYYY-MM-DD):
+    45 days after the quarter ends, 60 after March (year-end results take longer)."""
+    qe = date.fromisoformat(quarter_end)
+    nxt_q = date(qe.year + (qe.month + 3 > 12), (qe.month + 3 - 1) % 12 + 1, 28)
+    nxt_q = (nxt_q.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    return nxt_q + timedelta(days=60 if nxt_q.month == 3 else 45)
 
 
 def size_long(entry, stop, target, cfg):
@@ -860,61 +867,77 @@ def risk_long(sym, qty, entry, stop, mode, st):
 _scan, _scan_lock = {}, threading.Lock()
 
 
+def scan_row(mode, sym, mkt, extra=False):
+    """One scanner row. extra=True also returns the ATR and averages My scanner needs."""
+    try:
+        h = history(sym)
+        ind = indicators(h["bars"])
+        i = len(ind["c"]) - 1
+        stt = state_at(mode, ind, mkt)
+        c = ind["c"][i]
+        r3, r6 = ret(ind, i, 63), ret(ind, i, 126)
+        b3, b6 = mkt.ret(ind["d"][i], 63), mkt.ret(ind["d"][i], 126)
+        s50, s200 = ind["sma50"][i], ind["sma200"][i]
+        hi = max(ind["h"][-252:])
+        row = {"symbol": sym, "name": S.NAMES.get(sym, sym), "nifty50": sym in S.NIFTY,
+               "industry": S.UNIVERSE.get(sym, {}).get("industry", ""), "price": c,
+               "change_pct": (c / ind["c"][i - 1] - 1) * 100 if i else None,
+               "rs3": (r3 - b3) * 100 if r3 is not None and b3 is not None else None,
+               "rs6": (r6 - b6) * 100 if r6 is not None and b6 is not None else None,
+               "from_high": (c / hi - 1) * 100, "up_mid": bool(s50 and s200 and c > s50 > s200),
+               "up_long": bool(s200 and c > s200 and (ind["sma200"][i - 20] or 0) < s200),
+               "setup": stt["setup"][1] if stt["setup"] else None, "setup_detail": stt["setup"][2] if stt["setup"] else "",
+               "setup_day": stt["setup_day"], "status": stt["status"], "trigger": stt["trigger"],
+               "source": {"nse": "NSE end-of-day", "bse": "BSE end-of-day"}.get(h["source"], "Yahoo")}
+        if mode == "invest":
+            try:
+                e = S.earnings(sym)
+                cmp_ = e.get("compare") or {}
+                row["rev_g"], row["profit_g"], row["basis"] = cmp_.get("revenue"), cmp_.get("net_income"), cmp_.get("basis")
+            except Exception:  # noqa: BLE001
+                row["rev_g"] = row["profit_g"] = row["basis"] = None
+        if extra:
+            # ATR of the signal day when there is one (as the backtest), else of the last completed day
+            sd = ind["idx"].get(stt["setup_day"]) if stt["setup_day"] and stt["status"] in ("confirmed", "recent", "provisional") else None
+            row["_ind"] = ind
+            row["atr"] = ind["atr"][sd if sd is not None else (i - 1 if stt["forming"] and i else i)]
+            row["sma50"], row["sma200"] = s50, s200
+        return row
+    except Exception as e:  # noqa: BLE001
+        return {"symbol": sym, "name": S.NAMES.get(sym, sym), "error": str(e)[:120]}
+
+
+def rank_row(mode, r, vals):
+    """Strength percentile vs the 250 (vals = their sorted 3m / 6m values) and the 0-100 rank."""
+    key = "rs3" if mode == "swing" else "rs6"
+    if r[key] is None or not vals:
+        pctl = 0
+    else:
+        pctl = bisect.bisect_left(vals, r[key]) / max(1, len(vals) - 1)
+    pctl = min(1.0, pctl)
+    r["rs_pct"] = round(pctl * 100)
+    live = r["status"] in ("confirmed", "recent", "provisional")
+    if mode == "swing":
+        rank = (35 if live else 0) + (20 if r["up_mid"] else 0) + 25 * pctl + (10 if r["from_high"] > -10 else 0) + (10 if r["up_long"] else 0)
+    else:
+        rank = (15 if live else 0) + (20 if r["up_long"] else 0) + 25 * pctl + (10 if r["from_high"] > -15 else 0) + \
+            (15 if (r.get("rev_g") or 0) > 0 else 0) + (15 if (r.get("profit_g") or 0) > 0 else 0)
+    r["rank"] = int(min(100, round(rank)))
+
+
 def scan_long(mode, refresh=False):
     with _scan_lock:
         hit = _scan.get(mode)
         if hit and not refresh and time.time() - hit["at"] < 600:
             return hit["data"]
         mkt = market()
-        rules = RULES[mode]
-
-        def one(sym):
-            try:
-                h = history(sym)
-                ind = indicators(h["bars"])
-                i = len(ind["c"]) - 1
-                stt = state_at(mode, ind, mkt)
-                c = ind["c"][i]
-                r3, r6 = ret(ind, i, 63), ret(ind, i, 126)
-                b3, b6 = mkt.ret(ind["d"][i], 63), mkt.ret(ind["d"][i], 126)
-                s50, s200 = ind["sma50"][i], ind["sma200"][i]
-                hi = max(ind["h"][-252:])
-                row = {"symbol": sym, "name": S.NAMES.get(sym, sym), "nifty50": sym in S.NIFTY,
-                       "industry": S.UNIVERSE.get(sym, {}).get("industry", ""), "price": c,
-                       "change_pct": (c / ind["c"][i - 1] - 1) * 100 if i else None,
-                       "rs3": (r3 - b3) * 100 if r3 is not None and b3 is not None else None,
-                       "rs6": (r6 - b6) * 100 if r6 is not None and b6 is not None else None,
-                       "from_high": (c / hi - 1) * 100, "up_mid": bool(s50 and s200 and c > s50 > s200),
-                       "up_long": bool(s200 and c > s200 and (ind["sma200"][i - 20] or 0) < s200),
-                       "setup": stt["setup"][1] if stt["setup"] else None, "setup_detail": stt["setup"][2] if stt["setup"] else "",
-                       "setup_day": stt["setup_day"], "status": stt["status"], "trigger": stt["trigger"],
-                       "source": {"nse": "NSE end-of-day", "bse": "BSE end-of-day"}.get(h["source"], "Yahoo")}
-                if mode == "invest":
-                    try:
-                        e = S.earnings(sym)
-                        cmp_ = e.get("compare") or {}
-                        row["rev_g"], row["profit_g"], row["basis"] = cmp_.get("revenue"), cmp_.get("net_income"), cmp_.get("basis")
-                    except Exception:  # noqa: BLE001
-                        row["rev_g"] = row["profit_g"] = row["basis"] = None
-                return row
-            except Exception as e:  # noqa: BLE001
-                return {"symbol": sym, "name": S.NAMES.get(sym, sym), "error": str(e)[:120]}
-
         with ThreadPoolExecutor(12) as ex:
-            rows = list(ex.map(one, list(S.NAMES)))
+            rows = list(ex.map(lambda s: scan_row(mode, s, mkt), list(S.NAMES)))
         ok = [r for r in rows if "error" not in r]
         key = "rs3" if mode == "swing" else "rs6"
         vals = sorted(r[key] for r in ok if r[key] is not None)
         for r in ok:
-            pctl = (vals.index(r[key]) / max(1, len(vals) - 1)) if r[key] is not None else 0
-            r["rs_pct"] = round(pctl * 100)
-            live = r["status"] in ("confirmed", "recent", "provisional")
-            if mode == "swing":
-                rank = (35 if live else 0) + (20 if r["up_mid"] else 0) + 25 * pctl + (10 if r["from_high"] > -10 else 0) + (10 if r["up_long"] else 0)
-            else:
-                rank = (15 if live else 0) + (20 if r["up_long"] else 0) + 25 * pctl + (10 if r["from_high"] > -15 else 0) + \
-                    (15 if (r.get("rev_g") or 0) > 0 else 0) + (15 if (r.get("profit_g") or 0) > 0 else 0)
-            r["rank"] = int(min(100, round(rank)))
+            rank_row(mode, r, vals)
         ok.sort(key=lambda r: (-r["rank"], r["symbol"]))
         data = {"mode": mode, "rows": ok, "failed": [r for r in rows if "error" in r], "clock": S.market_clock(),
                 "scanned_at": S.now_ist().strftime("%H:%M:%S"), "universe": "Nifty LargeMidcap 250",

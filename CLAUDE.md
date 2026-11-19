@@ -167,5 +167,13 @@ plan, 15:32 market close, 15:35 holdings (day gains/losses, rule actions, own-li
 the old 15:45 messages. Every notify() is appended to data/notify_log.jsonl (sent / failed / not sent + reason).
 Framing agreed with owner: outlook = reading of cues, not a forecast; actions = rule results, not personal advice.
 
+My scanner (added 19 Nov 2026, `mylist.py`, `static/myscan.js`, `#/myscan`, `/api/mylists`, `/api/myscan`, `/api/spark`):
+named lists (state "mylists", up to 20 × 50, any NSE symbol, same lists in all modes; settings.watchlist = union of
+the lists, so News + Telegram follow them). Sources: list / Zerodha holdings / both. Columns: status (Exit signal /
+Buy zone / Near trigger ≤3% / Holding / Watching), distance to trigger, strength percentile vs the 250, plan dialog
+(entry, ATR stop, qty, risk checks) → paper GTT confirm box, capacity bar, paper + Zerodha exit levels, ⚠ results
+within 7 days (estimate), ⚠ sector full, 6-month hover chart. ☆ buttons on Scanner rows and next to every GTT button.
+Client caches a scan 15 min. Phase 2 ideas: Telegram exit alert on close, paper sell GTT, daily My-scanner report.
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).
