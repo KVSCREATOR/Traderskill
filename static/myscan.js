@@ -193,14 +193,21 @@ function myGtt(r, d) {
 function sparkHover(root) {
   if (matchMedia('(hover: none)').matches) return;
   let tip = $('#sparkTip'), timer;
-  if (!tip) { tip = document.createElement('div'); tip.id = 'sparkTip'; tip.hidden = true; document.body.append(tip); }
+  if (!tip) {
+    tip = document.createElement('div'); tip.id = 'sparkTip'; tip.hidden = true; document.body.append(tip);
+    // a click opens another page and removes the row without a mouseleave: hide on page change, click and scroll too
+    const hide = () => { clearTimeout(sparkHover.timer); tip.hidden = true; };
+    window.addEventListener('hashchange', hide);
+    document.addEventListener('click', hide, true);
+    document.addEventListener('scroll', hide, true);
+  }
   root.querySelectorAll('[data-spark]').forEach(td => {
     td.onmouseenter = () => {
       clearTimeout(timer);
-      timer = setTimeout(async () => {
+      timer = sparkHover.timer = setTimeout(async () => {
         const s = td.dataset.spark;
         try { MY.spark[s] = MY.spark[s] || await api('/api/spark?symbol=' + encodeURIComponent(s)); } catch (e) { return; }
-        if (!td.matches(':hover')) return;
+        if (!td.isConnected || !td.matches(':hover')) return;
         tip.innerHTML = sparkSvg(MY.spark[s]);
         const b = td.getBoundingClientRect();
         tip.style.left = Math.min(innerWidth - 340, b.right + 8) + 'px'; tip.style.top = Math.max(8, Math.min(innerHeight - 190, b.top - 40)) + 'px';

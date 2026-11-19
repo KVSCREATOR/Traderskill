@@ -79,6 +79,9 @@ function dailyChart(p) {
   // your own average buy price (Zerodha holdings), a solid pink line no other level uses
   const myAvg = ((S.held && S.held.connected && S.held.items) || []).find(h => h.symbol === p.symbol && h.avg);
   if (myAvg) lines.push(['Your avg', myAvg.avg, 'var(--pink)']);
+  // current price, unless another level already sits on it (within 0.2%)
+  const nowPx = p.price && !lines.some(l => l[1] && Math.abs(l[1] - p.price) / p.price < 0.002) ? p.price : null;
+  if (nowPx) lines.push(['Now', nowPx, 'var(--info)']);
   const vals = bars.flatMap(b => [b.h, b.l]).concat(lines.map(l => l[1]));
   let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.05 || 1; lo -= pad; hi += pad;
   const x = i => L + (i + 0.5) / n * (W - L - R), y = v => T + (hi - v) / (hi - lo) * PH, bw = Math.max(1.5, (W - L - R) / n * 0.62);
@@ -144,9 +147,9 @@ function dailyChart(p) {
   s += candleHits(bars, i => x(i), (W - L - R) / n, T, T + PH, b => (b.tl ? esc(b.tl) : fdate(b.d)) + (b.va && b.v ? ` · vol ${(b.v / b.va).toFixed(1)}× avg` : ''));
   const lab = lines.map(l => ({ l, yy: y(l[1]) })).sort((a, b) => a.yy - b.yy);
   for (let i = 1; i < lab.length; i++) if (lab[i].yy - lab[i - 1].yy < 13) lab[i].yy = lab[i - 1].yy + 13;
-  for (const { l, yy } of lab) s += `<line x1="${L}" x2="${W - R}" y1="${y(l[1])}" y2="${y(l[1])}" stroke="${l[2]}" stroke-width="${l[0] === 'Your avg' ? 2 : 1.2}" stroke-dasharray="${l[0] === 'Your avg' ? '' : l[0].includes('high') ? '2 3' : '6 4'}"/><text x="${W - R + 6}" y="${yy + 3.5}" style="fill:${l[2]}">${l[0]} ${l[1].toFixed(1)}</text>`;
+  for (const { l, yy } of lab) s += `<line x1="${L}" x2="${W - R}" y1="${y(l[1])}" y2="${y(l[1])}" stroke="${l[2]}" stroke-width="${l[0] === 'Your avg' ? 2 : 1.2}" stroke-dasharray="${l[0] === 'Your avg' ? '' : l[0] === 'Now' ? '3 2' : l[0].includes('high') ? '2 3' : '6 4'}"/><text x="${W - R + 6}" y="${yy + 3.5}" style="fill:${l[2]}">${l[0]} ${l[1].toFixed(1)}</text>`;
   return `${rangeBar()}<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily candles with averages, rule levels and volume">${s}</svg>
-    <div class="legend">${myAvg ? `<span style="color:var(--pink);font-weight:600"><i style="background:var(--pink)"></i>Your average buy price ${inr(myAvg.avg)} (${myAvg.qty} shares)</span>` : ''}${swing ? '<span><i style="background:var(--accent)"></i>20-day average</span>' : ''}<span><i style="background:var(--warn)"></i>50-${p.tf_unit || 'day'} average</span><span><i style="background:var(--muted)"></i>200-${p.tf_unit || 'day'} average</span>
+    <div class="legend">${myAvg ? `<span style="color:var(--pink);font-weight:600"><i style="background:var(--pink)"></i>Your average buy price ${inr(myAvg.avg)} (${myAvg.qty} shares)</span>` : ''}${nowPx ? `<span style="color:var(--info);font-weight:600"><i style="background:var(--info)"></i>Current price ${inr(nowPx)}</span>` : ''}${swing ? '<span><i style="background:var(--accent)"></i>20-day average</span>' : ''}<span><i style="background:var(--warn)"></i>50-${p.tf_unit || 'day'} average</span><span><i style="background:var(--muted)"></i>200-${p.tf_unit || 'day'} average</span>
     <span><i style="background:var(--warn);height:2px"></i>${esc(pl.level_label || 'breakout level')} (buy on a close above)</span>${si >= 0 ? '<span style="color:var(--accent)">▲ signal day</span>' : ''}
     ${on.trail ? '<span><i style="background:#7F77DD"></i>Trailing stop (rules: best close of 60 candles − ' + (swing ? 3 : 5) + '× range)</span>' : ''}${on.res ? '<span>R = results (green profit up, red down; date approx.)</span>' : ''}${on.rs ? '<span>RS vs Nifty rising = beating the market</span>' : ''}${on.rsi ? '<span>RSI above 70 = stretched, below 30 = washed out</span>' : ''}
     <span>Solid volume bars = at least ${pl.vol_x}× the 50-${p.tf_unit || 'day'} average${p.tf_unit ? '' : " (the rule's volume test)"}</span></div>`;

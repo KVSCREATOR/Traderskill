@@ -136,21 +136,15 @@ function showCandle(rect, pin) {
   tip.style.left = Math.max(8, left) + 'px'; tip.style.top = '44px';
   tip.classList.toggle('pinned', !!pin);
 }
+// candle details (open / high / low / close): only on a click; they close as soon as the mouse moves away
+const hideCandles = () => { document.querySelectorAll('.ctip').forEach(t => { t.hidden = true; t.classList.remove('pinned'); }); document.querySelectorAll('rect.hit.on').forEach(r => r.classList.remove('on')); S.ctipAt = null; };
 document.addEventListener('click', e => {
   const r = e.target.closest && e.target.closest('rect.hit');
-  if (r) return showCandle(r, true);
-  if (!e.target.closest || !e.target.closest('.ctip')) document.querySelectorAll('.ctip').forEach(t => { t.hidden = true; t.classList.remove('pinned'); });
+  if (r) { showCandle(r, true); S.ctipAt = [e.clientX, e.clientY]; return; }
+  if (!e.target.closest || !e.target.closest('.ctip')) hideCandles();
 });
-document.addEventListener('mouseover', e => {
-  const r = e.target.closest && e.target.closest('rect.hit');
-  if (!r) return;
-  const tip = r.closest('.chart')?.querySelector('.ctip');
-  if (!tip || !tip.classList.contains('pinned')) showCandle(r, false);
-});
-document.addEventListener('mouseout', e => {
-  if (!e.target.closest || !e.target.closest('rect.hit') || (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('rect.hit'))) return;
-  const tip = e.target.closest('.chart')?.querySelector('.ctip');
-  if (tip && !tip.classList.contains('pinned')) { tip.hidden = true; e.target.classList.remove('on'); }
+document.addEventListener('mousemove', e => {
+  if (S.ctipAt && Math.hypot(e.clientX - S.ctipAt[0], e.clientY - S.ctipAt[1]) > 6) hideCandles();
 });
 
 function candleChart(p) {
