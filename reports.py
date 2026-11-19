@@ -12,6 +12,7 @@ import json
 import os
 import threading
 import time
+import urllib.parse
 from datetime import date, timedelta
 
 S = None   # server module
@@ -19,7 +20,8 @@ L = None   # longterm
 K = None   # kite
 T = None   # telegram
 
-SCHEDULE = [("plan", 572), ("exits", 600), ("whatnext", 720), ("roombuys", 780), ("close", 932), ("eod", 935)]   # morning plan + 08:45 update now live in daily.py
+EVERY_DAY = {"hindinews"}   # sent on holidays and weekends too
+SCHEDULE = [("hindinews", 420), ("plan", 572), ("exits", 600), ("whatnext", 720), ("roombuys", 780), ("close", 932), ("eod", 935)]   # morning plan + 08:45 update now live in daily.py
 D = None   # daily module   # minutes after midnight IST
 NOTE = "Rule results and data, not personal advice."
 _log_lock = threading.Lock()
@@ -337,6 +339,40 @@ def exits():
                      + [NOTE])
 
 
+# ---- 07:00 daily: overnight global market news in Hindi (Google News, Hindi edition; no translation service needed)
+HINDI_QUERIES = ["वैश्विक शेयर बाजार", "अमेरिकी शेयर बाजार", "कच्चा तेल", "डॉलर रुपया", "फेड ब्याज दर", "एशियाई बाजार", "सोना चांदी कीमत"]
+HINDI_NEG = ("गिर", "गिरावट", "टूट", "लुढ़क", "मंदी", "घाट", "दबाव", "चिंता", "युद्ध", "हमला", "संकट", "बिकवाली", "नरम")
+HINDI_POS = ("तेजी", "उछाल", "बढ़त", "चढ़", "मजबूत", "रिकॉर्ड", "रैली", "लाभ", "सुधार", "खरीदारी")
+
+
+def hindi_news():
+    """Headlines published between about 20:00 yesterday and 07:00 today, newest first, with a 🟢 / 🔴 / ⚪ mark."""
+    now = S.now_ist()
+    since = time.time() - (11 * 3600 + max(0, now.hour * 60 + now.minute - 420) * 60)
+    seen, items = set(), []
+    for q in HINDI_QUERIES:
+        try:
+            url = "https://news.google.com/rss/search?q=%s%%20when:1d&hl=hi&gl=IN&ceid=IN:hi" % urllib.parse.quote(q)
+            got = S._rss(S.fetch(url, 600), strip_source=True)
+        except Exception:  # noqa: BLE001
+            continue
+        for i in got:
+            k = i["title"][:50]
+            if i["ts"] >= since and k not in seen:
+                seen.add(k)
+                items.append(i)
+    items.sort(key=lambda i: -i["ts"])
+    msg = ["🌍 रात की वैश्विक बाज़ार खबरें (रात 8 बजे – सुबह 7 बजे) · %s" % now.strftime("%d %b")]
+    if not items:
+        msg.append("इस समय में कोई बड़ी खबर नहीं मिली।")
+    for i in items[:10]:
+        t = i["title"]
+        mark = "🔴" if any(w in t for w in HINDI_NEG) else "🟢" if any(w in t for w in HINDI_POS) else "⚪"
+        msg.append("%s %s" % (mark, D._short(t, 110)))
+    msg.append("🟢 सकारात्मक · 🔴 नकारात्मक · ⚪ असर नहीं / साफ़ नहीं. यह खबरों का सार है, निवेश सलाह नहीं।")
+    return "\n".join(msg)
+
+
 def roombuys():
     """13:00 on trading days: 'Rule buy signals you have room for' (My holdings -> What next), from a fresh snapshot."""
     try:
@@ -483,7 +519,7 @@ def _save_holdings(rows):
 BUILDERS = {"morning": lambda: D.morning_plan()[0],
             "update": lambda: D.morning_update() or "08:45 update: nothing changed since the morning plan (normally not sent).",
             "login": lambda: D.login_text(), "signin": lambda: D.signin_text() or "Zerodha is not connected: no sign-in summary.",
-            "plan": plan, "close": close, "eod": eod, "weekly": lambda: D.weekly(), "whatnext": whatnext, "exits": exits, "roombuys": roombuys}
+            "plan": plan, "close": close, "eod": eod, "weekly": lambda: D.weekly(), "whatnext": whatnext, "exits": exits, "roombuys": roombuys, "hindinews": hindi_news}
 
 
 def run(kind):
@@ -509,7 +545,7 @@ def due():
         threading.Thread(target=_loss_watch_bg, daemon=True).start()
     for kind, at in SCHEDULE:
         if at <= m < at + 20 and sent.get(kind) != today:
-            if not is_trading_day(check_traded=at >= 570):
+            if kind not in EVERY_DAY and not is_trading_day(check_traded=at >= 570):
                 _mark(kind, today)
                 continue
             _mark(kind, today)

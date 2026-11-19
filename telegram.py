@@ -29,6 +29,7 @@ KINDS = [("hello", "Greeting when the NAS / portal starts"), ("morning", "Mornin
          ("close", "15:32 Market close summary"), ("eod", "15:35 Your holdings: today's gains and losses, rule actions"),
          ("zerodha", "Your real Zerodha buys and sells (seen within ~2 minutes)"), ("alert", "Price alerts ringing"),
          ("paper", "Paper trades: GTT fills, stops, targets, sells"),
+         ("hindinews", "07:00 Overnight global market news in Hindi (20:00–07:00), every day"),
          ("exits", "10:00 Sell · Exit signal (rules) for your holdings, only when there is one"),
          ("whatnext", "12:00 What next: 3–6 month sell / buy plan"),
          ("roombuys", "13:00 Rule buy signals you have room for (trading days, only when there is one)"),
