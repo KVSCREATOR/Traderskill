@@ -40,6 +40,14 @@ function modeChooser() {
 }
 
 /* ---------------------------------------------------------------- daily chart */
+/* Screener-style page header (big number + coloured pill) and coloured tiles, shared by Predictor, Scanner, My holdings. */
+function scHead(label, big, chg, sub) {
+  return `<div class="card sc-head"><div class="sc-price"><span class="sc-label">${label}</span><span class="sc-px">${big}</span>${chg != null ? `<span class="sc-pill ${chg >= 0 ? 'up' : 'down'}">${sgn(chg)}</span>` : ''}</div>${sub ? `<div class="sc-sub">${sub}</div>` : ''}</div>`;
+}
+function scTiles(items) {
+  return `<div class="kv sc-kv" style="margin:0">${items.map(([l, v, c]) => `<div${c === 'up' ? ' class="tile-up"' : c === 'down' ? ' class="tile-down"' : ''}><span>${l}</span><b>${v}</b></div>`).join('')}</div>`;
+}
+
 /* Chart range buttons (1D … Max), shared by every time-series chart. Sessions = trading days back from the latest bar. */
 const RANGE_KEYS = [['1d', '1D', 1], ['1w', '1W', 5], ['1m', '1M', 21], ['3m', '3M', 63], ['6m', '6M', 126], ['1y', '1Y', 252], ['3y', '3Y', 756], ['5y', '5Y', 1260], ['max', 'Max', Infinity]];
 function rangeBar() {

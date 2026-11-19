@@ -97,6 +97,12 @@ input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 2px 
 .sc-grid .kv > div:nth-child(4n+2) { border-top: 3px solid var(--fail); }
 .sc-grid .kv > div:nth-child(4n+3) { border-top: 3px solid var(--pass); }
 .sc-grid .kv > div:nth-child(4n) { border-top: 3px solid var(--violet); }
+.kv.sc-kv { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.sc-kv > div:nth-child(5n+1) { border-top: 3px solid var(--accent); }
+.sc-kv > div:nth-child(5n+2) { border-top: 3px solid var(--info); }
+.sc-kv > div:nth-child(5n+3) { border-top: 3px solid var(--pass); }
+.sc-kv > div:nth-child(5n+4) { border-top: 3px solid var(--violet); }
+.sc-kv > div:nth-child(5n) { border-top: 3px solid var(--pink); }
 
 /* skill strip */
 .skills { display: flex; gap: 6px; flex-wrap: wrap; }
