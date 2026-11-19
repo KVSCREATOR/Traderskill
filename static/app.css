@@ -79,8 +79,12 @@ input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 2px 
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px; box-shadow: var(--shadow); }
 .stack { display: flex; flex-direction: column; gap: 16px; }
-.head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-.head p { color: var(--muted); font-size: 13px; margin-top: 2px; }
+/* Every page's title bar is a screener-style header card (same look as the stock page) */
+.head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-top: 4px solid var(--accent); border-radius: 14px; padding: 16px 20px; box-shadow: var(--shadow); }
+.head h1 { font-size: 24px; font-weight: 700; color: var(--text); }
+.head p { color: var(--muted); font-size: 13.5px; margin-top: 4px; }
+.card h2 { color: var(--accent); }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .hero, .sc-grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; }
@@ -93,16 +97,13 @@ input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 2px 
 .sc-pill.up { background: var(--pass-soft); color: var(--pass); }
 .sc-pill.down { background: var(--fail-soft); color: var(--fail); }
 .sc-sub { font-size: 13px; color: var(--muted); }
-.sc-grid .kv > div:nth-child(4n+1) { border-top: 3px solid var(--accent); }
-.sc-grid .kv > div:nth-child(4n+2) { border-top: 3px solid var(--fail); }
-.sc-grid .kv > div:nth-child(4n+3) { border-top: 3px solid var(--pass); }
-.sc-grid .kv > div:nth-child(4n) { border-top: 3px solid var(--violet); }
 .kv.sc-kv { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
-.sc-kv > div:nth-child(5n+1) { border-top: 3px solid var(--accent); }
-.sc-kv > div:nth-child(5n+2) { border-top: 3px solid var(--info); }
-.sc-kv > div:nth-child(5n+3) { border-top: 3px solid var(--pass); }
-.sc-kv > div:nth-child(5n+4) { border-top: 3px solid var(--violet); }
-.sc-kv > div:nth-child(5n) { border-top: 3px solid var(--pink); }
+/* coloured top edge on every number tile, on every page */
+.kv > div:nth-child(5n+1) { border-top: 3px solid var(--accent); }
+.kv > div:nth-child(5n+2) { border-top: 3px solid var(--info); }
+.kv > div:nth-child(5n+3) { border-top: 3px solid var(--pass); }
+.kv > div:nth-child(5n+4) { border-top: 3px solid var(--violet); }
+.kv > div:nth-child(5n) { border-top: 3px solid var(--pink); }
 
 /* skill strip */
 .skills { display: flex; gap: 6px; flex-wrap: wrap; }
