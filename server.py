@@ -1645,7 +1645,7 @@ def api(method, path, q, body):
         ledger.require(q.get("_pin"))
         if path == "/api/ledger" and method == "GET":
             snap = ledger.snapshot("page") if q.get("refresh") == "1" else None
-            out = ledger.report(q.get("fy"))
+            out = ledger.report(q.get("fy"), q.get("from"), q.get("to"))
             out["refresh"] = snap
             return out
         if path == "/api/ledger/import" and method == "POST":

@@ -66,7 +66,9 @@ async function ledgerPage(tab, fresh) {
   const my = S.nav;
   if (!S.ledger || fresh || (S.ledgerFy && S.ledger.fy !== S.ledgerFy)) {
     view.innerHTML = head('My holdings', 'Loading your Zerodha record…') + hTabs(tab) + loading(3);
-    let d; try { d = await api('/api/ledger?refresh=' + (S.ledger && !fresh ? '0' : '1') + (S.ledgerFy ? '&fy=' + encodeURIComponent(S.ledgerFy) : '')); }
+    const rg = S.ledgerRange || {};
+    let d; try { d = await api('/api/ledger?refresh=' + (S.ledger && !fresh ? '0' : '1') + (S.ledgerFy ? '&fy=' + encodeURIComponent(S.ledgerFy) : '')
+      + (rg.from ? '&from=' + encodeURIComponent(rg.from) : '') + (rg.to ? '&to=' + encodeURIComponent(rg.to) : '')); }
     catch (e) { if (pinNeeded(e)) { S.pinTok = null; return pinGate(holdingsPage); } view.innerHTML = head('My holdings', 'Record could not load') + hTabs(tab) + failBox(e); return; }
     if (my !== S.nav) return;
     S.ledger = d;
@@ -77,11 +79,23 @@ async function ledgerPage(tab, fresh) {
   const fySel = `<select id="lFy" aria-label="Financial year">${d.fys.map(f => `<option value="${esc(f)}" ${f === d.fy ? 'selected' : ''}>FY ${esc(f)}</option>`).join('')}</select>`;
   const right = `${fySel}<button class="btn" id="lRefresh">Refresh</button><button class="btn" id="lCsv">Download CSV</button>`;
   const tile = (label, txt, v, sub) => `<div class="${v == null ? '' : v >= 0 ? 'tile-up' : 'tile-down'}"><span>${label}</span><b>${txt}</b>${sub ? `<small class="muted" style="display:block">${sub}</small>` : ''}</div>`;
-  const tx = d.tax;
+  const tx = d.tax, rg = d.range || {};
+  const per_ = rg.custom ? (rg.from.slice(0, 7) === rg.to.slice(0, 7) && rg.from.endsWith('-01') && new Date(rg.to.slice(0, 4), +rg.to.slice(5, 7), 0).getDate() === +rg.to.slice(8)
+    ? new Date(rg.from).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : `${rg.from} – ${rg.to}`) : 'FY ' + d.fy;
+  const curM = rg.custom && rg.from.slice(0, 7) === rg.to.slice(0, 7) ? rg.from.slice(0, 7) : '';
+  const filterBar = `<div class="card lfilter"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+    <b style="align-self:center">Period:</b>
+    <button type="button" class="chip ${rg.custom ? '' : 'on'}" id="lfYear">Whole FY ${esc(d.fy)}</button>
+    <label>Month<input type="month" id="lfMonth" value="${esc(curM)}"></label>
+    <label>From<input type="date" id="lfFrom" value="${rg.custom ? esc(rg.from) : ''}"></label>
+    <label>To<input type="date" id="lfTo" value="${rg.custom ? esc(rg.to) : ''}"></label>
+    <button type="button" class="btn" id="lfApply">Show range</button>
+    <span class="note" style="margin:0">Showing <b>${esc(per_)}</b>${rg.custom ? ' · tax stays for the whole FY ' + esc(d.fy) : ''}</span></div></div>`;
   const summary = `<div class="kv" style="margin:0">
-    ${tile('Bought in FY ' + esc(d.fy), plain(totals(d).buy_value), null, `${totals(d).buys} trades · ${fmtQ(totals(d).buy_qty)} shares`)}
-    ${tile('Sold in FY ' + esc(d.fy), plain(totals(d).sell_value), null, `${totals(d).sells} trades · ${fmtQ(totals(d).sell_qty)} shares`)}
-    ${tile('Profit booked (realised)', money(totals(d).realised), totals(d).realised, `short ${money(tx.short_gain)} · long ${money(tx.long_gain)} · intraday ${money(tx.intraday)}`)}
+    ${tile('Bought · ' + esc(per_), plain(totals(d).buy_value), null, `${totals(d).buys} trades · ${fmtQ(totals(d).buy_qty)} shares`)}
+    ${tile('Sold · ' + esc(per_), plain(totals(d).sell_value), null, `${totals(d).sells} trades · ${fmtQ(totals(d).sell_qty)} shares`)}
+    ${(() => { const k = kind => d.realised.filter(r => r.kind === kind && r.pnl != null).reduce((s, r) => s + r.pnl, 0);
+      return tile('Profit booked · ' + esc(per_), money(totals(d).realised), totals(d).realised, `short ${money(k('short'))} · long ${money(k('long'))} · intraday ${money(k('intraday'))}`); })()}
     ${tile('Estimated tax (delivery)', inr(tx.total_tax, 0), null, `STCG ${(tx.st_rate * 100).toFixed(0)}% · LTCG ${(tx.lt_rate * 100).toFixed(1)}% · incl. 4% cess`)}
     ${tile('Holdings value', plain(totals(d).value), null, `invested ${plain(totals(d).cost)}`)}
     ${tile('Not yet booked (unrealised)', money(totals(d).unrealised), totals(d).unrealised, `short-term ${money(totals(d).unreal_short)} · long-term ${money(totals(d).unreal_long)}`)}
@@ -101,8 +115,8 @@ async function ledgerPage(tab, fresh) {
   const T = (cols, rows, emptyMsg, id) => `<div class="tablewrap"><table ${id ? `id="${id}"` : ''}><thead><tr>${cols.map(c => `<th class="${c[1] || ''}">${c[0]}</th>`).join('')}</tr></thead><tbody>${rows.join('') || `<tr><td colspan="${cols.length}" class="empty">${emptyMsg}</td></tr>`}</tbody></table></div>`;
   let body = '';
   if (tab === 'record') {
-    body = `${summary}${mismBox}
-      <div class="card"><h2>Stock by stock · FY ${esc(d.fy)}</h2>${T([['Stock'], ['Bought', 'num'], ['Avg buy', 'num'], ['Sold', 'num'], ['Avg sell', 'num'], ['Holding now', 'num'], ['Booked profit', 'num'], ...(d.pnl ? [['Zerodha P&amp;L', 'num']] : []), ['First / last trade']],
+    body = `${filterBar}${summary}${mismBox}
+      <div class="card"><h2>Stock by stock · ${esc(per_)}</h2>${T([['Stock'], ['Bought', 'num'], ['Avg buy', 'num'], ['Sold', 'num'], ['Avg sell', 'num'], ['Holding now', 'num'], ['Booked profit', 'num'], ...(d.pnl ? [['Zerodha P&amp;L', 'num']] : []), ['First / last trade']],
         d.per_stock.map(p => `<tr><td class="sym"><a href="#/predictor/${encodeURIComponent(p.symbol)}"><b>${esc(p.symbol)}</b></a><small>${esc(p.sector)}</small></td>
           <td class="num">${fmtQ(p.buy_qty)}<small class="chg" style="display:block">${inr(p.buy_value, 0)}</small></td><td class="num">${p.avg_buy != null ? inr(p.avg_buy) : '–'}</td>
           <td class="num">${fmtQ(p.sell_qty)}<small class="chg" style="display:block">${inr(p.sell_value, 0)}</small></td><td class="num">${p.avg_sell != null ? inr(p.avg_sell) : '–'}</td>
@@ -113,8 +127,10 @@ async function ledgerPage(tab, fresh) {
       ${d.pnl && (Object.keys(d.pnl.summary || {}).length || (d.pnl.other || []).length) ? `<div class="card"><h2>From Zerodha's P&amp;L statement</h2><div class="grid2">
         <div>${T([['Item'], ['Amount', 'num']], Object.entries(d.pnl.summary || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${inr(v, 2)}</td></tr>`), 'No summary lines.')}</div>
         <div>${T([['Date'], ['Other debits and credits'], ['Amount', 'num']], (d.pnl.other || []).map(o => `<tr><td class="mono">${esc(o.date || '–')}</td><td>${esc(o.what)}</td><td class="num ${cls(o.amount)}">${inr(o.amount, 2)}</td></tr>`), 'None.')}</div></div></div>` : ''}
-      <div class="card"><h2>Month by month</h2>${T([['Month'], ['Buys', 'num'], ['Bought', 'num'], ['Sells', 'num'], ['Sold', 'num'], ['Booked profit', 'num']],
-        d.months.map(m => `<tr><td class="mono">${esc(m.month)}</td><td class="num">${m.buys}</td><td class="num">${inr(m.buy_value, 0)}</td><td class="num">${m.sells}</td><td class="num">${inr(m.sell_value, 0)}</td><td class="num ${cls(m.realised)}">${money(m.realised)}</td></tr>`), 'Nothing this year yet.')}</div>
+      <div class="card"><h2>Month by month · all ${d.months.length} months on record</h2><div class="scrollbox">${T([['Month'], ['FY'], ['Buys', 'num'], ['Bought', 'num'], ['Sells', 'num'], ['Sold', 'num'], ['Booked profit', 'num']],
+        d.months.slice().reverse().map(m => { const inP = m.month >= (rg.from || '').slice(0, 7) && m.month <= (rg.to || '').slice(0, 7);
+          return `<tr class="click ${inP ? 'inper' : ''}" data-month="${esc(m.month)}" title="Show only ${esc(m.month)}"><td class="mono">${new Date(m.month + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</td><td class="mono muted">${esc(fyOfMonth(m.month))}</td><td class="num">${m.buys}</td><td class="num">${inr(m.buy_value, 0)}</td><td class="num">${m.sells}</td><td class="num">${inr(m.sell_value, 0)}</td><td class="num ${cls(m.realised)}">${money(m.realised)}</td></tr>`; }), 'Nothing on record yet.')}</div>
+        <p class="note">Every month on record, newest first; highlighted rows are in the period shown. Click a month to show only that month.</p></div>
       <div class="card"><h2>Every buy and sell · ${d.trades.length}</h2><div class="row tablebar"><input type="search" data-tfind placeholder="Search stock or date" style="width:220px"></div>${T([['Date'], ['Stock'], ['Buy / sell'], ['Qty', 'num'], ['Price', 'num'], ['Value', 'num'], ['From']],
         d.trades.map(x => `<tr><td class="mono">${esc(x.date)}${x.time ? ' <small class="muted">' + esc(x.time.slice(0, 5)) + '</small>' : ''}</td><td><b>${esc(x.symbol)}</b></td><td><span class="pill ${x.side === 'buy' ? 'pass' : 'fail'}">${x.side === 'buy' ? 'Buy' : 'Sell'}</span>${x.product ? ' <small class="muted">' + esc(x.product) + '</small>' : ''}</td>
           <td class="num">${fmtQ(x.qty)}</td><td class="num">${inr(x.price)}</td><td class="num">${inr(x.value, 0)}</td><td class="muted">${{ tradebook: 'Tradebook', zerodha: 'Zerodha (day total)', manual: 'Added by hand' }[x.source] || esc(x.source)}</td></tr>`), 'No trades this year.')}</div>
@@ -185,7 +201,18 @@ async function ledgerPage(tab, fresh) {
       <div class="card"><h2>Your record</h2><p class="note">${d.records.trades} trades and ${d.records.snapshots} daily snapshots saved on the NAS${d.records.first_trade ? `, first trade ${esc(d.records.first_trade)}` : ''}. Nothing is deleted when Zerodha disconnects.</p></div>`;
   }
   view.innerHTML = head('My holdings', status, right) + hTabs(tab) + `<div class="stack">${startHelp}${body}</div>`;
-  $('#lFy').onchange = e => { S.ledgerFy = e.target.value; ledgerPage(tab); };
+  $('#lFy').onchange = e => { S.ledgerFy = e.target.value; S.ledgerRange = null; S.ledger = null; ledgerPage(tab); };
+  const setRange = (from, to) => {
+    S.ledgerRange = from || to ? { from, to } : null;
+    if (from) S.ledgerFy = fyOfMonth(from.slice(0, 7));   // tax and Zerodha P&L follow the year the period starts in
+    S.ledger = null; ledgerPage(tab);
+  };
+  if ($('#lfYear')) {
+    $('#lfYear').onclick = () => setRange(null, null);
+    $('#lfMonth').onchange = e => { const m = e.target.value; if (!m) return; const [y, mo] = m.split('-').map(Number); setRange(m + '-01', `${m}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`); };
+    $('#lfApply').onclick = () => { const a = $('#lfFrom').value, b = $('#lfTo').value; if (!a && !b) { toast('Pick a From and / or To date.', 'bad'); return; } setRange(a, b); };
+    view.querySelectorAll('tr[data-month]').forEach(tr => tr.onclick = () => { const m = tr.dataset.month, [y, mo] = m.split('-').map(Number); setRange(m + '-01', `${m}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`); });
+  }
   $('#lRefresh').onclick = () => ledgerPage(tab, true);
   $('#lCsv').onclick = async () => {
     try {
@@ -221,6 +248,7 @@ async function ledgerPage(tab, fresh) {
     });
   }
 }
+function fyOfMonth(m) { const [y, mo] = m.split('-').map(Number); const s = mo >= 4 ? y : y - 1; return `${s}-${String((s + 1) % 100).padStart(2, '0')}`; }
 function totals(d) { return d.totals_cache || (d.totals_cache = d.totals || {}); }
 const fmtQ = v => v == null ? '–' : (Math.round(v * 1000) / 1000).toLocaleString('en-IN');
 

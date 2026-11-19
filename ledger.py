@@ -562,7 +562,7 @@ def _tax(fy, realised, extra=None):
             "carry_short_loss": min(st_net, 0), "carry_long_loss": min(lt_net, 0)}
 
 
-def report(fy=None):
+def report(fy=None, d_from=None, d_to=None):
     with _lock:
         d = _load()
     trades, lots, realised = compute(d)
@@ -571,6 +571,13 @@ def report(fy=None):
     if not re.fullmatch(r"\d{4}-\d{2}", fy):
         raise S.ApiError(400, "Unknown financial year")
     f0, f1 = _fy_range(fy)
+    custom = False
+    a, b = _norm_date(d_from) if d_from else None, _norm_date(d_to) if d_to else None
+    if a or b:   # a month or any date range instead of the whole financial year
+        a, b = a or "2000-01-01", b or today.isoformat()
+        if a > b:
+            a, b = b, a
+        f0, f1, custom = date.fromisoformat(a), date.fromisoformat(b), True
     snaps = d["snapshots"]
     last_day = max(snaps) if snaps else None
     snap = snaps.get(last_day) if last_day else None
@@ -654,7 +661,7 @@ def report(fy=None):
         else:
             p[r["kind"]] += r["pnl"]
     hq = {h["symbol"]: h["qty"] for h in holdings}
-    zp = (d.get("pnl") or {}).get(fy)
+    zp = None if custom else (d.get("pnl") or {}).get(fy)   # Zerodha's statement covers a whole year only
     if zp:   # Zerodha's own P&L statement for this year: add stocks it has that the tradebook does not
         for sym, z in zp["stocks"].items():
             if sym not in per and ((z.get("buy_value") or 0) or (z.get("sell_value") or 0) or (z.get("realised") or 0)):
@@ -670,12 +677,12 @@ def report(fy=None):
         p["avg_buy"] = p["buy_value"] / p["buy_qty"] if p["buy_qty"] else None
         p["avg_sell"] = p["sell_value"] / p["sell_qty"] if p["sell_qty"] else None
         p["sector"] = S.UNIVERSE.get(p["symbol"], {}).get("industry", "") or "Other"
-    months = {}
-    for t in fy_trades:
+    months = {}   # every month on record, not only the selected period
+    for t in trades:
         m = months.setdefault(t["date"][:7], {"month": t["date"][:7], "buys": 0, "buy_value": 0.0, "sells": 0, "sell_value": 0.0, "realised": 0.0})
         m["buys" if t["side"] == "buy" else "sells"] += 1
         m["%s_value" % t["side"]] += t["qty"] * t["price"]
-    for r in fy_real:
+    for r in realised:
         if r["pnl"] is not None:
             months.setdefault(r["date"][:7], {"month": r["date"][:7], "buys": 0, "buy_value": 0.0, "sells": 0, "sell_value": 0.0, "realised": 0.0})["realised"] += r["pnl"]
     # ---- charges (estimate) and tax
@@ -765,6 +772,7 @@ def report(fy=None):
         pnl_info["differ"] = [p["symbol"] for p in per.values() if p.get("z_realised") is not None and not p.get("only_zerodha")
                               and abs(p["z_realised"] - p["realised"]) > max(50, abs(p["z_realised"]) * 0.02)]
     return {"fy": fy, "fys": fys, "fy_from": f0.isoformat(), "fy_to": f1.isoformat(), "connected": connected, "totals": totals, "pnl": pnl_info,
+            "range": {"from": f0.isoformat(), "to": f1.isoformat(), "custom": custom},
             "snapshot_at": snap["at"] if snap else None, "funds": (snap or {}).get("funds"),
             "holdings": holdings, "per_stock": sorted(per.values(), key=lambda p: -(p["buy_value"] + p["sell_value"])),
             "trades": [dict(t, value=t["qty"] * t["price"]) for t in reversed(fy_trades)],
