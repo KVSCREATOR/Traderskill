@@ -596,10 +596,31 @@ async function tickerLoad() {
   box.hidden = false;
   setTimeout(() => box.querySelectorAll('.tk-run').forEach(el => {
     if (el.dataset.kept) return;   // numbers updated in place: keep the running speed
-    el.style.animationDuration = Math.max(20, el.scrollWidth / 2 / TK_SPEED) + 's';
+    el.style.animationDuration = Math.max(8, el.scrollWidth / 2 / tkSpeed()) + 's';
   }), 50);
 }
-const TK_SPEED = 45;   // pixels per second, same for every line
+// pixels per second, same for every line; set with the slider under Live (remembered on this device)
+let TK_SPEED = 45;
+try { const v = +localStorage.getItem('ts.tkspeed'); if (v >= 5 && v <= 150) TK_SPEED = v; } catch (e) { /* storage blocked */ }
+function tkSpeed() { return TK_SPEED; }
+function tkApplySpeed() {
+  document.querySelectorAll('#ticker .tk-run').forEach(el => {
+    if (!el.scrollWidth) return;
+    // keep the line where it is: same fraction of the loop, new duration
+    const old = parseFloat(el.style.animationDuration) || 60, anim = el.getAnimations ? el.getAnimations()[0] : null;
+    const frac = anim && anim.currentTime != null ? (anim.currentTime / 1000 % old) / old : 0;
+    const dur = Math.max(8, el.scrollWidth / 2 / TK_SPEED);
+    el.style.animationDuration = dur + 's';
+    if (anim) { try { anim.currentTime = frac * dur * 1000; } catch (e) { /* ignore */ } }
+  });
+}
+function tkSpeedCtl() {
+  const live = document.querySelector('#ticker .tk-live');
+  if (!live || live.querySelector('.tk-speed')) return;
+  live.insertAdjacentHTML('beforeend', `<label class="tk-speed" title="Scroll speed"><span>Speed</span><input type="range" min="5" max="120" step="5" value="${TK_SPEED}" aria-label="Ticker scroll speed"></label>`);
+  const r = live.querySelector('.tk-speed input');
+  r.oninput = () => { TK_SPEED = +r.value; tkApplySpeed(); try { localStorage.setItem('ts.tkspeed', String(TK_SPEED)); } catch (e) { /* ignore */ } };
+}
 
 /* show / hide each ticker line (remembered on this device) */
 const TK_OFF_KEY = 'ts.tkoff';
@@ -636,8 +657,9 @@ document.addEventListener('click', e => {
   if (i >= 0) off.splice(i, 1); else off.push(id);
   try { localStorage.setItem(TK_OFF_KEY, JSON.stringify(off)); } catch (err) { /* storage blocked: works until reload */ }
   tkToggles();
+  tkApplySpeed();   // a line shown again gets the chosen speed at once
 });
-addEventListener("load", () => { tkToggles(); tickerLoad(); setInterval(tickerLoad, 60000); });
+addEventListener("load", () => { tkToggles(); tkSpeedCtl(); tickerLoad(); setInterval(tickerLoad, 60000); });
 
 
 /* ---------------------------------------------------------------- Telegram (send-only) on the Limits page */

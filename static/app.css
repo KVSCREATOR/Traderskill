@@ -421,3 +421,8 @@ td.acts .btn { margin-left: 3px; }
 .scrollbox .tablewrap { overflow: visible; }
 .scrollbox thead th { position: sticky; top: 0; background: var(--surface-2); z-index: 1; }
 tr.inper td { background: var(--accent-soft); }
+
+/* ticker speed slider under Live */
+.tk-live { flex-wrap: wrap; align-content: center; width: 104px; box-sizing: border-box; row-gap: 6px; }
+.tk-speed { flex-basis: 100%; display: flex; flex-direction: column; gap: 2px; font: 500 10px var(--sans); color: var(--muted); }
+.tk-speed input { width: 72px; accent-color: var(--accent); margin: 0; }
