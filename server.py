@@ -1612,11 +1612,35 @@ def api(method, path, q, body):
     if path == "/api/kite/disconnect" and method == "POST":
         return kite.disconnect()
     if path == "/api/kite/holdings":
+        ledger.require(q.get("_pin"))
         return kite.holdings(mode)
     if path == "/api/kite/held":
         return kite.held()
     if path == "/api/kite/extras":
+        ledger.require(q.get("_pin"))
         return kite.extras()
+    # My holdings: yearly record of the Zerodha account, behind a PIN
+    if path == "/api/ledger/pin" and method == "GET":
+        return ledger.pin_status()
+    if path == "/api/ledger/pin/set" and method == "POST":
+        return ledger.pin_set(body)
+    if path == "/api/ledger/pin/change" and method == "POST":
+        return ledger.pin_change(body)
+    if path == "/api/ledger/unlock" and method == "POST":
+        return ledger.unlock(body)
+    if path.startswith("/api/ledger"):
+        ledger.require(q.get("_pin"))
+        if path == "/api/ledger" and method == "GET":
+            snap = ledger.snapshot("page") if q.get("refresh") == "1" else None
+            out = ledger.report(q.get("fy"))
+            out["refresh"] = snap
+            return out
+        if path == "/api/ledger/import" and method == "POST":
+            return ledger.import_tradebook(body)
+        if path == "/api/ledger/manual" and method == "POST":
+            return ledger.manual(body)
+        if path == "/api/ledger/csv":
+            return ledger.csv_export(q.get("fy") or ledger.fy_of(now_ist().date()))
     if path == "/api/mylists" and method == "GET":
         return mylist.get_lists()
     if path == "/api/mylists" and method == "POST":
@@ -1652,6 +1676,9 @@ import history  # noqa: E402  (full history: actions, orders, GTTs, alerts, mess
 history.S, history.L, history.R = sys.modules[__name__], longterm, reports
 import mylist  # noqa: E402  (My scanner: named lists of stocks + extra columns)
 mylist.S, mylist.L, mylist.K = sys.modules[__name__], longterm, kite
+import ledger  # noqa: E402  (My holdings: yearly Zerodha record, tax estimate, PIN)
+ledger.S, ledger.L, ledger.K = sys.modules[__name__], longterm, kite
+reports.LG = ledger
 
 # ----------------------------------------------------------------- self-restart (edit files on the NAS, no rebuild)
 _reload = {"error": None, "checked": None}
@@ -1786,6 +1813,8 @@ class Handler(BaseHTTPRequestHandler):
         return (o.hostname or "") == host.rsplit(":", 1)[0].strip("[]")
 
     def _api(self, method, path, q, body):
+        q = dict(q or {})
+        q["_pin"] = self.headers.get("X-Pin-Token") or ""   # My holdings unlock token (never the PIN itself)
         try:
             res = api(method, path, q, body or {})
             if method == "POST":   # keep a permanent record of what you do (History page)

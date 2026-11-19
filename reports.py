@@ -265,7 +265,14 @@ def close():
 
 
 # ----------------------------------------------------------------- 15:35 holdings summary
+LG = None   # ledger module (My holdings yearly record)
+
+
 def eod():
+    try:   # one record of holdings, funds and today's trades per trading day (kept if Zerodha disconnects later)
+        LG.daily()
+    except Exception:  # noqa: BLE001
+        pass
     msg = ["💼 Your holdings today · %s" % S.now_ist().strftime("%a %d %b")]
     h = _zerodha()
     held = []

@@ -234,6 +234,7 @@ async function settingsAll() {
       <label>Entries allowed until (IST)<input name="entry_end" type="time" value="${esc(s.entry_end)}" required></label>
       <button class="btn primary">Save Scalping limits</button></form>` : longForm(m)}</div>
     <div class="card" id="tgBox"><h2>Telegram notifications</h2><div class="empty">Loading…</div></div>
+    <div class="card" id="pinBox"></div>
     <div class="card"><h2>News watchlist</h2><p class="note" style="margin:0">News and the Telegram buy-signal message now follow your <a href="#/myscan">My scanner</a> lists (${s.watchlist.length} stock${s.watchlist.length === 1 ? '' : 's'}: ${esc(s.watchlist.slice(0, 12).join(', '))}${s.watchlist.length > 12 ? '…' : ''}). Add or remove stocks there.</p></div>
     <div class="card"><h2>${MODES[m].label} paper account</h2><form class="row" id="pf"><label>Starting cash (₹)<input name="paper_cash" type="number" min="1000" step="1000" value="${m === 'intraday' ? 100000 : st.modes[m].capital}"></label>
       <button class="btn danger" style="align-self:flex-end">Reset paper account</button></form>
@@ -243,6 +244,7 @@ async function settingsAll() {
   else $('#lf').onsubmit = e => { e.preventDefault(); save({ mode_settings: { [m]: Object.fromEntries(new FormData(e.target)) } }, `${MODES[m].label} limits saved.`); };
   tgCard($('#tgBox'));
   codeBox($('#tgBox'));
+  pinCard($('#pinBox'));
   $('#pf').onsubmit = e => {
     e.preventDefault(); const cash = +new FormData(e.target).get('paper_cash'), d = $('#dlg');
     $('#dlgBody').innerHTML = `<h3>Reset the ${MODES[m].label} paper account?</h3><p class="note">Its positions and history will be cleared and cash set to ${inr(cash, 0)}. This cannot be undone.</p>
@@ -326,9 +328,13 @@ function fitBlock(f) {
 async function holdingsPage() {
   const intro = 'Your real Zerodha holdings, read-only through Zerodha\'s free Kite MCP server. You sign in on Zerodha\'s own page; this portal never sees your password and cannot place orders.';
   const my = S.nav;
-  view.innerHTML = head('My holdings', intro) + loading(2);
+  if (!S.pinTok) return pinGate(holdingsPage);   // asked every time the page opens
+  if (S.hTab && S.hTab !== 'live') return ledgerPage(S.hTab);
+  view.innerHTML = head('My holdings', intro) + hTabs('live') + loading(2);
   let d, err; try { d = await api('/api/kite/holdings'); } catch (e) { err = e; }
   if (my !== S.nav) return;
+  if (err && pinNeeded(err)) { S.pinTok = null; return pinGate(holdingsPage); }
+  if (!err && d.connected && !d.kite_login && !d.error) api('/api/ledger?refresh=1').catch(() => {});   // keep the yearly record current
   const connectBtn = label => `<button class="btn primary" id="kConnect">${label}</button>`;
   const bind = () => {
     const c = $('#kConnect'); if (c) c.onclick = async () => {
@@ -342,27 +348,28 @@ async function holdingsPage() {
   if (err || !d.connected || d.kite_login || d.error) dropHeld();
   if (err) {
     const expired = /expired|Not connected|401/i.test(err.message);
-    view.innerHTML = head('My holdings', intro, connectBtn(expired ? 'Connect Zerodha again' : 'Connect Zerodha')) + failBox(err);
+    view.innerHTML = head('My holdings', intro, connectBtn(expired ? 'Connect Zerodha again' : 'Connect Zerodha')) + hTabs('live') + failBox(err) + '<p class="note">Your saved record (Year record, Tax, Sectors, Funds) stays available in the tabs above while Zerodha is disconnected.</p>';
     bind(); return;
   }
   if (!d.connected) {
-    view.innerHTML = head('My holdings', intro) + `<div class="card"><h2>Connect your Zerodha account</h2>
+    view.innerHTML = head('My holdings', intro) + hTabs('live') + `<div class="card"><h2>Connect your Zerodha account</h2>
       <ol class="note" style="line-height:1.8;margin:0 0 14px 18px"><li>Click <b>Connect Zerodha</b>. Zerodha's login page opens.</li>
       <li>Sign in with your Zerodha ID, password and 2FA there.</li><li>You come back here and your holdings load.</li></ol>
-      <div class="row">${connectBtn('Connect Zerodha')}<span class="note">Free. Read-only. Zerodha asks you to log in again about once a day.</span></div></div>`;
+      <div class="row">${connectBtn('Connect Zerodha')}<span class="note">Free. Read-only. Zerodha asks you to log in again about once a day.</span></div></div>
+      <p class="note">Your saved record (Year record, Tax, Sectors, Funds) stays available in the tabs above while Zerodha is disconnected.</p>`;
     bind(); return;
   }
   if (d.kite_login) {
-    view.innerHTML = head('My holdings', intro) + `<div class="card"><h2>One more Zerodha login</h2><p class="note">${esc(d.message)}</p>
+    view.innerHTML = head('My holdings', intro) + hTabs('live') + `<div class="card"><h2>One more Zerodha login</h2><p class="note">${esc(d.message)}</p>
       <div class="row"><a class="btn primary" href="${esc(d.kite_login)}" target="_blank" rel="noopener">Open Kite login</a><button class="btn" id="kRefresh">I have logged in · load holdings</button></div></div>`;
     bind(); return;
   }
-  if (d.error) { view.innerHTML = head('My holdings', intro, connectBtn('Reconnect')) + failBox({ message: d.error }); bind(); return; }
+  if (d.error) { view.innerHTML = head('My holdings', intro, connectBtn('Reconnect')) + hTabs('live') + failBox({ message: d.error }); bind(); return; }
   setClock(d.clock);
   const money = v => (v < 0 ? '−' : '+') + inr(Math.abs(v), 0);
   const tile = (label, v, txt) => `<div class="${v == null ? '' : v >= 0 ? 'tile-up' : 'tile-down'}"><span>${label}</span><b>${txt}</b></div>`;
   const tot = d.total_value || 1;
-  view.innerHTML = head('My holdings', `Zerodha · connected ${esc(d.connected_at || '')} IST · read-only`, '<button class="btn" id="kAlerts">Set rule-stop alerts</button><button class="btn" id="kRefresh">Refresh</button><button class="btn" id="kOff">Disconnect</button>') +
+  view.innerHTML = head('My holdings', `Zerodha · connected ${esc(d.connected_at || '')} IST · read-only`, '<button class="btn" id="kAlerts">Set rule-stop alerts</button><button class="btn" id="kRefresh">Refresh</button><button class="btn" id="kOff">Disconnect</button>') + hTabs('live') +
     `<div class="stack"><div class="kv" style="margin:0">
       <div><span>Current value</span><b>${inr(d.total_value, 0)}</b></div><div><span>Invested</span><b>${inr(d.total_cost, 0)}</b></div>
       ${tile('Total profit / loss', d.pnl, `${money(d.pnl)} (${d.pnl_pct != null ? sgn(d.pnl_pct) : '–'})`)}

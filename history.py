@@ -61,6 +61,14 @@ def log_post(path, body, result, mode):
             add("action", "Telegram messages changed", ", ".join("%s %s" % (k, "on" if v else "off") for k, v in on.items())[:300])
         elif path in ("/api/telegram/connect", "/api/telegram/disconnect"):
             add("action", "Telegram " + path.rsplit("/", 1)[1] + "ed")
+        elif path == "/api/ledger/pin/set":
+            add("action", "My holdings PIN set (with the portal password)")
+        elif path == "/api/ledger/pin/change":
+            add("action", "My holdings PIN changed")
+        elif path == "/api/ledger/import":
+            add("action", "Zerodha tradebook imported", (result or {}).get("message", "")[:200])
+        elif path == "/api/ledger/manual":
+            add("action", "My holdings record: trade %s by hand" % ("deleted" if b.get("action") == "delete" else "added"), (result or {}).get("message", "")[:200])
         elif path == "/api/admin/restart":
             add("action", "Portal restarted from Limits")
         elif path == "/api/reports/run":

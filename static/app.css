@@ -392,3 +392,22 @@ td.acts .btn { margin-left: 3px; }
 .tk-line.off .tk-stub { display: flex; align-items: center; flex: 1; border: 0; background: none; color: var(--muted); font: 12px var(--sans); padding: 0 12px; cursor: pointer; text-align: left; }
 .tk-line.off .tk-stub:hover { color: var(--accent); }
 @media (max-width: 700px) { .tk-tag { width: 92px; padding: 0 6px; font-size: 10px; } }
+
+/* ---- My holdings: tabs, PIN, record */
+.htabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 14px; border-bottom: 1px solid var(--border); }
+.htabs button { font: 600 13px var(--sans); border: 0; background: none; color: var(--muted); padding: 8px 12px; border-bottom: 2px solid transparent; cursor: pointer; margin-bottom: -1px; }
+.htabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
+.htabs button:hover { color: var(--text); }
+.htabs .htab-lock { margin-left: auto; font-weight: 500; }
+.pin-card { max-width: 380px; margin: 10px auto; text-align: center; }
+.pin-card form { text-align: left; }
+.pin-in { font: 600 20px var(--mono); letter-spacing: .4em; text-align: center; }
+#pinHidden { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
+.pin-dots { display: flex; justify-content: center; gap: 14px; margin: 14px 0 18px; }
+.pin-dots i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--accent); }
+.pin-dots i.on { background: var(--accent); }
+.pin-pad { display: grid; grid-template-columns: repeat(3, 72px); gap: 10px; justify-content: center; margin-bottom: 12px; }
+.pin-pad button { height: 54px; font: 600 20px var(--sans); border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 12px; cursor: pointer; }
+.pin-pad button:hover { border-color: var(--accent); }
+.pin-pad button:active { background: var(--accent-soft); }
+.nlist { margin: 0; padding-left: 18px; line-height: 1.7; }

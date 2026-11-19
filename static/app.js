@@ -15,7 +15,8 @@ try { S.lastSymbol = localStorage.getItem('ts.symbol'); } catch (e) { /* storage
 async function api(path, body) {
   if (body) { if (!('mode' in body)) body = Object.assign({ mode: S.mode }, body); }
   else path += (path.includes('?') ? '&' : '?') + 'mode=' + encodeURIComponent(S.mode || 'intraday');
-  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+  const headers = S.pinTok ? { 'X-Pin-Token': S.pinTok } : {};   // My holdings unlock (a session token, not the PIN)
+  const r = await fetch(path, body ? { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, headers), body: JSON.stringify(body) } : { headers });
   const j = await r.json().catch(() => ({ error: 'Bad response from server' }));
   if (r.status === 401 && j.login) { location.href = '/login'; throw new Error('Sign in first.'); }
   if (!r.ok) throw new Error(j.error || 'Request failed');
@@ -58,6 +59,7 @@ const VIEWS = { predictor, scanner, orb: a => scanner(a, 'orb'), entry: () => sk
   budget: () => skillPage('budget'), risk: () => skillPage('risk'), news, earnings, alerts, broker, deals, congress: deals, settings: settingsAll, journal: journalPage, holdings: holdingsPage, notifications: historyPage, history: historyPage };
 function route() {
   clearInterval(S.timer); S.timer = null; S.nav = (S.nav || 0) + 1;
+  S.pinTok = null; S.ledger = null; S.hTab = S.hTab || 'live';   // My holdings asks for the PIN every time it is opened
   const [, name = 'predictor', arg] = location.hash.split('/');
   const fn = VIEWS[name] || predictor;
   const on = name === 'congress' ? 'deals' : VIEWS[name] ? name : 'predictor';

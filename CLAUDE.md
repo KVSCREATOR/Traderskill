@@ -175,5 +175,17 @@ Buy zone / Near trigger ≤3% / Holding / Watching), distance to trigger, streng
 within 7 days (estimate), ⚠ sector full, 6-month hover chart. ☆ buttons on Scanner rows and next to every GTT button.
 Client caches a scan 15 min. Phase 2 ideas: Telegram exit alert on close, paper sell GTT, daily My-scanner report.
 
+My holdings yearly record + PIN (added 19 Nov 2026, `ledger.py`, `static/holdings.js`, tabs inside `#/holdings`):
+owner asked to keep it all in My holdings (not History). 4-digit PIN asked EVERY time the page opens (route() clears
+S.pinTok); PBKDF2 hash in state "holdings_pin"; 5 wrong -> locked, reset needs PORTAL_PASSWORD; change under Limits.
+Unlock gives a 30-min token sent as header X-Pin-Token (never the PIN); /api/kite/holdings, /api/kite/extras and
+/api/ledger* require it. Data in data/ledger.json (kept when Zerodha disconnects): Console tradebook CSV imports
+(dedupe by trade_id; tradebook overrides auto day totals for its date range), daily snapshots (holdings, funds,
+verdicts, buy ideas) on page open (max every 2 min) + reports.eod 15:35, today's buys/sells from positions, manual
+trades (bonus = price 0). FIFO lots; same-day buy+sell = intraday; LT = sold after 12 months; tax est. STCG 20%,
+LTCG 12.5% above 1.25 lakh, set-off ST loss vs LT, +4% cess, no surcharge. Tabs: Live, Year record, Tax, Sectors,
+What next (Investing rule verdicts, own limits, tax timing, Best-odds buys with room), Funds, Import & add.
+TESTING NOTE: never import server.py from a test without setting BOTH S.DATA and S.STATE_FILE to a temp folder.
+
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).
