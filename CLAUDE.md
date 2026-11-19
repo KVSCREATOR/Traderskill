@@ -207,7 +207,15 @@ ETF-like costs, Nifty taxed once at the end (LTCG), dividends estimated +1.3%/yr
 Result Dec 2017-Nov 2026 (default limits): Trading rules 11.4%/yr, 9.6% after tax, worst fall -25%; Investing 10.7%,
 9.1% after tax, -34%. Nifty bought and held: 10.8% price only / ~12.2% with dividends, ~11.5% / 10.8% after tax,
 worst fall -38%. SIP XIRR ~10.4%. => After tax the rules TRAIL holding the Nifty by ~1.7-1.9%/yr; their only edge is a
-smaller worst fall. Owner's next questions pending: goal, time per day, real vs paper, AI API budget.
+smaller worst fall.
+Owner answers (19 Nov 2026): goal = long-term wealth with SMALLER FALLS; under 15 min a day; some real trades, some
+paper; NO paid AI (keep everything free).
+Core + satellite test (19 Nov 2026, Nifty with ~1.3% dividends + rules, rebalanced each April, pre-tax):
+100% Nifty 12.2%/yr worst -38.3%; 70/30 Nifty/Trading 12.3% -28.7%; 50/50 Nifty/Trading 12.2% -22.5%
+(both halves: worst fall 22.5 vs 38.3 to Jun 2022, 11.3 vs 15.3 after); 100% Trading 11.4% -25.2%.
+50/50 Nifty/Investing 11.6% -25.7%. => 50/50 Nifty + Trading rules keeps about the Nifty's return with ~40% smaller
+worst fall (after-tax roughly 11.0% vs Nifty ~11.6%). REJECTED: Nifty 200-day rule (hold only above 200-day, else
+liquid fund 6%): worst fall ~19% but only 7.8-8.8%/yr pre-tax (vs 12.3%) plus extra short-term tax.
 
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).
