@@ -1,6 +1,6 @@
 'use strict';
 /* ---------------------------------------------------------------- My holdings: PIN gate + yearly Zerodha record */
-const HTABS = [['live', 'Live holdings'], ['record', 'Year record'], ['tax', 'Tax'], ['sectors', 'Sectors'], ['next', 'What next'], ['core', 'Core + satellite'], ['funds', 'Funds'], ['import', 'Import & add']];
+const HTABS = [['today', 'Today'], ['live', 'Live holdings'], ['record', 'Year record'], ['tax', 'Tax'], ['sectors', 'Sectors'], ['next', 'What next'], ['core', 'Core + satellite'], ['funds', 'Funds'], ['import', 'Import & add']];
 function hTabs(active) {
   return `<div class="htabs" role="tablist">${HTABS.map(([k, l]) => `<button type="button" role="tab" class="${k === active ? 'on' : ''}" aria-selected="${k === active}" data-htab="${k}">${l}</button>`).join('')}
     <button type="button" class="htab-lock" data-hlock title="Lock My holdings">🔒 Lock</button></div>`;
@@ -61,8 +61,37 @@ async function pinGate(then) {
   $('#pinForgot').onclick = e => { e.preventDefault(); S.pinReset = true; pinGate(then); };
 }
 
+/* ---- Today: the 15-minute daily checklist */
+async function todayPage() {
+  const my = S.nav;
+  view.innerHTML = head('My holdings', 'Building today\'s checklist…') + hTabs('today') + loading(3);
+  let t; try { t = await api('/api/ledger/today'); }
+  catch (e) { if (pinNeeded(e)) { S.pinTok = null; return pinGate(holdingsPage); } view.innerHTML = head('My holdings', 'Checklist could not load') + hTabs('today') + failBox(e); return; }
+  if (my !== S.nav) return;
+  const G = [['act', 'Act today', 'fail'], ['watch', 'Watch', 'warn'], ['tomorrow', 'For tomorrow', 'pass'], ['info', 'For information', '']];
+  const total = t.items.filter(x => x.group !== 'info').length, done = t.items.filter(x => x.group !== 'info' && x.done).length;
+  const item = x => `<li class="${x.done ? 'done' : ''}"><label><input type="checkbox" data-tid="${esc(x.id)}" ${x.done ? 'checked' : ''}> <span>${esc(x.text)}</span></label>${x.link ? ` <a href="${esc(x.link)}" class="tlink">open →</a>` : ''}</li>`;
+  view.innerHTML = head('My holdings', `Today · ${new Date(t.date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })} · buy ideas by the ${esc(t.mode_label)} rules · built ${esc(t.at.slice(11, 16))} IST`,
+    '<button class="btn" id="tRefresh">Refresh</button>') + hTabs('today') +
+    `<div class="stack"><div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${total ? `${done} of ${total} checked` : 'Nothing to act on today'}</h2>
+      <span class="note" style="margin:0">${t.connected ? 'Zerodha connected' : 'Zerodha not connected'}${t.snapshot_at ? ' · holdings as of ' + esc(t.snapshot_at) : ''}</span></div>
+      ${total ? `<div class="capbar" style="margin-top:10px"><i style="width:${(done / total * 100).toFixed(0)}%"></i></div>` : ''}</div>
+    ${G.map(([g, label, pill]) => { const xs = t.items.filter(x => x.group === g); return xs.length ? `<div class="card"><h2>${pill ? `<span class="pill ${pill}">${xs.length}</span> ` : ''}${label}</h2><ul class="tlist">${xs.map(item).join('')}</ul></div>` : ''; }).join('')}
+    <p class="note">A 15-minute routine after 15:30: work down the list, open what needs a look, tick it off. The same list comes in the 15:35 Telegram message. Exits, buy signals and limits are rule results; long-term dates and results dates come from your records (results dates are estimates). Not personal advice: you place any real order yourself in Zerodha.</p></div>`;
+  $('#tRefresh').onclick = () => todayPage();
+  view.querySelectorAll('[data-tid]').forEach(cb => cb.onchange = async () => {
+    cb.closest('li').classList.toggle('done', cb.checked);
+    try { await api('/api/ledger/today/done', { id: cb.dataset.tid, done: cb.checked }); } catch (e) { toast(e.message, 'bad'); }
+    const all = [...view.querySelectorAll('.tlist [data-tid]')].filter(c => !c.closest('.card').querySelector('h2').textContent.includes('For information'));
+    const n = all.filter(c => c.checked).length, h = view.querySelector('.card h2');
+    if (h && all.length) h.textContent = `${n} of ${all.length} checked`;
+    const bar = view.querySelector('.card .capbar i'); if (bar && all.length) bar.style.width = (n / all.length * 100).toFixed(0) + '%';
+  });
+}
+
 /* ---- yearly record tabs */
 async function ledgerPage(tab, fresh) {
+  if (tab === 'today') return todayPage();
   const my = S.nav;
   if (!S.ledger || fresh || (S.ledgerFy && S.ledger.fy !== S.ledgerFy)) {
     view.innerHTML = head('My holdings', 'Loading your Zerodha record…') + hTabs(tab) + loading(3);

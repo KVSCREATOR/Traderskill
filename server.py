@@ -1650,6 +1650,10 @@ def api(method, path, q, body):
             return out
         if path == "/api/ledger/import" and method == "POST":
             return ledger.import_tradebook(body)
+        if path == "/api/ledger/today" and method == "GET":
+            return ledger.today(mode)
+        if path == "/api/ledger/today/done" and method == "POST":
+            return ledger.today_done(body)
         if path == "/api/ledger/core" and method == "POST":
             return ledger.core_set(body)
         if path == "/api/ledger/pnl" and method == "POST":

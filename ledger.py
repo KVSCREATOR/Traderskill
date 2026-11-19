@@ -500,6 +500,165 @@ def _core_view(d, snap, holdings, today):
             "mf_known": (snap or {}).get("mfs") is not None}
 
 
+# ----------------------------------------------------------------- Today: the 15-minute daily checklist
+def today(mode=None):
+    """Everything worth a look after the close, in one list: act / watch / for tomorrow / info.
+    Rule results and facts from your own records, not personal advice."""
+    mode = mode if mode in ("swing", "invest") else "swing"   # buy ideas: Scalping falls back to the Trading rules
+    lbl = L.LABEL[mode]
+    rep = report()
+    now = S.now_ist()
+    day = now.date().isoformat()
+    items = []
+
+    def add(iid, group, text, link=None, level="watch"):
+        items.append({"id": iid, "group": group, "text": text, "link": link, "level": level})
+
+    # Zerodha + market
+    if not rep["connected"]:
+        add("connect", "act", "Zerodha is not connected: sign in once so today's holdings and funds are recorded%s." % (
+            " (last record %s)" % rep["snapshot_at"] if rep["snapshot_at"] else ""), "#/holdings", "act")
+    try:
+        mkt = L.market()
+        n = mkt.ind
+        i = len(n["c"]) - 1
+        chg = (n["c"][i] / n["c"][i - 1] - 1) * 100
+        on = mkt.regime(n["d"][i], mode)
+        add("market", "info", "Nifty %s %.0f (%+.2f%% on %s). Market filter for the %s rules: %s." % (
+            "closed at" if not S.market_clock()["open"] else "at", n["c"][i], chg, n["d"][i], lbl,
+            "ON, new buys allowed" if on else "OFF, the rules hold off new buys"), None, "info")
+    except Exception:  # noqa: BLE001
+        on = None
+    nx = rep["next"]
+    for x in nx["exit"]:
+        add("exit:" + x["symbol"], "act", "%s: exit rule fired (%s)%s." % (x["symbol"], x.get("why") or "rule exit",
+            " · rule stop %s" % _rs(x["rule_stop"]) if x.get("rule_stop") else ""), "#/predictor/" + x["symbol"], "act")
+    for x in nx["weak"]:
+        add("weak:" + x["symbol"], "watch", "%s: weak trend (%s)." % (x["symbol"], x.get("why") or "below its averages"), "#/predictor/" + x["symbol"])
+    for t in nx["limits"]:
+        add("limit:" + t[:40], "watch", "Your limit: " + t + ".")
+    # rebalance
+    c = rep["core"]
+    if c["total"] and abs(c["move"]) >= max(2000, c["total"] * 0.02):
+        txt = "Core + satellite: index funds %.0f%% vs your target %d%%. %s about %s." % (
+            c["actual"], c["target"], "Move into the index fund" if c["move"] > 0 else "Move from the index fund into stocks", _rs(abs(c["move"])))
+        if c["due"]:
+            add("rebal", "act", txt + (" April rebalance." if c["april"] else " More than 10 points off."), "#/holdings", "act")
+        elif c["off"] > 5:
+            add("rebal", "info", txt + " Not due yet (April, or more than 10 points off).", None, "info")
+    # tax timing: lots turning long-term within 30 days
+    for h in rep["holdings"]:
+        if not h.get("counted"):
+            continue
+        nl = h.get("next_long")
+        if nl and nl["days"] <= 30 and (h.get("unreal_short") or 0) > 0:
+            add("lt:%s:%s" % (h["symbol"], nl["date"]), "watch", "%s: %g shares turn long-term on %s (%d days). A sale before then is taxed 20%%, after it 12.5%%." % (
+                h["symbol"], nl["qty"], nl["date"], nl["days"]), "#/holdings")
+    for t in nx["tax"]:
+        if "turn long-term" not in t:
+            add("tax:" + t[:40], "info", t, None, "info")
+    # results within the next 7 days (estimated from the last reported quarter)
+    held = [h["symbol"] for h in rep["holdings"] if h.get("counted")][:40]
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(8) as ex:
+            dues = dict(zip(held, ex.map(S.mylist._results_due, held)))
+    except Exception:  # noqa: BLE001
+        dues = {}
+    for sym, r in dues.items():
+        if r and 0 <= r["days"] <= 7:
+            add("res:%s:%s" % (sym, r["date"]), "watch", "%s: quarterly results expected by about %s (estimate): the price can gap." % (sym, r["date"]), "#/earnings/" + sym)
+    # paper accounts
+    for m in ("swing", "invest"):
+        try:
+            pf = L.portfolio_long(m)
+        except Exception:  # noqa: BLE001
+            continue
+        for sym in pf.get("closed_now") or []:
+            add("pclosed:%s:%s:%s" % (m, sym, day), "info", "Paper %s: %s was sold by the rules today." % (L.LABEL[m], sym), "#/broker", "info")
+        for p in pf["positions"]:
+            last, stop = p.get("last") or p["entry"], p["stop"]
+            if stop and last and (last / stop - 1) * 100 <= 3:
+                add("pnear:%s:%s" % (m, p["symbol"]), "watch", "Paper %s: %s is within %.1f%% of its stop %s." % (
+                    L.LABEL[m], p["symbol"], (last / stop - 1) * 100, _rs(stop)), "#/broker")
+    # GTTs
+    try:
+        g = S.gtt.listing(mode)["orders"]
+        act_g = [o for o in g if o["status"] == "active"]
+        trig = [o for o in g if o["status"] == "triggered" and o.get("triggered_date") == day]
+        for o in trig:
+            add("gtt:%s:%s" % (o["symbol"], day), "info", "Paper GTT bought %s today." % o["symbol"], "#/broker", "info")
+        if act_g:
+            add("gtts", "info", "%d paper GTT%s waiting (%s mode): %s." % (len(act_g), "" if len(act_g) == 1 else "s", lbl,
+                ", ".join("%s at %s" % (o["symbol"], _rs(o["trigger"])) for o in act_g[:6])), "#/broker", "info")
+        waiting = {o["symbol"] for o in act_g}
+    except Exception:  # noqa: BLE001
+        waiting = set()
+    # for tomorrow: rule buy signals with room, and your list's stocks near their trigger
+    try:
+        scan = L.scan_long(mode)
+        holds = {h["symbol"] for h in rep["holdings"] if h.get("counted")}
+        full = {s_["sector"] for s_ in rep["sectors"] if s_.get("over")}
+        if nx["slots"] and scan.get("regime"):
+            best = [r for r in scan["rows"] if r.get("status") in ("confirmed", "recent") and (r.get("rs_pct") or 0) >= 50
+                    and r["symbol"] not in holds and (r.get("industry") or "Other") not in full]
+            best.sort(key=lambda r: -(r.get("rs3" if mode == "swing" else "rs6") or -999))
+            for r in best[:4]:
+                add("buy:%s:%s" % (r["symbol"], r.get("setup_day")), "tomorrow", "%s (%s): %s rules buy signal, %s, price %s. %d free place%s." % (
+                    r["symbol"], r.get("industry") or "", lbl, r.get("setup") or "", _rs(r["price"]), nx["slots"], "" if nx["slots"] == 1 else "s"),
+                    "#/predictor/" + r["symbol"])
+        watch = set(S.load_state()["settings"].get("watchlist") or [])
+        for r in scan["rows"]:
+            if r["symbol"] in watch and r.get("trigger") and r.get("price") and r["symbol"] not in waiting \
+                    and r.get("status") not in ("confirmed", "recent", "provisional"):
+                dist = (r["trigger"] / r["price"] - 1) * 100
+                if 0 < dist <= 3:
+                    add("near:%s:%s" % (r["symbol"], day), "tomorrow", "%s (your list) is %.1f%% below its breakout level %s: you could set a paper GTT there." % (
+                        r["symbol"], dist, _rs(r["trigger"])), "#/myscan")
+    except Exception:  # noqa: BLE001
+        pass
+    with _lock:
+        d = _load()
+        done = set((d.get("today_done") or {}).get(day) or [])
+    order = {"act": 0, "watch": 1, "tomorrow": 2, "info": 3}
+    items.sort(key=lambda x: order.get(x["group"], 9))
+    for x in items:
+        x["done"] = x["id"] in done
+    return {"date": day, "mode": mode, "mode_label": lbl, "items": items, "at": S.market_clock()["ist"],
+            "counts": {g: sum(1 for x in items if x["group"] == g) for g in order},
+            "done": sum(1 for x in items if x["done"]), "snapshot_at": rep["snapshot_at"], "connected": rep["connected"]}
+
+
+def today_done(body):
+    iid = str(body.get("id") or "")[:120]
+    day = S.now_ist().date().isoformat()
+    with _lock:
+        d = _load()
+        td = d.setdefault("today_done", {})
+        cur = set(td.get(day) or [])
+        (cur.add if body.get("done") else cur.discard)(iid)
+        td[day] = sorted(cur)
+        for k in sorted(td)[:-30]:   # keep a month of ticks
+            td.pop(k, None)
+        _save(d)
+    return {"ok": True}
+
+
+def today_lines(mode="swing", limit=8):
+    """Short version for the 15:35 Telegram message."""
+    t = today(mode)
+    pick = [x for x in t["items"] if x["group"] in ("act", "watch", "tomorrow")][:limit]
+    if not pick:
+        return ["✅ Today's checklist: nothing to act on."]
+    icon = {"act": "🔴", "watch": "🟡", "tomorrow": "🟢"}
+    out = ["✅ Today's checklist (%d to act, %d to watch, %d for tomorrow):" % (t["counts"]["act"], t["counts"]["watch"], t["counts"]["tomorrow"])]
+    out += ["%s %s" % (icon[x["group"]], x["text"]) for x in pick]
+    more = sum(t["counts"][g] for g in ("act", "watch", "tomorrow")) - len(pick)
+    if more > 0:
+        out.append("…and %d more: portal → My holdings → Today." % more)
+    return out
+
+
 def manual(body):
     act = body.get("action")
     with _lock:

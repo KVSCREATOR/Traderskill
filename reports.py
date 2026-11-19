@@ -314,6 +314,11 @@ def eod():
             msg += ["  %s · %s at %s%s" % (r["symbol"], r["setup"], rs(r["price"], 2), " (you hold it)" if r["symbol"] in held else " (watchlist)")
                     for r in mine]
             msg += ["  %s · %s (top ranked overall)" % (r["symbol"], r["setup"]) for r in top if r not in mine]
+    try:   # the same list as My holdings -> Today (exits, limits, rebalance, long-term dates, results, GTT ideas)
+        msg.append("")
+        msg += LG.today_lines("swing")
+    except Exception:  # noqa: BLE001
+        pass
     msg.append(NOTE)
     return "\n".join(msg)
 

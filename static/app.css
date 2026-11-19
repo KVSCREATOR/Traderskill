@@ -435,3 +435,12 @@ tr.inper td { background: var(--accent-soft); }
 .corebar { position: relative; height: 16px; border-radius: 8px; background: var(--warn-soft); border: 1px solid var(--border); margin: 6px 0 4px; }
 .corebar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); opacity: .75; border-radius: 8px 0 0 8px; }
 .corebar b { position: absolute; top: -5px; bottom: -5px; width: 3px; margin-left: -1px; background: var(--text); border-radius: 2px; }
+
+/* Today checklist */
+.tlist { list-style: none; margin: 0; padding: 0; }
+.tlist li { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); }
+.tlist li:first-child { border-top: 0; }
+.tlist label { display: flex; gap: 8px; align-items: flex-start; flex: 1; cursor: pointer; line-height: 1.45; }
+.tlist input { margin-top: 3px; accent-color: var(--accent); }
+.tlist li.done span { text-decoration: line-through; color: var(--muted); }
+.tlist .tlink { white-space: nowrap; font-size: 12.5px; }

@@ -59,7 +59,7 @@ const VIEWS = { predictor, scanner, orb: a => scanner(a, 'orb'), entry: () => sk
   budget: () => skillPage('budget'), risk: () => skillPage('risk'), news, earnings, alerts, broker, deals, congress: deals, settings: settingsAll, journal: journalPage, holdings: holdingsPage, notifications: historyPage, history: historyPage };
 function route() {
   clearInterval(S.timer); S.timer = null; S.nav = (S.nav || 0) + 1;
-  S.pinTok = null; S.ledger = null; S.hTab = S.hTab || 'live';   // My holdings asks for the PIN every time it is opened
+  S.pinTok = null; S.ledger = null; S.hTab = S.hTab || 'today';   // My holdings asks for the PIN every time it is opened
   const [, name = 'predictor', arg] = location.hash.split('/');
   const fn = VIEWS[name] || predictor;
   const on = name === 'congress' ? 'deals' : VIEWS[name] ? name : 'predictor';
