@@ -724,31 +724,62 @@ function askConfirm(title, text, okLabel = 'Delete') {
   const KEY = 'ts.screenLock';
   const set = on => { try { on ? localStorage.setItem(KEY, '1') : localStorage.removeItem(KEY); } catch (e) { /* storage blocked: lock lasts until reload */ }
     document.documentElement.classList.toggle('slocked', on); };
-  let usePw = false;
-  function draw() {
+  let usePw = false;   // true = the reset form (portal password + new PIN)
+  function draw(msg) {
     let el = document.getElementById('slock');
     if (!el) { el = document.createElement('div'); el.id = 'slock'; document.body.appendChild(el); }
-    el.innerHTML = `<form class="box" autocomplete="off" onsubmit="return false"><div class="ic">🔒</div><h2>SCREEN LOCKED</h2>
-      <p class="note" style="margin:0">Everything keeps working in the background.</p>
-      <input id="slockIn" type="password" ${usePw ? 'placeholder="Portal password"' : 'inputmode="numeric" maxlength="4" placeholder="PIN"'} autocomplete="off" aria-label="${usePw ? 'Portal password' : 'PIN'}">
-      <div class="err" id="slockErr"></div><button class="btn primary" id="slockGo" style="width:100%">Unlock</button>
-      <a href="#" class="alt" id="slockAlt">${usePw ? '← Use my 4-digit PIN' : '🔑 Forgot PIN? Unlock with the portal password'}</a></form>`;
-    const inp = el.querySelector('#slockIn'), err = el.querySelector('#slockErr');
+    el.innerHTML = usePw
+      ? `<form class="box" autocomplete="off" onsubmit="return false"><div class="ic">🔑</div><h2>RESET PIN</h2>
+        <p class="note" style="margin:0">${esc(msg || 'Enter the portal password and pick a new 4-digit PIN.')}</p>
+        <input id="slockPw" type="password" placeholder="Portal password" autocomplete="off" style="letter-spacing:normal;font-size:16px">
+        <input id="slockN1" type="password" inputmode="numeric" maxlength="4" placeholder="New PIN" autocomplete="off" style="margin-top:0">
+        <input id="slockN2" type="password" inputmode="numeric" maxlength="4" placeholder="New PIN again" autocomplete="off" style="margin-top:0">
+        <div class="err" id="slockErr"></div><button class="btn primary" id="slockGo" style="width:100%">Reset PIN and unlock</button>
+        ${msg ? '' : '<a href="#" class="alt" id="slockAlt">← Back to PIN</a>'}</form>`
+      : `<form class="box" autocomplete="off" onsubmit="return false"><div class="ic">🔒</div><h2>SCREEN LOCKED</h2>
+        <p class="note" style="margin:0">Everything keeps working in the background.</p>
+        <input id="slockIn" type="password" inputmode="numeric" maxlength="4" placeholder="PIN" autocomplete="off" aria-label="PIN">
+        <div class="err" id="slockErr"></div>
+        <a href="#" class="alt" id="slockAlt">🔑 Forgot PIN? Reset with the portal password</a></form>`;
+    const err = el.querySelector('#slockErr'), $l = x => el.querySelector(x);
+    const alt = $l('#slockAlt'); if (alt) alt.onclick = e => { e.preventDefault(); usePw = !usePw; draw(); };
+    const toReset = m => { usePw = true; draw(m); };
     let busy = false;
+    if (usePw) {
+      const go = async () => {
+        if (busy) return;
+        const pw = $l('#slockPw').value, a = $l('#slockN1').value, b = $l('#slockN2').value;
+        if (!pw || !a) { err.textContent = 'Fill in the password and the new PIN.'; return; }
+        if (a !== b) { err.textContent = 'The two new PINs are not the same.'; return; }
+        busy = true;
+        try {
+          await api('/api/ledger/pin/set', { password: pw, pin: a });
+          const r = await api('/api/ledger/unlock', { pin: a }); if (r.token && typeof S !== 'undefined') S.pinTok = r.token;
+          usePw = false; set(false); toast('New PIN saved. Screen unlocked.');
+        } catch (e) { err.textContent = e.message; }
+        busy = false;
+      };
+      $l('#slockGo').onclick = go;
+      el.querySelectorAll('input').forEach(x => x.onkeydown = e => { if (e.key === 'Enter') go(); });
+      setTimeout(() => $l('#slockPw').focus(), 50);
+      return;
+    }
+    const inp = $l('#slockIn');
     const go = async () => {
       const v = inp.value; if (!v || busy) return; busy = true;
       try {
-        if (usePw) await api('/api/screen/unlock_pw', { password: v });
-        else { const r = await api('/api/ledger/unlock', { pin: v }); if (r.token && typeof S !== 'undefined') S.pinTok = r.token; }
+        const r = await api('/api/ledger/unlock', { pin: v }); if (r.token && typeof S !== 'undefined') S.pinTok = r.token;
         inp.value = ''; set(false);
-      } catch (e) { err.textContent = e.message; inp.value = ''; inp.focus(); }
+      } catch (e) {
+        inp.value = '';
+        if (/locked|Now locked/i.test(e.message)) toReset('3 wrong PINs: the PIN is locked. Enter the portal password and pick a new PIN.');
+        else { err.textContent = e.message; inp.focus(); }
+      }
       busy = false;
     };
-    el.querySelector('#slockGo').onclick = go;
-    inp.onkeydown = e => { if (e.key === 'Enter') go(); };
-    if (!usePw) inp.oninput = () => { inp.value = inp.value.replace(/\D/g, ''); err.textContent = ''; if (inp.value.length >= 4) go(); };   // opens as soon as the 4th digit is typed
-    el.querySelector('#slockAlt').onclick = e => { e.preventDefault(); usePw = !usePw; draw(); };
+    inp.oninput = () => { inp.value = inp.value.replace(/\D/g, ''); err.textContent = ''; if (inp.value.length >= 4) go(); };   // opens on the 4th digit
     setTimeout(() => inp.focus(), 50);
+    api('/api/ledger/pin').then(p => { if (p && p.locked) toReset('The PIN is locked after 3 wrong tries. Enter the portal password and pick a new PIN.'); }).catch(() => {});
   }
   async function lock() {
     try { const p = await api('/api/ledger/pin'); if (p && p.set === false) { toast('Set a My holdings PIN first (Limits page), then the lock can use it.', 'bad'); return; } } catch (e) { /* lock anyway */ }

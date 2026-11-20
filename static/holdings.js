@@ -60,7 +60,7 @@ async function pinGate(then) {
   const n = st.length || 4;
   const pinIn = (id, label) => `<label>${label}<input id="${id}" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="${n}" autocomplete="off" class="pin-in"></label>`;
   if (!st.set || st.locked || S.pinReset) {
-    const why = !st.set ? `Set a ${n}-digit PIN for My holdings. It is asked every time the page opens.` : st.locked ? `Locked after 5 wrong PINs. Set a new PIN with the portal password.` : 'Forgot the PIN? Set a new one with the portal password.';
+    const why = !st.set ? `Set a ${n}-digit PIN for My holdings. It is asked every time the page opens.` : st.locked ? `Locked after 3 wrong PINs. Set a new PIN with the portal password.` : 'Forgot the PIN? Set a new one with the portal password.';
     view.innerHTML = head('My holdings', 'Protected by your PIN') + `<div class="card pin-card"><h2>${!st.set ? 'Set your PIN' : 'Reset your PIN'}</h2><p class="note">${why}</p>
       <form id="pinSet" class="grid" autocomplete="off">${pinIn('p1', 'New PIN')}${pinIn('p2', 'New PIN again')}
       ${st.password_needed ? '<label>Portal password<input id="pPw" type="password" autocomplete="current-password"></label>' : ''}

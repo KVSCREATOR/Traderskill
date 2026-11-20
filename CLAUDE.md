@@ -177,7 +177,7 @@ Client caches a scan 15 min. Phase 2 ideas: Telegram exit alert on close, paper 
 
 My holdings yearly record + PIN (added 19 Nov 2026, `ledger.py`, `static/holdings.js`, tabs inside `#/holdings`):
 owner asked to keep it all in My holdings (not History). 4-digit PIN asked EVERY time the page opens (route() clears
-S.pinTok); PBKDF2 hash in state "holdings_pin"; 5 wrong -> locked, reset needs PORTAL_PASSWORD; change under Limits.
+S.pinTok); PBKDF2 hash in state "holdings_pin"; 3 wrong -> locked, reset needs PORTAL_PASSWORD; change under Limits.
 Unlock gives a 30-min token sent as header X-Pin-Token (never the PIN); /api/kite/holdings, /api/kite/extras and
 /api/ledger* require it. Data in data/ledger.json (kept when Zerodha disconnects): Console tradebook CSV imports
 (dedupe by trade_id; tradebook overrides auto day totals for its date range), daily snapshots (holdings, funds,
