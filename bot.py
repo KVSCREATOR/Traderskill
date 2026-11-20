@@ -450,7 +450,7 @@ def _ai_intent(text):
               "paper = simulated trading account; reports = summaries; settings = Zerodha login, language, portal; "
               "alerts = my notifications; lang = change answer language; help = anything else. "
               "The message may be English, Hindi or Hinglish.")
-    out = AI.ask(system, text[:500], max_tokens=80)
+    out = AI.ask(system, text[:500], max_tokens=80, check=lambda o: bool(re.search(r"\{.*\}", o, re.S)))
     m = re.search(r"\{.*\}", out, re.S)
     j = json.loads(m.group(0)) if m else {}
     cmd = j.get("cmd") if j.get("cmd") in CMDS else "help"
@@ -1027,7 +1027,7 @@ def a_settings(_=""):
     lines = ["⚙️ Settings & portal",
              "Zerodha: %s" % ("token saved" if (st.get("kite") or {}).get("token") else "not connected") + (" · last holdings snapshot %s" % last if last else ""),
              "Answer language: %s · stock answers by %s rules" % ("Hindi" if lang() == "hi" else "English", "Investing" if rules() == "invest" else "Trading"),
-             "AI service: %s" % ("%s · %s" % (AI.status()["providers"][AI.cfg()["provider"]]["label"], AI.cfg()["model"]) if AI.configured() else "not set (keywords only)"),
+             "AI service: %s" % ("%s · %s%s" % (AI.status()["providers"][AI.cfg()["provider"]]["label"], AI.cfg()["model"], (" · backup " + AI.cfg("backup")["model"]) if AI.status()["backup"]["configured"] else "") if AI.configured() else "not set (keywords only)"),
              "Portal: running%s" % (" since %s" % code.get("started") if code.get("started") else ""),
              "Telegram: %d muted alerts · %d other chats ignored" % (len(tg.get("quiet") or {}), _status["ignored"])]
     return "\n".join(lines), _btn(
@@ -1184,7 +1184,8 @@ def to_hindi(text):
     """AI translation; refused (English kept) when any number changed."""
     out = AI.ask("Translate the user's message into simple Hindi (Devanagari script). Keep every number, ₹ amount, %, "
                  "+/− sign, date, time, NSE stock symbol, emoji, slash command, web link and line break exactly as written, "
-                 "using Western digits 0-9. Do not add, remove or explain anything. Output only the translation.", text, max_tokens=1500)
+                 "using Western digits 0-9. Do not add, remove or explain anything. Output only the translation.", text, max_tokens=1500,
+                 check=lambda o: _numbers(o) == _numbers(text))   # a bad translation from the main AI -> the backup tries
     if not out or _numbers(out) != _numbers(text):
         raise ValueError("a number changed in translation")
     return out

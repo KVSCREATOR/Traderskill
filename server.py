@@ -1566,7 +1566,9 @@ def api(method, path, q, body):
     if path == "/api/ai/models" and method == "POST":
         return ai.models(body or {})
     if path == "/api/ai/forget" and method == "POST":
-        return ai.forget(telegram._check_pw, (body or {}).get("password"))
+        return ai.forget(telegram._check_pw, (body or {}).get("password"), (body or {}).get("slot"))
+    if path == "/api/ai/swap" and method == "POST":
+        return ai.swap(telegram._check_pw, (body or {}).get("password"))
     if path == "/api/telegram/bot/find" and method == "POST":
         return telegram.find_chat(body or {})
     if path == "/api/telegram/bot/change" and method == "POST":

@@ -554,3 +554,7 @@ dialog#cnDlg { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 4
 @media (max-width: 600px) { .tgsec { padding: 14px 12px; } }
 
 .hmode { font: 600 12px var(--sans); padding: 3px 6px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); color: var(--text); margin: 0 4px 4px 0; }
+
+.aipair { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.aislot { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.aislot.main { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }

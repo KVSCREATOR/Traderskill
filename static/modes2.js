@@ -859,25 +859,11 @@ async function botCard(host) {
       <select id="botLang" class="sel"><option value="hi" ${b.lang === 'hi' ? 'selected' : ''}>Hindi (AI translates the answer)</option><option value="en" ${b.lang === 'en' ? 'selected' : ''}>English</option></select>
       <span class="note" style="margin:0">In the chat: /lang hi or /lang en</span></div>
     ${b.lang === 'hi' ? '<p class="note" style="margin-bottom:0">Hindi: the finished answer, including your numbers, is sent to the AI service to translate. If any number changes in the translation, the English answer is sent instead.' + (a.configured ? '' : ' <b class="down">No AI service yet, so answers stay English.</b>') + '</p>' : ''}</div>
-    <div class="tgsub"><h4>🤖 AI service <span class="note" style="font-weight:400">${a.configured ? `· ${esc(P[a.provider].label)} · ${esc(a.model)} · key …${esc(a.key_tail || '')}${a.last_ok ? ' · last OK ' + esc(a.last_ok) : ''}` : '· not set (messages are understood by keywords only)'}</span></h4>
-      <p class="note" style="margin-top:0">Used only to understand questions that keywords miss (just your question is sent) and for Hindi answers. Any free or paid key works: pick the provider, paste key and model. Falls back to keywords when the key fails or runs out.</p>
-      <form class="cnform" autocomplete="off" onsubmit="return false">
-        <div class="cngrid">
-          <label>Provider<select id="aiProv">${Object.entries(P).map(([k, v]) => `<option value="${k}" ${k === a.provider ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select></label>
-          <label>Model<input id="aiModel" value="${esc(a.model || '')}" list="aiModels" spellcheck="false"><datalist id="aiModels"></datalist></label>
-        </div>
-        <label id="aiBaseL">API address (OpenAI-compatible)<input id="aiBase" value="${esc(a.base_url || '')}" placeholder="https://api.groq.com/openai/v1" spellcheck="false">
-          <small class="muted">Examples: ${Object.entries(a.example_bases).map(([n, u]) => `<a href="#" data-base="${esc(u)}">${esc(n)}</a>`).join(' · ')}</small></label>
-        <label>API key ${a.key_tail ? `<small class="muted">(saved …${esc(a.key_tail)}; leave empty to keep it)</small>` : ''}<input id="aiKey" type="password" autocomplete="off" spellcheck="false" placeholder="Paste the key"></label>
-        <label>Portal password <small class="muted">(needed to save)</small><input id="aiPw" type="password" autocomplete="current-password"></label>
-        <div id="aiOut" class="note"></div>
-        <div class="row" style="gap:8px;justify-content:flex-end">${a.key_tail ? '<button class="btn danger" type="button" id="aiForget">Remove key</button>' : ''}<button class="btn" type="button" id="aiModelsBtn">Load models</button><button class="btn" type="button" id="aiTest">Test</button><button class="btn primary" type="button" id="aiSave">Save</button></div>
-      </form></div>`;
-  const $h = s => host.querySelector(s), out = (t, bad) => { $h('#aiOut').innerHTML = `<span class="${bad ? 'down' : ''}">${esc(t)}</span>`; };
-  const form = () => ({ provider: $h('#aiProv').value, model: $h('#aiModel').value.trim(), base_url: $h('#aiBase').value.trim(), key: $h('#aiKey').value.trim(), password: $h('#aiPw').value });
-  const vis = () => { $h('#aiBaseL').hidden = $h('#aiProv').value !== 'compatible'; $h('#aiModel').placeholder = P[$h('#aiProv').value].model_hint; };
-  vis(); $h('#aiProv').onchange = vis;
-  host.querySelectorAll('[data-base]').forEach(x => x.onclick = e => { e.preventDefault(); $h('#aiBase').value = x.dataset.base; });
+    <div class="tgsub"><h4>🤖 AI service <span class="note" style="font-weight:400">${a.configured ? `· now answering: ${esc(a.last_used === 'backup' ? 'backup' : 'main')}` : '· not set (messages are understood by keywords only)'}</span></h4>
+      <p class="note" style="margin-top:0">Used only to understand questions that keywords miss (just your question is sent) and for Hindi answers. It does not make the stock predictions (those come from the backtested rules).
+      Two models: the <b>main</b> answers first; if it is down, out of free limit, answers empty or the Hindi changes a number, the <b>backup</b> answers instead. Then keywords. Best free pair: <b>Gemini</b> (gemini-2.5-flash) as main + <b>Groq</b> (llama-3.3-70b-versatile, “Any OpenAI-compatible”) as backup: two different companies, so one outage never stops both.</p>
+      <div class="aipair"><div id="aiMain"></div><div id="aiBack"></div></div></div>`;
+  const $h = s => host.querySelector(s);
   $h('#cbSet').onclick = () => cbBotForm(b, () => botCard(host));
   host.querySelectorAll('[data-pseen]').forEach(x => x.onclick = e => { e.preventDefault(); $h('#pId').value = x.dataset.pseen; $h('#pName').value = x.dataset.pname; });
   const pact = async body => { try { const r = await api('/api/chatbot/people', body); toast(r.message); botCard(host); } catch (er) { toast(er.message, 'bad'); } };
@@ -886,15 +872,42 @@ async function botCard(host) {
   host.querySelectorAll('[data-pdel]').forEach(x => x.onclick = async () => { if (await askConfirm('Remove this person?', 'They can no longer use the chat bot.', 'Remove')) pact({ action: 'remove', id: x.dataset.pdel }); });
   const bo = $h('#botOn'); if (bo) bo.onchange = async e => { try { const r = await api('/api/bot/settings', { on: e.target.checked }); toast(r.message); botCard(host); } catch (er) { toast(er.message, 'bad'); } };
   $h('#botLang').onchange = async e => { try { const r = await api('/api/bot/settings', { lang: e.target.value }); toast(r.message); botCard(host); } catch (er) { toast(er.message, 'bad'); } };
-  $h('#aiModelsBtn').onclick = async () => { out('Asking the provider for its models…');
-    try { const r = await api('/api/ai/models', form()); $h('#aiModels').innerHTML = r.models.map(m => `<option value="${esc(m)}">`).join(''); out(`${r.models.length} models found: click the Model box to pick one.`); } catch (e) { out(e.message, true); } };
-  $h('#aiTest').onclick = async () => { out('Testing…'); try { const r = await api('/api/ai/test', form()); out(r.message); } catch (e) { out(e.message, true); } };
-  $h('#aiSave').onclick = async () => { out('Testing and saving…');
-    try { const r = await api('/api/ai/save', form()); toast(r.message); botCard(host); } catch (e) { out(e.message + ' Nothing was saved.', true); } };
-  const fg = $h('#aiForget'); if (fg) fg.onclick = async () => {
-    if (!$h('#aiPw').value) { out('Enter the portal password first.', true); return; }
-    if (!await askConfirm('Remove the AI key?', 'The bot will understand messages by keywords only, and Hindi answers will stay English until you add a key again.', 'Remove')) return;
-    try { const r = await api('/api/ai/forget', { password: $h('#aiPw').value }); toast(r.message); botCard(host); } catch (e) { out(e.message, true); } };
+  aiSlot($h('#aiMain'), 'main', a, a, P, () => botCard(host));
+  aiSlot($h('#aiBack'), 'backup', a.backup, a, P, () => botCard(host));
+}
+
+/* One AI service form (main or backup). */
+function aiSlot(el, slot, a, all, P, refresh) {
+  const main = slot === 'main', id = x => slot + x;
+  el.className = 'aislot' + (main ? ' main' : '');
+  el.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:8px"><b>${main ? '⭐ Main (default)' : '🛟 Backup'}</b>
+      <span class="pill ${a.configured ? 'pass' : ''}">${a.configured ? `${esc(P[a.provider].label.split(' (')[0])} · ${esc(a.model)} · key …${esc(a.key_tail || '')}` : 'not set'}</span></div>
+    ${a.configured && (a.last_ok || a.last_error) ? `<p class="note" style="margin:0 0 8px">${a.last_ok ? 'last OK ' + esc(a.last_ok) : ''}${a.last_error ? ` <span class="down">· last problem ${esc(a.last_error)}</span>` : ''}</p>` : ''}
+    <form class="cnform" autocomplete="off" onsubmit="return false"><div class="cngrid">
+      <label>Provider<select id="${id('Prov')}">${Object.entries(P).map(([k, v]) => `<option value="${k}" ${k === a.provider ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select></label>
+      <label>Model<input id="${id('Model')}" value="${esc(a.model || '')}" list="${id('Models')}" spellcheck="false"><datalist id="${id('Models')}"></datalist></label></div>
+      <label id="${id('BaseL')}">API address (OpenAI-compatible)<input id="${id('Base')}" value="${esc(a.base_url || '')}" placeholder="https://api.groq.com/openai/v1" spellcheck="false">
+        <small class="muted">Examples: ${Object.entries(all.example_bases).map(([n, u]) => `<a href="#" data-base="${esc(u)}">${esc(n)}</a>`).join(' · ')}</small></label>
+      <label>API key ${a.key_tail ? `<small class="muted">(saved …${esc(a.key_tail)}; leave empty to keep it)</small>` : ''}<input id="${id('Key')}" type="password" autocomplete="off" spellcheck="false" placeholder="Paste the key"></label>
+      <label>Portal password <small class="muted">(needed to save)</small><input id="${id('Pw')}" type="password" autocomplete="current-password"></label>
+      <div id="${id('Out')}" class="note"></div>
+      <div class="row" style="gap:8px;justify-content:flex-end;flex-wrap:wrap">${a.key_tail ? '<button class="btn danger" type="button" data-a="forget">Remove key</button>' : ''}${!main && a.configured ? '<button class="btn" type="button" data-a="swap">Make this the main</button>' : ''}<button class="btn" type="button" data-a="models">Load models</button><button class="btn" type="button" data-a="test">Test</button><button class="btn primary" type="button" data-a="save">Save</button></div>
+    </form>`;
+  const g = x => el.querySelector('#' + id(x)), out = (t, bad) => { g('Out').innerHTML = `<span class="${bad ? 'down' : ''}">${esc(t)}</span>`; };
+  const form = () => ({ slot, provider: g('Prov').value, model: g('Model').value.trim(), base_url: g('Base').value.trim(), key: g('Key').value.trim(), password: g('Pw').value });
+  const vis = () => { g('BaseL').hidden = g('Prov').value !== 'compatible'; g('Model').placeholder = P[g('Prov').value].model_hint; };
+  vis(); g('Prov').onchange = vis;
+  el.querySelectorAll('[data-base]').forEach(x => x.onclick = e => { e.preventDefault(); g('Base').value = x.dataset.base; });
+  const btn = n => el.querySelector(`[data-a="${n}"]`);
+  btn('models').onclick = async () => { out('Asking the provider for its models…');
+    try { const r = await api('/api/ai/models', form()); g('Models').innerHTML = r.models.map(m => `<option value="${esc(m)}">`).join(''); out(`${r.models.length} models found: click the Model box to pick one.`); } catch (e) { out(e.message, true); } };
+  btn('test').onclick = async () => { out('Testing…'); try { const r = await api('/api/ai/test', form()); out(r.message); } catch (e) { out(e.message, true); } };
+  btn('save').onclick = async () => { out('Testing and saving…'); try { const r = await api('/api/ai/save', form()); toast(r.message); refresh(); } catch (e) { out(e.message + ' Nothing was saved.', true); } };
+  const sw = btn('swap'); if (sw) sw.onclick = async () => { if (!g('Pw').value) { out('Enter the portal password first.', true); return; }
+    try { const r = await api('/api/ai/swap', { password: g('Pw').value }); toast(r.message); refresh(); } catch (e) { out(e.message, true); } };
+  const fg = btn('forget'); if (fg) fg.onclick = async () => { if (!g('Pw').value) { out('Enter the portal password first.', true); return; }
+    if (!await askConfirm(`Remove the ${main ? 'main' : 'backup'} AI key?`, main ? 'If a backup is set, it keeps answering. Otherwise the bot uses keywords only.' : 'Only the main AI service will be used.', 'Remove')) return;
+    try { const r = await api('/api/ai/forget', { password: g('Pw').value, slot }); toast(r.message); refresh(); } catch (e) { out(e.message, true); } };
 }
 
 /* Set up the second (chat) bot: token only; checked with Telegram and a test message to you before saving. */

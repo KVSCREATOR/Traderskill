@@ -33,37 +33,57 @@ TIMEOUT = 25
 _status = {"last_ok": None, "last_error": None}
 
 
-def _key_file():
-    return os.path.join(S.DATA, "ai_key.txt")
+SLOTS = ("main", "backup")   # main = default; backup answers when the main one fails, is down or gives an empty/bad answer
+_STATE_KEY = {"main": "ai", "backup": "ai_backup"}
+_bstatus = {"last_ok": None, "last_error": None}
 
 
-def saved_key():
+def _slot(x):
+    return x if x in SLOTS else "main"
+
+
+def _key_file(slot="main"):
+    return os.path.join(S.DATA, "ai_key.txt" if _slot(slot) == "main" else "ai_key_backup.txt")
+
+
+def saved_key(slot="main"):
     try:
-        with open(_key_file(), encoding="utf-8") as f:
+        with open(_key_file(slot), encoding="utf-8") as f:
             return f.read().strip()
     except OSError:
         return ""
 
 
-def cfg():
-    c = dict(S.load_state().get("ai") or {})
+def cfg(slot="main"):
+    c = dict(S.load_state().get(_STATE_KEY[_slot(slot)]) or {})
     c.setdefault("provider", "gemini")
     c.setdefault("model", "")
     c.setdefault("base_url", "")
     return c
 
 
+def _ready(slot):
+    c = cfg(slot)
+    return bool(saved_key(slot) and c.get("model") and (c["provider"] != "compatible" or c.get("base_url")))
+
+
 def configured():
-    c = cfg()
-    return bool(saved_key() and c.get("model") and (c["provider"] != "compatible" or c.get("base_url")))
+    """True when at least one of the two AI services (main or backup) is set."""
+    return _ready("main") or _ready("backup")
+
+
+def _one(slot):
+    c, k, st = cfg(slot), saved_key(slot), (_status if slot == "main" else _bstatus)
+    return {"provider": c["provider"], "model": c["model"], "base_url": c["base_url"], "key_tail": k[-4:] if k else None,
+            "configured": _ready(slot), "last_ok": st["last_ok"], "last_error": st["last_error"]}
 
 
 def status():
-    c = cfg()
-    k = saved_key()
-    return {"provider": c["provider"], "model": c["model"], "base_url": c["base_url"], "key_tail": k[-4:] if k else None,
-            "configured": configured(), "providers": {p: {"label": v["label"], "model_hint": v["model_hint"]} for p, v in PROVIDERS.items()},
-            "example_bases": EXAMPLE_BASES, "last_ok": _status["last_ok"], "last_error": _status["last_error"]}
+    out = _one("main")
+    out.update(configured=configured(), main_ready=_ready("main"), backup=_one("backup"), last_used=_status.get("used"),
+               providers={p: {"label": v["label"], "model_hint": v["model_hint"]} for p, v in PROVIDERS.items()},
+               example_bases=EXAMPLE_BASES)
+    return out
 
 
 def _clean(body, need_key):
@@ -128,25 +148,34 @@ def _ask(c, key, system, user, max_tokens=300):
     return (((j.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
 
 
-def ask(system, user, max_tokens=300):
-    """One request to your saved AI service. Raises S.ApiError with a plain reason if it fails."""
-    c = cfg()
-    key = saved_key()
+def ask(system, user, max_tokens=300, check=None):
+    """Ask the main AI service; if it fails, is down, answers empty or the answer fails `check`, ask the backup.
+    Raises S.ApiError with a plain reason when both fail."""
     if not configured():
         raise S.ApiError(409, "No AI service set yet (Limits -> Telegram -> Chat with the bot).")
-    try:
-        out = _ask(c, key, system, user, max_tokens)
-    except S.ApiError as e:
-        _status["last_error"] = "%s · %s" % (S.now_ist().strftime("%d %b %H:%M"), str(e)[:200])
-        raise
-    _status["last_ok"] = S.now_ist().strftime("%d %b %H:%M")
-    return out
+    last = None
+    for slot in [x for x in SLOTS if _ready(x)]:
+        st = _status if slot == "main" else _bstatus
+        try:
+            out = _ask(cfg(slot), saved_key(slot), system, user, max_tokens)
+            if not out:
+                raise S.ApiError(502, "AI service gave an empty answer")
+            if check and not check(out):
+                raise S.ApiError(502, "AI answer was not usable (failed the check)")
+        except Exception as e:  # noqa: BLE001
+            st["last_error"] = "%s · %s" % (S.now_ist().strftime("%d %b %H:%M"), str(e)[:200])
+            last = e
+            continue
+        st["last_ok"] = S.now_ist().strftime("%d %b %H:%M")
+        _status["used"] = slot
+        return out
+    raise last if isinstance(last, S.ApiError) else S.ApiError(502, "AI service failed: %s" % str(last)[:150])
 
 
 def models(body):
     """The model names this key can use (so you can pick one instead of guessing)."""
     c, key = _clean(dict(body, model=body.get("model") or "x"), need_key=False)
-    key = key or saved_key()
+    key = key or saved_key(body.get("slot"))
     if not key:
         raise S.ApiError(400, "Paste the API key first.")
     p = c["provider"]
@@ -166,7 +195,7 @@ def models(body):
 def test(body):
     """Try the settings in the form (or the saved key when the key box is empty) with a tiny question."""
     c, key = _clean(body, need_key=False)
-    key = key or saved_key()
+    key = key or saved_key(body.get("slot"))
     if not key:
         raise S.ApiError(400, "Paste the API key first.")
     t0 = time.time()
@@ -178,35 +207,60 @@ def test(body):
 def save(body, check_pw):
     """Save provider + model (+ address) and, when given, a new key. Needs the portal password; the key is tested first."""
     check_pw(body.get("password"))
-    c, key = _clean(body, need_key=not saved_key())
-    use = key or saved_key()
+    slot = _slot(body.get("slot"))
+    c, key = _clean(body, need_key=not saved_key(slot))
+    use = key or saved_key(slot)
     _ask(c, use, "Reply with exactly one word.", "Say OK.", max_tokens=20)   # refuse settings that don't work
     if key:
         os.makedirs(S.DATA, exist_ok=True)
-        tmp = _key_file() + ".tmp"
+        tmp = _key_file(slot) + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(key)
         try:
             os.chmod(tmp, 0o600)
         except OSError:
             pass
-        os.replace(tmp, _key_file())
+        os.replace(tmp, _key_file(slot))
     with S._state_lock:
         st = S.load_state()
-        st["ai"] = c
+        st[_STATE_KEY[slot]] = c
         S.save_state(st)
-    _status["last_error"] = None
+    (_status if slot == "main" else _bstatus)["last_error"] = None
     out = status()
-    out["message"] = "Saved and tested: %s · %s." % (PROVIDERS[c["provider"]]["label"], c["model"])
+    out["message"] = "Saved and tested (%s): %s · %s." % ("main" if slot == "main" else "backup", PROVIDERS[c["provider"]]["label"], c["model"])
     return out
 
 
-def forget(check_pw, password):
+def forget(check_pw, password, slot="main"):
     check_pw(password)
+    slot = _slot(slot)
     try:
-        os.remove(_key_file())
+        os.remove(_key_file(slot))
     except OSError:
         pass
     out = status()
-    out["message"] = "AI key removed. The bot now understands messages by keywords only."
+    out["message"] = ("Backup AI key removed." if slot == "backup" else "Main AI key removed.") + (
+        "" if configured() else " The bot now understands messages by keywords only.")
+    return out
+
+
+def swap(check_pw, password):
+    """Make the backup the main (default) service and the main the backup: settings and keys change places."""
+    check_pw(password)
+    if not _ready("backup"):
+        raise S.ApiError(400, "Set up a backup AI service first.")
+    a, b = _key_file("main"), _key_file("backup")
+    tmp = a + ".swap"
+    if os.path.exists(a):
+        os.replace(a, tmp)
+    os.replace(b, a)
+    if os.path.exists(tmp):
+        os.replace(tmp, b)
+    with S._state_lock:
+        st = S.load_state()
+        st["ai"], st["ai_backup"] = st.get("ai_backup") or {}, st.get("ai") or {}
+        S.save_state(st)
+    _status["last_error"], _bstatus["last_error"] = _bstatus["last_error"], _status["last_error"]
+    out = status()
+    out["message"] = "Switched: %s is now the main AI service." % cfg("main")["model"]
     return out
