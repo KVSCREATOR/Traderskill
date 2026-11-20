@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tradeskill Portal</title>
 <link rel="stylesheet" href="app.css">
+<script>try { if (localStorage.getItem('ts.screenLock') === '1') document.documentElement.classList.add('slocked'); } catch (e) { /* storage blocked */ }</script>
 </head>
 <body>
 <div class="shell">
@@ -61,6 +62,7 @@
         </div>
         <span id="mkt" class="pill">…</span>
         <span id="ist" class="mono"></span>
+        <button id="slockBtn" class="btn ghost icon" type="button" title="Lock the screen (everything keeps working behind it)" aria-label="Lock screen">🔒</button>
         <button id="theme" class="btn ghost icon" type="button" title="Switch light / dark" aria-label="Switch theme">◐</button>
       </div>
     </header>

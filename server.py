@@ -1705,6 +1705,9 @@ def api(method, path, q, body):
         return ledger.pin_set(body)
     if path == "/api/ledger/pin/change" and method == "POST":
         return ledger.pin_change(body)
+    if path == "/api/screen/unlock_pw" and method == "POST":   # screen lock fallback when the PIN is locked or forgotten
+        telegram._check_pw((body or {}).get("password"))
+        return {"ok": True}
     if path == "/api/ledger/unlock" and method == "POST":
         return ledger.unlock(body)
     if path.startswith("/api/ledger"):

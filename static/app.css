@@ -570,3 +570,15 @@ dialog#cnDlg { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 4
 .tgsub h4 { text-align: center; text-transform: uppercase; letter-spacing: .08em; font-size: 14.5px; color: var(--accent);
   background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
 @media (max-width: 600px) { .card h2, .tgsec-t h3 { font-size: 15px; } }
+
+/* Screen lock: only hides the page on this browser; everything keeps running behind it */
+html.slocked body > *:not(#slock) { visibility: hidden !important; }
+html.slocked, html.slocked body { overflow: hidden !important; }
+#slock { position: fixed; inset: 0; z-index: 2147483000; display: none; place-items: center; background: var(--bg); }
+html.slocked #slock { display: grid; }
+#slock .box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px 26px; width: min(340px, calc(100vw - 32px)); text-align: center; box-shadow: 0 10px 40px rgba(20,30,60,.15); }
+#slock .ic { font-size: 40px; }
+#slock h2 { margin: 6px 0 4px; font-size: 18px; color: var(--text); background: none; border: 0; padding: 0; letter-spacing: .06em; }
+#slock input { width: 100%; box-sizing: border-box; text-align: center; font: 600 22px var(--mono, monospace); letter-spacing: .4em; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text); margin: 14px 0 10px; }
+#slock .err { color: var(--fail, #dc2626); min-height: 18px; font-size: 13px; }
+#slock .alt { font-size: 12.5px; margin-top: 10px; display: inline-block; }

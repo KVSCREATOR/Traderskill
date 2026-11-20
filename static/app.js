@@ -716,3 +716,44 @@ function askConfirm(title, text, okLabel = 'Delete') {
     d.querySelector('[data-ask="0"]').focus();
   });
 }
+
+/* ---------------------------------------------------------------- Screen lock (this browser only)
+   Hides the page until the My holdings PIN is typed. Only the 🔒 button locks it. Nothing stops behind it:
+   polling, alerts, the ticker and every NAS job keep running. Stays locked after a reload or NAS restart. */
+(function () {
+  const KEY = 'ts.screenLock';
+  const set = on => { try { on ? localStorage.setItem(KEY, '1') : localStorage.removeItem(KEY); } catch (e) { /* storage blocked: lock lasts until reload */ }
+    document.documentElement.classList.toggle('slocked', on); };
+  let usePw = false;
+  function draw() {
+    let el = document.getElementById('slock');
+    if (!el) { el = document.createElement('div'); el.id = 'slock'; document.body.appendChild(el); }
+    el.innerHTML = `<form class="box" autocomplete="off" onsubmit="return false"><div class="ic">🔒</div><h2>SCREEN LOCKED</h2>
+      <p class="note" style="margin:0">Everything keeps working in the background.</p>
+      <input id="slockIn" type="password" ${usePw ? 'placeholder="Portal password"' : 'inputmode="numeric" maxlength="8" placeholder="PIN"'} autocomplete="off" aria-label="${usePw ? 'Portal password' : 'PIN'}">
+      <div class="err" id="slockErr"></div><button class="btn primary" id="slockGo" style="width:100%">Unlock</button>
+      <a href="#" class="alt" id="slockAlt">${usePw ? '← Use my 4-digit PIN' : '🔑 Forgot PIN? Unlock with the portal password'}</a></form>`;
+    const inp = el.querySelector('#slockIn'), err = el.querySelector('#slockErr');
+    const go = async () => {
+      const v = inp.value; if (!v) return;
+      try {
+        if (usePw) await api('/api/screen/unlock_pw', { password: v });
+        else { const r = await api('/api/ledger/unlock', { pin: v }); if (r.token && typeof S !== 'undefined') S.pinTok = r.token; }
+        inp.value = ''; set(false);
+      } catch (e) { err.textContent = e.message; inp.value = ''; inp.focus(); }
+    };
+    el.querySelector('#slockGo').onclick = go;
+    inp.onkeydown = e => { if (e.key === 'Enter') go(); };
+    el.querySelector('#slockAlt').onclick = e => { e.preventDefault(); usePw = !usePw; draw(); };
+    setTimeout(() => inp.focus(), 50);
+  }
+  async function lock() {
+    try { const p = await api('/api/ledger/pin'); if (p && p.set === false) { toast('Set a My holdings PIN first (Limits page), then the lock can use it.', 'bad'); return; } } catch (e) { /* lock anyway */ }
+    usePw = false; draw(); set(true);
+  }
+  const start = () => { const b = document.getElementById('slockBtn'); if (b) b.onclick = lock;
+    if (document.documentElement.classList.contains('slocked')) draw(); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  setInterval(() => { if (document.documentElement.classList.contains('slocked') && !document.getElementById('slock')) draw(); }, 500);   // the box must always be there while locked
+  addEventListener('storage', e => { if (e.key === KEY) { document.documentElement.classList.toggle('slocked', e.newValue === '1'); if (e.newValue === '1') draw(); } });   // other tabs follow
+})();
