@@ -59,6 +59,8 @@ def log_post(path, body, result, mode):
         elif path == "/api/telegram/settings":
             on = b.get("on") or {}
             add("action", "Telegram messages changed", ", ".join("%s %s" % (k, "on" if v else "off") for k, v in on.items())[:300])
+        elif path == "/api/telegram/bot/change":   # never log the token or the password
+            add("action", "Telegram bot changed to @%s" % (result or {}).get("bot", "?"), "chat %s" % (result or {}).get("name", ""))
         elif path in ("/api/telegram/connect", "/api/telegram/disconnect"):
             add("action", "Telegram " + path.rsplit("/", 1)[1] + "ed")
         elif path == "/api/ledger/pin/set":

@@ -7,8 +7,10 @@ messages to the one chat that pressed Start; it does not read commands and canno
 A background watcher (started by server.py) keeps alerts, GTTs and paper exits running with no
 browser open, and sends the after-close messages (signals, holdings, daily summary) at 15:45 IST.
 """
+import hmac
 import json
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -42,15 +44,18 @@ C = None   # custom module (your own notifications)
 _send_lock = threading.Lock()
 
 
+def _token_file():
+    return os.path.join(S.DATA, "telegram_token.txt")
+
+
 def token():
-    t = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-    if not t:
-        try:
-            with open(os.path.join(S.DATA, "telegram_token.txt"), encoding="utf-8") as f:
-                t = f.read().strip()
-        except OSError:
-            t = ""
-    return t
+    """The bot set on the Limits page (data/telegram_token.txt) wins; otherwise TELEGRAM_BOT_TOKEN from tradeskill.env."""
+    try:
+        with open(_token_file(), encoding="utf-8") as f:
+            t = f.read().strip()
+    except OSError:
+        t = ""
+    return t or os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 
 
 def _cfg(st):
@@ -61,8 +66,9 @@ def _cfg(st):
     return c
 
 
-def _call(method, params=None, timeout=20):
-    tok = token()
+def _call(method, params=None, timeout=20, tok=None):
+    explicit = bool(tok)
+    tok = tok or token()
     if not tok:
         raise S.ApiError(400, "No bot token yet. Add TELEGRAM_BOT_TOKEN to tradeskill.env and rebuild.")
     url = "https://api.telegram.org/bot%s/%s" % (tok, method)
@@ -80,7 +86,9 @@ def _call(method, params=None, timeout=20):
     if not j.get("ok"):
         desc = j.get("description") or "error"
         if "Unauthorized" in desc:
-            desc = "Telegram refused the bot token. Check TELEGRAM_BOT_TOKEN."
+            desc = "Telegram refused this bot token: copy it again from @BotFather." if explicit else "Telegram refused the bot token. Check TELEGRAM_BOT_TOKEN."
+        elif "chat not found" in desc.lower():
+            desc = "Telegram can't find that chat: open the bot, press Start (or add it to the group and send a message), then try again."
         raise S.ApiError(502, desc[:200])
     return j.get("result")
 
@@ -89,7 +97,86 @@ def status():
     c = _cfg(S.load_state())
     return {"token_set": bool(token()), "connected": bool(c.get("chat_id")), "name": c.get("name"),
             "on": c["on"], "kinds": KINDS, "last_error": c.get("last_error"), "last_sent": c.get("last_sent"),
-            "removed": c.get("removed") or []}
+            "removed": c.get("removed") or [], "bot": c.get("bot"), "bot_changed": c.get("bot_changed"),
+            "token_tail": token()[-4:] if token() else None, "token_source": "page" if os.path.exists(_token_file()) else "env"}
+
+
+# ----------------------------------------------------------------- change the bot from the Limits page
+TOKEN_RE = re.compile(r"\d{5,}:[A-Za-z0-9_-]{30,}")
+_pw_fail = {"n": 0, "until": 0.0}
+
+
+def _check_pw(pw):
+    """Changing the bot needs the portal password again: 5 wrong tries lock it for 15 minutes."""
+    if time.time() < _pw_fail["until"]:
+        raise S.ApiError(429, "Too many wrong passwords. Wait 15 minutes, then try again.")
+    if not S.PASSWORD or not hmac.compare_digest(str(pw or "").encode(), S.PASSWORD.encode()):
+        _pw_fail["n"] += 1
+        if _pw_fail["n"] >= 5:
+            _pw_fail.update(n=0, until=time.time() + 900)
+        raise S.ApiError(403, "The portal password is not right.")
+    _pw_fail["n"] = 0
+
+
+def _tok_in(body):
+    t = re.sub(r"\s+", "", str(body.get("token") or ""))
+    if not TOKEN_RE.fullmatch(t):
+        raise S.ApiError(400, "That doesn't look like a bot token. It looks like 123456789:AAH... and comes from @BotFather.")
+    return t
+
+
+def _chat_name(ch):
+    return (ch.get("title") or ("%s %s" % (ch.get("first_name", ""), ch.get("last_name", ""))).strip() or ch.get("username") or str(ch.get("id")))
+
+
+def find_chat(body):
+    """Chats that pressed Start on (or wrote to) the new bot, newest last. Nothing is saved."""
+    _check_pw(body.get("password"))
+    t = _tok_in(body)
+    me = _call("getMe", tok=t)
+    upd = _call("getUpdates", {"limit": 100, "timeout": 0}, tok=t) or []
+    seen = {}
+    for u in upd:
+        for key in ("message", "my_chat_member", "channel_post", "edited_message"):
+            ch = (u.get(key) or {}).get("chat")
+            if ch and ch.get("type") in ("private", "group", "supergroup", "channel"):
+                seen[ch["id"]] = {"id": ch["id"], "name": _chat_name(ch), "type": ch["type"]}
+    if not seen:
+        raise S.ApiError(409, "No chat found yet. In Telegram open @%s and press Start (or add it to your group and send a message), then click Find again." % me.get("username"))
+    return {"bot": me.get("username"), "chats": list(seen.values())[::-1]}
+
+
+def change_bot(body):
+    """Check the new bot and chat with Telegram (test message), then switch. If any check fails, nothing changes."""
+    _check_pw(body.get("password"))
+    t = _tok_in(body)
+    try:
+        chat = int(str(body.get("chat_id") or "").strip())
+    except ValueError:
+        raise S.ApiError(400, "Enter the chat ID (a number, e.g. 123456789, or -100... for a group), or click Find my chat ID.")
+    me = _call("getMe", tok=t)
+    ch = _call("getChat", {"chat_id": chat}, tok=t) or {}
+    _call("sendMessage", {"chat_id": chat, "text": "Tradeskill now sends to this bot ✅ (@%s)\nYou will get the messages switched on under "
+                                                  "Limits → Telegram. This bot only sends messages; it cannot buy or sell." % me.get("username")}, tok=t)
+    os.makedirs(S.DATA, exist_ok=True)
+    tmp = _token_file() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(t)
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    os.replace(tmp, _token_file())
+    with S._state_lock:
+        st = S.load_state()
+        c = _cfg(st)
+        c.update(chat_id=chat, name=_chat_name(ch) if ch else str(chat), bot=me.get("username"),
+                 bot_changed=S.now_ist().strftime("%Y-%m-%d %H:%M"), last_error=None)
+        st["telegram"] = c
+        S.save_state(st)
+    out = status()
+    out["message"] = "Switched to @%s. A test message was sent to %s." % (me.get("username"), out["name"])
+    return out
 
 
 def connect():

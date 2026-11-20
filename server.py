@@ -1551,6 +1551,10 @@ def api(method, path, q, body):
         return telegram.connect()
     if path == "/api/telegram/test" and method == "POST":
         return telegram.test()
+    if path == "/api/telegram/bot/find" and method == "POST":
+        return telegram.find_chat(body or {})
+    if path == "/api/telegram/bot/change" and method == "POST":
+        return telegram.change_bot(body or {})
     if path == "/api/telegram/remove" and method == "POST":
         return telegram.remove(body.get("kind"), bool(body.get("restore")))
     if path == "/api/telegram/settings" and method == "POST":

@@ -787,11 +787,12 @@ async function tgCard(box) {
       <li>Come back here and click <b>Connect</b>.</li></ol>`;
   const gone = new Set(d.removed || []), kinds = d.kinds.filter(([k]) => !gone.has(k)), removed = d.kinds.filter(([k]) => gone.has(k));
   let body;
-  if (!d.token_set) body = `<p class="note">No bot token found yet.</p>${steps}`;
+  if (!d.token_set) body = `<p class="note">No bot token found yet. Quickest: <button class="btn sm primary" data-tgbot>Set up a bot here…</button></p>${steps}`;
   else if (!d.connected) body = `<p class="note">Bot token found. Press <b>Start</b> on your bot in Telegram, then:</p>
       <div class="row" style="margin-top:10px"><button class="btn primary" id="tgConn">Connect</button></div>`;
   else body = `<div class="row" style="margin-bottom:12px"><span class="pill pass">Connected to ${esc(d.name || 'you')}</span>
-      <button class="btn sm" id="tgTest">Send test message</button><button class="btn sm" id="tgOff">Disconnect</button>
+      ${d.bot ? `<span class="note" style="margin:0">bot @${esc(d.bot)}</span>` : ''}${d.token_tail ? `<span class="note" style="margin:0" title="Where the token comes from">token …${esc(d.token_tail)} · ${d.token_source === 'page' ? 'set on this page' : 'from tradeskill.env'}</span>` : ''}
+      <button class="btn sm" id="tgTest">Send test message</button><button class="btn sm" data-tgbot>Change bot…</button><button class="btn sm" id="tgOff">Disconnect</button>
       ${d.last_sent ? `<span class="note">Last message ${esc(d.last_sent.slice(5, 16))}</span>` : ''}</div>
       <div class="row tablebar" style="margin:0 0 10px"><span class="note" style="margin:0">${kinds.filter(([k]) => d.on[k]).length} of ${kinds.length} switched on</span>
         <button class="btn sm" data-tgall="1">All on</button><button class="btn sm" data-tgall="0">All off</button></div>
@@ -820,10 +821,50 @@ async function tgCard(box) {
   const cnb = $('#cnBox', box); if (cnb) cnCard(cnb);
   const c = $('#tgConn'); if (c) c.onclick = () => act('/api/telegram/connect', {}, 'Telegram connected. Check your phone for the test message.');
   const tt = $('#tgTest'); if (tt) tt.onclick = () => act('/api/telegram/test', {}, 'Test message sent.');
+  box.querySelectorAll('[data-tgbot]').forEach(b => b.onclick = () => tgBotForm(d, () => tgCard(box)));
   const off = $('#tgOff'); if (off) off.onclick = () => act('/api/telegram/disconnect', {}, 'Telegram disconnected.');
   box.querySelectorAll('[data-tg]').forEach(x => x.onchange = () => act('/api/telegram/settings', { on: { [x.dataset.tg]: x.checked } }));
 }
 
+
+/* Change the Telegram bot: new token + chat ID, checked with Telegram (test message) before switching. Portal password required. */
+function tgBotForm(d, done) {
+  let dlg = $('#botDlg');
+  if (!dlg) { dlg = document.createElement('dialog'); dlg.id = 'botDlg'; document.body.appendChild(dlg); }
+  dlg.innerHTML = `<form method="dialog" class="cnform" autocomplete="off">
+    <h3>${d.connected ? 'Change Telegram bot' : 'Set up a Telegram bot'}</h3>
+    <p class="note" style="margin-top:0">${d.bot ? `Now: @${esc(d.bot)} → ${esc(d.name || '')}. ` : ''}The portal checks the new bot with Telegram and sends a test message first. Only if that works does it switch; otherwise nothing changes.</p>
+    <ol class="steps note"><li>In Telegram open <b>@BotFather</b>, send <code>/newbot</code> (or <code>/token</code> for an existing bot) and copy the token.</li>
+      <li>Open your bot and press <b>Start</b> (for a group: add the bot and send a message).</li><li>Paste the token, click <b>Find my chat ID</b>, enter your portal password, then <b>Check and switch</b>.</li></ol>
+    <label>Bot token<div class="row" style="gap:6px;flex-wrap:nowrap"><input id="bTok" type="password" placeholder="123456789:AAH…" spellcheck="false" autocomplete="off" style="flex:1">
+      <button type="button" class="btn sm" id="bShow">Show</button></div></label>
+    <label>Chat ID<div class="row" style="gap:6px;flex-wrap:nowrap"><input id="bChat" inputmode="numeric" placeholder="e.g. 123456789 (group: -100…)" style="flex:1">
+      <button type="button" class="btn sm" id="bFind">Find my chat ID</button></div></label>
+    <div id="bChats" class="note"></div>
+    <label>Portal password<input id="bPw" type="password" autocomplete="current-password" placeholder="The password you sign in to this portal with"></label>
+    <div id="bOut" class="note"></div>
+    <p class="note">The token is stored only on your NAS (data/telegram_token.txt) and is never shown again; it takes priority over tradeskill.env. If an old token may have leaked, revoke it in @BotFather (/revoke).</p>
+    <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" value="cancel">Cancel</button><button class="btn primary" type="button" id="bGo">Check and switch</button></div>
+  </form>`;
+  const $f = s => dlg.querySelector(s), out = (t, bad) => { $f('#bOut').innerHTML = `<span class="${bad ? 'down' : ''}">${esc(t)}</span>`; };
+  $f('#bShow').onclick = () => { const i = $f('#bTok'); i.type = i.type === 'password' ? 'text' : 'password'; $f('#bShow').textContent = i.type === 'password' ? 'Show' : 'Hide'; };
+  $f('#bFind').onclick = async () => {
+    out('Asking Telegram…');
+    try { const r = await api('/api/telegram/bot/find', { token: $f('#bTok').value, password: $f('#bPw').value });
+      $f('#bChats').innerHTML = `Chats that wrote to @${esc(r.bot)} (click one): ` + r.chats.map(c => `<button type="button" class="btn sm" data-chat="${c.id}">${esc(c.name)} · ${esc(c.type)} · ${c.id}</button>`).join(' ');
+      $f('#bChats').querySelectorAll('[data-chat]').forEach(b => b.onclick = () => { $f('#bChat').value = b.dataset.chat; });
+      if (r.chats.length === 1) $f('#bChat').value = r.chats[0].id;
+      out(r.chats.length === 1 ? 'Found your chat and filled it in.' : 'Pick your chat above.');
+    } catch (e) { out(e.message, true); } };
+  $f('#bGo').onclick = async () => {
+    const b = $f('#bGo'); b.disabled = true; out('Checking with Telegram and sending a test message…');
+    try { const r = await api('/api/telegram/bot/change', { token: $f('#bTok').value, chat_id: $f('#bChat').value, password: $f('#bPw').value });
+      dlg.close(); toast(r.message); done(); }
+    catch (e) { out(e.message + ' Nothing was changed.', true); b.disabled = false; } };
+  dlg.addEventListener('close', () => { dlg.querySelectorAll('input').forEach(i => { i.value = ''; }); }, { once: true });   // don't leave the token or password in the page
+  dlg.showModal();
+  $f('#bTok').focus();
+}
 
 /* ---------------------------------------------------------------- Your own notifications (built from ready-made blocks) */
 const CN_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];

@@ -310,6 +310,11 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
 - 20 Nov 2026: custom notifications now 32 blocks (+ h_from_peak, h_weight, h_deal, from_dayhigh, gap_open, nifty_move,
   nifty_level, vix; market blocks use scope 'none' and R._quotes()). Scope 'pick:SYM,SYM' = some of my holdings, ticked
   in the form (listing() returns 'held' from the last snapshot).
+- BUILT 20 Nov 2026: change the Telegram bot from Limits (Change bot… / Set up a bot here…; modes2.tgBotForm).
+  telegram.find_chat (getMe + getUpdates, nothing saved) and change_bot (getMe, getChat, test sendMessage, THEN write
+  data/telegram_token.txt chmod 600 + chat_id/name/bot in state). Both need the portal password again (_check_pw, 5
+  wrong = 15 min lock). token(): page file wins over TELEGRAM_BOT_TOKEN in tradeskill.env (delete the file to go back).
+  The token/password are never logged (history.log_post logs only 'bot changed to @name'). Status shows token tail + source.
 - BUILT 20 Nov 2026: permanent deletes. Built-in Telegram messages: Delete -> state telegram.removed (never sends, logs
   'not sent: deleted', hidden from the table) with a 'Deleted messages' list + Restore (POST /api/telegram/remove
   {kind, restore}). Sent-message history: Delete per message row + 'Delete all message records' on History > Messages
