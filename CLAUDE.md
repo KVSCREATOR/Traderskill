@@ -263,6 +263,7 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
 - Scalping: keep the mode and the ORB menu entry as is (owner said keep). ORB shows only in Scalping mode by design.
 - Telegram cut (owner chose 'evening list + alerts'): state telegram.on ON = eod (15:35), alert, gtt, zerodha, paper,
   stopalert, login, weekly; everything else OFF (switches on Limits -> Telegram; nothing deleted).
-- Questions still to ask the owner one by one: pace of moving the account to the plan, which pages to hide,
+- Pace: owner chose 'show everything now' - the What next plan lists every sell/buy at once (no weekly limit).
+- Questions still to ask the owner one by one: which pages to hide / start page,
   then build: stop levels + Kite GTT instructions for every holding, real XIRR vs Nifty, weekly-check backtest,
   March tax-harvest reminder.
