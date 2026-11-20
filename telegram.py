@@ -17,6 +17,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import tgfmt as F   # message formatting: bold title + fixed-width tables (Telegram HTML)
+
 S = None   # server module
 L = None   # longterm module
 K = None   # kite module
@@ -38,7 +40,8 @@ KINDS = [("hello", "Greeting when the NAS / portal starts"), ("morning", "Mornin
          ("loss10", "A holding is down 10% or more from your buy price"),
          ("trend", "Trend change on a holding (e.g. Uptrend → Weak → Sell), market hours"),
          ("lossnews", "A holding down 5%+ with mostly negative news"),
-         ("robot", "Robot trading alert (paper): 09:35 buys, 15:00 scalps closed, after-close summary (default 15:32)"),
+         ("robot", "Robot trading alert (paper): after-close summary (default 15:32)"),
+         ("robotlive", "Robot live (paper): every real buy and sell the moment it happens, and each strategy auto on/off"),
          ("custom", "Your own notifications (master switch for all of them)")]
 R = None   # reports module (scheduled messages + history log)
 C = None   # custom module (your own notifications)
@@ -69,6 +72,20 @@ def _cfg(st):
 
 
 def _call(method, params=None, timeout=20, tok=None):
+    """Every message goes out as Telegram HTML (tgfmt.render: bold title, tables in a fixed-width box).
+    If Telegram refuses the HTML, the same message is sent again as plain text."""
+    if method in ("sendMessage", "editMessageText") and params and params.get("text") and "parse_mode" not in params:
+        raw = params["text"]
+        try:
+            return _call_raw(method, dict(params, text=F.render(raw), parse_mode="HTML"), timeout, tok)
+        except S.ApiError as e:
+            if not re.search(r"parse|entit|tag|too long|MESSAGE_TOO_LONG", str(e), re.I):
+                raise
+        params = dict(params, text=F.plain(raw))
+    return _call_raw(method, params, timeout, tok)
+
+
+def _call_raw(method, params=None, timeout=20, tok=None):
     explicit = bool(tok)
     tok = tok or token()
     if not tok:
@@ -283,16 +300,24 @@ def _quiet(kind, text, st):
         pass
     lines = text.split("\n")
     head = _norm(lines[0])
-    keep, keys, stock_lines = [], [], 0
+    keep, keys, stock_lines, carry = [], [], 0, ""
     for i, ln in enumerate(lines):
-        syms = [w for w in _SYM_RE.findall(ln) if w in names] if i else []
+        syms = [w for w in _SYM_RE.findall(F.plain(ln)) if w in names] if i else []
         if syms:
             stock_lines += 1
             k = "%s|%s|%s" % (kind, head, syms[0])
-            if k in q:
+            if k in q:   # dropped: keep the table markers it carried, so the table still opens and closes
+                if F.T0 in ln:
+                    carry += F.T0
+                if F.T1 in ln:
+                    if carry:
+                        carry = carry.replace(F.T0, "", 1)
+                    elif keep:
+                        keep[-1] += F.T1
                 continue
             keys.append(k)
-        keep.append(ln)
+        keep.append(carry + ln if carry else ln)
+        carry = ""
     if stock_lines == 0:   # a message about the market, not stocks: the whole message is one item
         k = "%s|%s" % (kind, head)
         return (None, []) if k in q else (text, [k])
@@ -323,7 +348,7 @@ def notify(kind, text):
     Never raises and never slows the caller."""
     def log(status, err=None):
         try:
-            R.log(kind, text, status, err)
+            R.log(kind, F.plain(text), status, err)
         except Exception:  # noqa: BLE001
             pass
     try:
@@ -410,7 +435,7 @@ def after_close():
     except Exception:  # noqa: BLE001
         pass
     mine = set(watch) | set(held)
-    sig_lines = []
+    sig_lines, n_mine, n_bad = [], 0, 0
     if on.get("signals"):
         for mode in ("swing", "invest"):
             try:
@@ -419,23 +444,23 @@ def after_close():
                 continue
             if not d.get("regime"):
                 sig_lines.append("%s: market filter says hold off new buys." % L.LABEL[mode])
-            for r in d["rows"]:
-                if r["status"] in ("confirmed", "recent") and r["symbol"] in mine:
-                    sig_lines.append("%s · %s %s at %s (%s%s)" % (L.LABEL[mode], r["symbol"], r["setup"], _rs(r["price"]),
-                                                                "you hold it" if r["symbol"] in held else "watchlist",
-                                                                ", rank %d" % r["rank"]))
+            got = [r for r in d["rows"] if r["status"] in ("confirmed", "recent") and r["symbol"] in mine]
             n = sum(1 for r in d["rows"] if r["status"] in ("confirmed", "recent"))
-            sig_lines.append("%s: %d of 250 stocks in a buy zone today." % (L.LABEL[mode], n))
+            sig_lines.append("%s: %d of 250 stocks in a buy zone today%s" % (L.LABEL[mode], n, "; yours:" if got else "."))
+            if got:
+                sig_lines.append(F.table([[r["symbol"], F.px(r["price"]), "held" if r["symbol"] in held else "watch", r["rank"], r["setup"]] for r in got],
+                                         head=["Stock", "Price", "Why", "Rank", "Setup"]))
+            n_mine += len(got)
         notify("signals", "📈 Buy signals after today's close\n" + "\n".join(sig_lines))
     hold_lines = []
     if on.get("holdings") and held:
         try:
             h = K.holdings("invest")
-            for r in h.get("rows", []):
-                if r.get("verdict") in ("exit", "weak"):
-                    hold_lines.append("%s %s · %s%s" % ("🔴" if r["verdict"] == "exit" else "🟠", r["symbol"],
-                                                       "Exit signal" if r["verdict"] == "exit" else "Weak",
-                                                       (" · rule stop " + _rs(r.get("rule_stop"))) if r.get("rule_stop") else ""))
+            bad = [r for r in h.get("rows", []) if r.get("verdict") in ("exit", "weak")]
+            if bad:
+                hold_lines.append(F.table([[r["symbol"], "EXIT" if r["verdict"] == "exit" else "weak", F.pc(r.get("pnl_pct")),
+                                            F.px(r["rule_stop"]) if r.get("rule_stop") else "–"] for r in bad], head=["Stock", "Rule", "P/L", "Stop"]))
+            n_bad = len(bad)
         except Exception:  # noqa: BLE001
             hold_lines.append("Could not read Zerodha holdings (log in again on My holdings).")
         if hold_lines:
@@ -443,27 +468,26 @@ def after_close():
     if on.get("summary"):
         lines = ["🗓 Tradeskill · %s" % S.market_clock()["date"]]
         try:
-            for r in S.indices()["rows"][:3]:
-                lines.append("%s %s (%+.2f%%)" % (r["name"], "{:,.2f}".format(r["price"]), r["pct"] or 0))
+            lines.append(F.table([[r["name"], "{:,.2f}".format(r["price"]), F.pc(r["pct"] or 0, 2)] for r in S.indices()["rows"][:3]],
+                                 head=["Index", "Close", "Today"]))
         except Exception:  # noqa: BLE001
             pass
+        pairs = []
         for mode in ("swing", "invest"):
             try:
                 p = L.portfolio_long(mode)
-                lines.append("Paper %s: %d holdings, equity %s (%s%s since start)" % (
-                    L.LABEL[mode], len(p["positions"]), _rs(p["equity"], 0), "+" if p["total_pnl"] >= 0 else "", _rs(p["total_pnl"], 0)))
+                pairs.append(("Paper %s (%d)" % (L.LABEL[mode], len(p["positions"])), "%s %s" % (F.rs(p["equity"]), F.sg(p["total_pnl"]))))
             except Exception:  # noqa: BLE001
                 pass
         if held:
             try:
                 h = K.holdings("invest")
-                lines.append("Zerodha: value %s, today %s%s, total %s%s (%+.1f%%)" % (
-                    _rs(h["total_value"], 0), "+" if h["day_pnl"] >= 0 else "", _rs(h["day_pnl"], 0),
-                    "+" if h["pnl"] >= 0 else "", _rs(h["pnl"], 0), h["pnl_pct"] or 0))
+                pairs += [("Zerodha value", F.rs(h["total_value"])), ("Zerodha today", F.sg(h["day_pnl"])),
+                          ("Zerodha total", "%s %s" % (F.sg(h["pnl"]), F.pc(h["pnl_pct"] or 0)))]
             except Exception:  # noqa: BLE001
                 pass
-        lines.append("Signals for your stocks: %d · holdings at Exit/Weak: %d" % (
-            sum(1 for x in sig_lines if "you hold it" in x or "watchlist" in x), len(hold_lines)))
+        pairs += [("Signals, your stocks", str(n_mine)), ("Holdings Exit/Weak", str(n_bad))]
+        lines.append(F.kv(pairs))
         notify("summary", "\n".join(lines))
 
 

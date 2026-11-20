@@ -850,10 +850,11 @@ def stop_lines(limit=10):
     todo = [x for x in s["rows"] if x["status"] in ("new", "raise", "qty")]
     if not todo:
         return ["🛡 Kite stop GTTs: nothing to change."] if s["rows"] else []
-    word = {"new": "set", "raise": "raise to", "qty": "change qty"}
-    out = ["🛡 Kite stop GTTs to set or change (%d):" % len(todo)]
-    out += ["  %s: %s sell %g · trigger %s · limit %s%s" % (x["symbol"], word[x["status"]], x["qty"], _rs2(x["trigger"]), _rs2(x["limit"]),
-            " (was %s)" % _rs2(x["kite"]) if x["status"] == "raise" else "") for x in todo[:limit]]
+    import tgfmt as F
+    word = {"new": "SET", "raise": "RAISE", "qty": "QTY"}
+    out = ["🛡 Kite stop GTTs to set or change (%d):" % len(todo),
+           F.table([[word[x["status"]], x["symbol"], "%g" % x["qty"], F.px(x["trigger"]), F.px(x["limit"])] for x in todo[:limit]],
+                   head=["Do", "Stock", "Qty", "Trigger", "Limit"])]
     if len(todo) > limit:
         out.append("  …and %d more: portal → My holdings → Stops." % (len(todo) - limit))
     return out

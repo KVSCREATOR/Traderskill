@@ -22,6 +22,9 @@ import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
+
+import tgfmt as F   # tables + bold titles in Telegram (rendered in telegram._call)
 
 S = None    # server module
 L = None    # longterm
@@ -39,14 +42,16 @@ COMMANDS = [("menu", "Show the menu"), ("today", "Today's checklist"), ("holding
             ("stops", "Kite stop GTTs"), ("plan", "What next: sells and buys"), ("nifty", "Market: Nifty, VIX, filter"),
             ("news", "News for my holdings (or /news HAL)"), ("alerts", "Alerts and notifications"), ("scanner", "Lists, signals, scanner"),
             ("paper", "Paper trading"), ("tax", "Tax and tax-free gains"), ("reports", "Reports on demand"),
-            ("settings", "Settings, Zerodha login, portal"), ("vsnifty", "My return vs the Nifty"), ("lang", "Language: /lang hi or /lang en"),
+            ("settings", "Settings, Zerodha login, portal"), ("robot", "AI Robot (paper): money, live, sold, strategies"), ("vsnifty", "My return vs the Nifty"), ("lang", "Language: /lang hi or /lang en"),
             ("help", "What I can do")]
 CMDS = {c for c, _ in COMMANDS} | {"more", "core", "sectors", "results", "longterm", "limits", "lists", "signals", "top", "quiet",
-                                   "pricealerts", "notes", "messages", "login", "status", "gtts", "rules", "restart", "holdmenu"}
-BOTTOM = [["📋 Today", "💼 Holdings", "🛡 Stops"], ["🧭 Plan", "📈 Market", "📰 News"], ["🔔 Alerts", "📊 Scanner", "☰ More"]]
+                                   "pricealerts", "notes", "messages", "login", "status", "gtts", "rules", "restart", "holdmenu",
+                                   "rblive", "rbsold", "rbstrat", "rbtoday", "rbdiary", "rbcharges", "rbset", "rbrisk", "rbalert"}
+BOTTOM = [["📋 Today", "💼 Holdings", "🛡 Stops"], ["🧭 Plan", "📈 Market", "📰 News"], ["🔔 Alerts", "📊 Scanner", "☰ More"], ["🤖 Robot"]]
 BOTTOM_CMD = {"📋 Today": "today", "💼 Holdings": "holdings", "🛡 Stops": "stops", "🧭 Plan": "plan", "📈 Market": "nifty",
-              "📰 News": "news", "🔔 Alerts": "alerts", "📊 Scanner": "scanner", "☰ More": "more"}
+              "📰 News": "news", "🔔 Alerts": "alerts", "📊 Scanner": "scanner", "☰ More": "more", "🤖 Robot": "robot"}
 WORDS = [  # plain words (English / Hindi / Hinglish) -> command; first match wins
+    ("robot", r"\brobot\b|रोबोट"),
     ("vsnifty", r"vs ?nifty|beat(ing)? (the )?nifty|my return|xirr|score"),
     ("stops", r"\bstops?\b|\bgtt|stop ?loss|स्टॉप"),
     ("tax", r"\btax\b|harvest|ltcg|stcg|टैक्स"),
@@ -291,10 +296,17 @@ def start():
 
 def _poll():
     _status["started"] = time.strftime("%Y-%m-%d %H:%M")
+    cmds_sent = False
     while True:
         if not enabled():
             time.sleep(10)
             continue
+        if not cmds_sent:   # keep Telegram's / list in step with COMMANDS (e.g. /robot) after a restart; no message sent
+            cmds_sent = True
+            try:
+                _call("setMyCommands", {"commands": json.dumps([{"command": c, "description": d} for c, d in COMMANDS])})
+            except Exception:  # noqa: BLE001
+                pass
         try:
             if _off["n"] is None:
                 _off["n"] = _cb().get("offset")
@@ -403,6 +415,8 @@ ACTIONS = [  # typed actions: (regex, command)
     (r"^limit\s+([a-z_ ]+?)\s+₹?([\d.,]+)$", "setlimit"),
     (r"^core\s+(\d{1,3})\s*%?$", "setcore"),
     (r"^news\s+([A-Za-z0-9&-]+)$", "news"),
+    (r"^robot\s+risk\s+([\d.]+)\s*%?$", "rbrisk"),
+    (r"^robot\s+alert\s+(\d{1,2}[:.]\d\d)$", "rbalert"),
 ]
 
 
@@ -509,8 +523,8 @@ MENU = _btn([("📋 Today", "cmd:today"), ("💼 Holdings", "cmd:holdings"), ("�
             [("☰ More", "cmd:more")])
 
 
-VIEW_BLOCK_CMD = {"addalert", "listedit", "paperbuy", "setlimit", "setcore", "restart", "login"}
-VIEW_BLOCK_BTN = {"lr", "la", "t", "sd", "cn", "cd", "pd", "tg", "uq", "uk", "ct", "pc", "gc", "pb", "cf", "ru", "lg"}
+VIEW_BLOCK_CMD = {"addalert", "listedit", "paperbuy", "setlimit", "setcore", "restart", "login", "rbrisk", "rbalert"}
+VIEW_BLOCK_BTN = {"lr", "la", "t", "sd", "cn", "cd", "pd", "tg", "uq", "uk", "ct", "pc", "gc", "pb", "cf", "ru", "lg", "rbk", "rba"}
 VIEW_ONLY = "👁 You have view-only access: ask the owner to change this."
 
 
@@ -528,7 +542,9 @@ def run(cmd, arg=""):
           "scanner": a_scanner, "lists": a_lists, "signals": a_signals, "top": a_top, "paper": a_paper, "gtts": a_gtts,
           "reports": a_reports, "settings": a_settings, "login": a_login, "status": a_settings, "rules": a_rules,
           "lang": a_lang, "restart": a_restart, "addalert": x_addalert, "listedit": x_listedit, "paperbuy": x_paperbuy,
-          "setlimit": x_setlimit, "setcore": x_setcore}.get(cmd, a_help)
+          "setlimit": x_setlimit, "setcore": x_setcore, "robot": a_robot, "rblive": a_rblive, "rbsold": a_rbsold,
+          "rbstrat": a_rbstrat, "rbtoday": a_rbtoday, "rbdiary": a_rbdiary, "rbcharges": a_rbcharges, "rbset": a_rbset,
+          "rbrisk": x_rbrisk, "rbalert": x_rbalert}.get(cmd, a_help)
     return fn(arg)
 
 
@@ -538,6 +554,7 @@ def a_help(_=""):
             "• a stock: HAL · news HAL · paper buy HAL\n"
             "• alert HAL below 4500 · add HAL to My list · remove HAL\n"
             "• limit max_per_stock 80000 · core 50\n"
+            "• robot · robot risk 1.5 · robot alert 15:45\n"
             "• questions: \"how are my holdings?\", \"aaj kya karna hai\"\n\n"
             + "\n".join("/%s · %s" % (c, d) for c, d in COMMANDS)
             + "\n\nNever places real orders. Rule results, not personal advice."), MENU
@@ -548,6 +565,7 @@ def a_more(_=""):
         [("💼 Holdings & tax", "cmd:holdmenu"), ("🔔 Alerts", "cmd:alerts")],
         [("📊 Lists & scanner", "cmd:scanner"), ("🧾 Paper trading", "cmd:paper")],
         [("📑 Reports", "cmd:reports"), ("⚙️ Settings & portal", "cmd:settings")],
+        [("🤖 AI Robot", "cmd:robot")],
         [("📋 Today", "cmd:today"), ("💼 Holdings", "cmd:holdings")])
 
 
@@ -583,17 +601,13 @@ def a_holdings(_=""):
     pn = sum(h["pnl"] or 0 for h in hold)
     cost = sum((h["avg"] or 0) * h["qty"] for h in hold)
     hold.sort(key=lambda h: -(h["day_pnl"] or 0))
-    lines = ["💼 My holdings · %d stocks · %s" % (len(hold), _rs(tv)),
-             "Today %s (%+.2f%%) · Total %s (%+.1f%%)" % (_rs(dp), dp / (tv - dp) * 100 if tv - dp else 0, _rs(pn), pn / cost * 100 if cost else 0)]
-    up = [h for h in hold if (h["day_pnl"] or 0) > 0][:4]
-    dn = [h for h in hold[::-1] if (h["day_pnl"] or 0) < 0][:4]
-    if up:
-        lines.append("🟢 " + " · ".join("%s %s (%+.1f%%)" % (h["symbol"], _rs(h["day_pnl"]), h["day_pct"] or 0) for h in up))
-    if dn:
-        lines.append("🔴 " + " · ".join("%s %s (%+.1f%%)" % (h["symbol"], _rs(h["day_pnl"]), h["day_pct"] or 0) for h in dn))
-    worst = sorted(hold, key=lambda h: h["pnl_pct"] if h["pnl_pct"] is not None else 0)[:3]
-    lines.append("Biggest total losses: " + ", ".join("%s %+.1f%%" % (h["symbol"], h["pnl_pct"] or 0) for h in worst))
-    lines.append("Tap a stock for details. Prices delayed; quantities from your last Zerodha snapshot.")
+    lines = ["💼 My holdings · %d stocks" % len(hold),
+             F.kv([("Value now", F.rs(tv)), ("Invested", F.rs(cost)), ("Today", "%s %s" % (F.sg(dp), F.pc(dp / (tv - dp) * 100 if tv - dp else 0, 2))),
+                   ("Total P/L", "%s %s" % (F.sg(pn), F.pc(pn / cost * 100 if cost else 0)))]),
+             "Every holding (best today first):",
+             F.table([[h["symbol"], F.rs(h["value"]), F.sg(h["day_pnl"] or 0), F.pc(h["pnl_pct"], 1)] for h in hold],
+                     head=["Stock", "Value", "Today", "Total"]),
+             "Tap a stock for details. Prices delayed; quantities from your last Zerodha snapshot."]
     syms = sorted(h["symbol"] for h in hold)
     rows = [[(s, "st:" + s) for s in syms[k:k + 4]] for k in range(0, min(len(syms), 20), 4)]
     return "\n".join(lines), _btn(*rows, [("🔄 Refresh", "cmd:holdings"), ("🛡 Stops", "cmd:stops"), ("☰ Menu", "cmd:holdmenu")])
@@ -605,20 +619,22 @@ def a_stock(arg=""):
         return "Which stock? Send e.g. /stock HAL or just HAL.", MENU
     mode = rules()
     p = L.analyze(sym, mode)
-    lines = ["📊 %s · %s" % (sym, p.get("name") or ""),
-             "%s (%+.2f%% today) · score %s/100 · %s" % (_px(p.get("price")), p.get("change_pct") or 0, p.get("score"), p.get("verdict") or ""),
-             "Rules: %s" % ("Investing" if mode == "invest" else "Trading")]
-    if p.get("why"):
-        lines.append(str(p["why"])[:300])
     pl = p.get("plan") or {}
+    pairs = [("Price", F.px(p.get("price"))), ("Today", F.pc(p.get("change_pct") or 0, 2)), ("Score", "%s/100" % p.get("score")),
+             ("Verdict", str(p.get("verdict") or "–")), ("Rules", "Investing" if mode == "invest" else "Trading")]
     if pl.get("entry"):
-        lines.append("Rule plan: entry %s · stop %s%s" % (_px(pl.get("entry")), _px(pl.get("stop")),
-                                                        " · qty %s" % (p.get("size") or {}).get("qty") if (p.get("size") or {}).get("qty") else ""))
+        pairs += [("Rule entry", F.px(pl.get("entry"))), ("Rule stop", F.px(pl.get("stop")))]
+        if (p.get("size") or {}).get("qty"):
+            pairs.append(("Rule qty", str(p["size"]["qty"])))
     h = C._holdings().get(sym)
     if h:
-        lines.append("You hold %g @ %s · %s (%+.1f%%) · today %s" % (h["qty"], _px(h["avg"]), _rs(h["pnl"] or 0), h["pnl_pct"] or 0, _rs(h["day_pnl"] or 0)))
+        pairs += [("You hold", "%g @ %s" % (h["qty"], F.px(h["avg"]))), ("Your P/L", "%s %s" % (F.sg(h["pnl"] or 0), F.pc(h["pnl_pct"] or 0))),
+                  ("Your today", F.sg(h["day_pnl"] or 0))]
         if h.get("stop"):
-            lines.append("Rule stop %s (%.1f%% below the price)" % (_px(h["stop"]), (1 - h["stop"] / h["price"]) * 100))
+            pairs.append(("Holding stop", "%s (%.1f%% below)" % (F.px(h["stop"]), (1 - h["stop"] / h["price"]) * 100)))
+    lines = ["📊 %s · %s" % (sym, p.get("name") or ""), F.kv(pairs)]
+    if p.get("why"):
+        lines.append(str(p["why"])[:300])
     lines.append("Screening, not advice.")
     return "\n".join(lines), _btn([("📰 News", "nw:" + sym), ("🔔 Alert…", "al:" + sym), ("➕ My list", "la:" + sym)],
                                   [("🧾 Paper buy…", "pb:" + sym), ("🔄 Refresh", "st:" + sym), ("☰ Menu", "cmd:more")])
@@ -630,8 +646,12 @@ def a_stops(_=""):
     hit = [x for x in s["rows"] if x["status"] == "hit"]
     lines = ["🛡 Kite stop GTTs · %d to set or change · %d OK" % (len(todo), s["counts"].get("ok", 0))]
     word = {"new": "SET", "raise": "RAISE", "qty": "QTY"}
-    lines += ["%s %s: sell %g · trigger %s · limit %s%s" % (word[x["status"]], x["symbol"], x["qty"], _px(x["trigger"]), _px(x["limit"]),
-                                                        " (was %s)" % _px(x["kite"]) if x["status"] == "raise" else "") for x in todo[:12]]
+    if todo:
+        lines.append(F.table([[word[x["status"]], x["symbol"], "%g" % x["qty"], F.px(x["trigger"]), F.px(x["limit"])] for x in todo[:15]],
+                             head=["Do", "Stock", "Qty", "Trigger", "Limit"]))
+        was = [x for x in todo[:15] if x["status"] == "raise" and x.get("kite")]
+        if was:
+            lines.append("Raise from: " + ", ".join("%s %s" % (x["symbol"], F.px(x["kite"])) for x in was))
     if hit:
         lines.append("🔴 Exit fired (price at/below stop): " + ", ".join(x["symbol"] for x in hit))
     if not todo:
@@ -651,11 +671,11 @@ def a_plan(_=""):
     if cb and cb.get("amount"):
         lines.append("🔵 Nifty core first: buy about %s of %s (core → about %.0f%% of %d%%)" % (_rs(cb["amount"]), cb["fund"], cb.get("pct_after") or 0, cb["target"]))
     if p["sells"]:
-        lines.append("🔴 Sell:")
-        lines += ["  %s %s · %s" % ("all" if s["all"] else "%g" % s["qty"], s["symbol"], s["reason"]) for s in p["sells"][:12]]
+        lines.append("🔴 Sell")
+        lines.append(F.table([[s["symbol"], "all" if s["all"] else "%g" % s["qty"], s["reason"]] for s in p["sells"][:15]], head=["Stock", "Qty", "Why"]))
     if p["buys"]:
-        lines.append("🟢 Buy:")
-        lines += ["  %d %s at %s · about %s" % (b["qty"], b["symbol"], _px(b["price"]), _rs(b["amount"])) for b in p["buys"]]
+        lines.append("🟢 Buy")
+        lines.append(F.table([[b["symbol"], b["qty"], F.px(b["price"]), F.rs(b["amount"])] for b in p["buys"]], head=["Stock", "Qty", "Price", "Amount"]))
     if p.get("waiting"):
         lines.append("Next in line: " + ", ".join(w["symbol"] for w in p["waiting"]))
     lines.append("Rule results, not personal advice.")
@@ -667,8 +687,8 @@ def a_vsnifty(_=""):
     if not r.get("ok"):
         return r.get("message") or "Not enough records yet.", MENU
     lines = ["🏁 You vs Nifty · %s to %s (%d days)" % (r["from"], r["to"], r["days"]),
-             "Your stocks: %s profit · %s a year" % (_rs(r["profit"]), "%+.1f%%" % r["xirr"] if r["xirr"] is not None else "–"),
-             "Same money in Nifty 50: %s · %s a year" % (_rs(r["nifty_profit"]), "%+.1f%%" % r["nifty_xirr"] if r["nifty_xirr"] is not None else "–")]
+             F.table([["Your stocks", F.sg(r["profit"]), F.pc(r["xirr"])], ["Nifty 50", F.sg(r["nifty_profit"]), F.pc(r["nifty_xirr"])]],
+                     head=["Same money in", "Profit", "A year"])]
     if r.get("short"):
         lines.append("Under a year of records: judge after 12 months.")
     return "\n".join(lines), _btn(*_back())
@@ -677,17 +697,18 @@ def a_vsnifty(_=""):
 def a_tax(_=""):
     rep = LG.report()
     tx = rep.get("tax") or {}
-    lines = ["💰 Tax estimate · FY %s" % rep.get("fy"),
-             "Short-term gains %s · long-term gains %s" % (_rs(tx.get("short_gain") or 0), _rs(tx.get("long_gain") or 0)),
-             "Estimated tax %s (incl. cess)" % _rs(tx.get("total_tax") or 0)]
+    pairs = [("Short-term gains", F.sg(tx.get("short_gain") or 0)), ("Long-term gains", F.sg(tx.get("long_gain") or 0)),
+             ("Est. tax (incl. cess)", F.rs(tx.get("total_tax") or 0))]
     if tx.get("if_sold_today") is not None:
-        lines.append(("Extra tax if all sold today: %s" if tx["if_sold_today"] >= 0 else "Tax saved if all sold today: %s") % _rs(abs(tx["if_sold_today"])))
+        pairs.append(("Extra tax if sold today" if tx["if_sold_today"] >= 0 else "Tax saved if sold today", F.rs(abs(tx["if_sold_today"]))))
+    lines = ["💰 Tax estimate · FY %s" % rep.get("fy"), F.kv(pairs)]
     hv = tx.get("harvest")
     if hv:
         lines.append("\nTax-free long-term gains left before %s: %s" % (hv["fy_end"], _rs(hv["room"])))
         if hv["picks"]:
-            lines += ["  Sell %g %s, buy back next trading day · books %s%s" % (p["qty"], p["symbol"], _rs(p["gain"]), " (from %s)" % p["sell_from"] if p["sell_from"] else "")
-                      for p in hv["picks"][:6]]
+            lines.append("Sell, then buy back the next trading day:")
+            lines.append(F.table([[p["symbol"], "%g" % p["qty"], F.sg(p["gain"]), p["sell_from"] or ""] for p in hv["picks"][:8]],
+                                 head=["Stock", "Qty", "Books", "From"]))
             lines.append("Saves about %s tax · charges about %s" % (_rs(hv["saved"]), _rs(hv["charges"])))
         if hv.get("maybe"):
             lines.append("Not dated in your records: " + ", ".join(m["symbol"] for m in hv["maybe"][:8]))
@@ -698,8 +719,8 @@ def a_tax(_=""):
 def a_core(_=""):
     c = (LG.report() or {}).get("core") or {}
     lines = ["🥧 Core + satellite · target %d%% in Nifty funds" % (c.get("target") or 0),
-             "Core (index funds) %s · stocks %s" % (_rs(c.get("core_value") or 0), _rs(c.get("sat_value") or 0)),
-             "Now %s in the core" % ("%.0f%%" % c["actual"] if c.get("actual") is not None else "–")]
+             F.kv([("Core (index funds)", F.rs(c.get("core_value") or 0)), ("Stocks", F.rs(c.get("sat_value") or 0)),
+                   ("In the core now", "%.0f%%" % c["actual"] if c.get("actual") is not None else "–"), ("Target", "%d%%" % (c.get("target") or 0))])]
     if c.get("move"):
         lines.append("%s about %s to reach the target%s" % ("Move into the index fund" if c["move"] > 0 else "Move from the index fund into stocks",
                                                         _rs(abs(c["move"])), " · rebalance due" if c.get("due") else ""))
@@ -722,8 +743,11 @@ def _set_core(t):
 
 def a_sectors(_=""):
     secs = (LG.report() or {}).get("sectors") or []
-    lines = ["🏭 Sectors"] + ["%s %s: %d stock%s, %.0f%% · %s" % ("⚠️" if s.get("over") else "•", s["sector"], len(s["stocks"]), "" if len(s["stocks"]) == 1 else "s",
-                                                               s.get("pct") or 0, ", ".join(s["stocks"][:5])) for s in secs if s.get("stocks")][:15]
+    secs = [s for s in secs if s.get("stocks")][:20]
+    lines = ["🏭 Sectors (! = over your limit)",
+             F.table([[("!" if s.get("over") else "") + s["sector"], len(s["stocks"]), "%.0f%%" % (s.get("pct") or 0)] for s in secs],
+                     head=["Sector", "Stocks", "Share"])]
+    lines += ["• %s: %s" % (s["sector"], ", ".join(s["stocks"][:8])) for s in secs]
     return "\n".join(lines), _btn(*_back())
 
 
@@ -732,7 +756,9 @@ def a_results(_=""):
     with ThreadPoolExecutor(6) as ex:
         dues = dict(zip(held, ex.map(ML._results_due, held)))
     rows = sorted(((s, d) for s, d in dues.items() if d and -2 <= d["days"] <= 45), key=lambda x: x[1]["days"])
-    lines = ["📅 Results expected (estimates)"] + ["%s around %s (in %d days)" % (s, d["date"], d["days"]) for s, d in rows]
+    lines = ["📅 Results expected (estimates)"]
+    if rows:
+        lines.append(F.table([[s, d["date"], "%dd" % d["days"]] for s, d in rows], head=["Stock", "Around", "In"]))
     if not rows:
         lines.append("None in the next 45 days.")
     return "\n".join(lines), _btn(*_back())
@@ -746,9 +772,10 @@ def a_longterm(_=""):
             if l.get("long") is False and l.get("days_to_long") is not None and l["days_to_long"] <= 90:
                 rows.append((l["days_to_long"], h["symbol"], l))
     rows.sort(key=lambda x: x[0])
-    lines = ["🗓 Turning long-term (tax 20% → 12.5%) within 90 days"] + [
-        "%s: %g shares on %s (in %d days)%s" % (s, l["qty"], l["long_from"], d, " · gain %s" % _rs(l["gain"]) if l.get("gain") is not None else "")
-        for d, s, l in rows[:15]]
+    lines = ["🗓 Turning long-term (tax 20% → 12.5%) within 90 days"]
+    if rows:
+        lines.append(F.table([[s, "%g" % l["qty"], l["long_from"][5:] if l.get("long_from") else "", "%dd" % d, F.sg(l["gain"]) if l.get("gain") is not None else "–"]
+                              for d, s, l in rows[:20]], head=["Stock", "Qty", "On", "In", "Gain"]))
     if not rows:
         lines.append("None in the next 90 days (records start with your imported tradebook).")
     return "\n".join(lines), _btn(*_back())
@@ -762,8 +789,9 @@ LIMIT_KEYS = {"capital": "capital", "risk": "risk_per_trade", "risk_per_trade": 
 def a_limits(_=""):
     cfg = L.settings_for("invest")
     lines = ["⚖ Your limits (Investing, also used for Trading)",
-             "capital %s · risk_per_trade %s · max_per_stock %s" % (_rs(cfg["capital"]), _rs(cfg["risk_per_trade"]), _rs(cfg["max_per_stock"])),
-             "max_positions %d · max_per_sector %d · max_open_risk %s · dd_pause_pct %g%%" % (cfg["max_positions"], cfg["max_per_sector"], _rs(cfg["max_open_risk"]), cfg["dd_pause_pct"]),
+             F.kv([("capital", F.rs(cfg["capital"])), ("risk_per_trade", F.rs(cfg["risk_per_trade"])), ("max_per_stock", F.rs(cfg["max_per_stock"])),
+                   ("max_positions", str(cfg["max_positions"])), ("max_per_sector", str(cfg["max_per_sector"])),
+                   ("max_open_risk", F.rs(cfg["max_open_risk"])), ("dd_pause_pct", "%g%%" % cfg["dd_pause_pct"])]),
              "Change: type e.g. limit max_per_stock 80000 (asks to confirm)."]
     return "\n".join(lines), _btn(*_back())
 
@@ -787,10 +815,10 @@ def _set_limit(key, val):
 def a_nifty(_=""):
     _, by = R._quotes()
     lines = ["📈 Market"]
-    for name in ("NIFTY 50", "BANK NIFTY", "INDIA VIX"):
-        q = by.get(name)
-        if q and q.get("price"):
-            lines.append("%s %s (%+.2f%%)" % (name, format(q["price"], ",.2f"), q.get("pct") or 0))
+    qs = [[name, format(by[name]["price"], ",.2f"), F.pc(by[name].get("pct") or 0, 2)] for name in ("NIFTY 50", "BANK NIFTY", "INDIA VIX")
+          if by.get(name) and by[name].get("price")]
+    if qs:
+        lines.append(F.table(qs, head=["Index", "Level", "Today"]))
     try:
         mkt = L.market()
         d = mkt.ind["d"][-1]
@@ -804,7 +832,8 @@ TONE = {"pos": "🟢", "neg": "🔴"}
 
 
 def a_news(arg=""):
-    sym = S.clean_symbol(arg if isinstance(arg, str) else (arg[0] if arg else ""))
+    raw = arg if isinstance(arg, str) else (arg[0] if arg else "")
+    sym = S.clean_symbol(raw) if raw and raw.strip() else ""   # no symbol = news for all my holdings
     syms = [sym] if sym else sorted(_held())[:14]
     if not syms:
         return "No holdings yet. Try: news HAL", MENU
@@ -832,8 +861,8 @@ def a_alerts(_=""):
     n_own = len(((st.get("custom_notes") or {}).get("rules")) or [])
     n_px = len([a for a in st.get("alerts") or [] if not a.get("fired_at")])
     n_q = len(((st.get("telegram") or {}).get("quiet")) or {})
-    return ("🔔 Alerts\nOwn notifications: %d · price alerts waiting: %d · muted alerts: %d\n"
-            "Add a price alert: type alert HAL below 4500 (or above)." % (n_own, n_px, n_q)), _btn(
+    return ("🔔 Alerts\n" + F.kv([("Own notifications", str(n_own)), ("Price alerts waiting", str(n_px)), ("Muted alerts", str(n_q))]) +
+            "\nAdd a price alert: type alert HAL below 4500 (or above)."), _btn(
         [("🔔 Own notifications", "cmd:notes"), ("💲 Price alerts", "cmd:pricealerts")],
         [("📨 Built-in messages", "cmd:messages"), ("🔕 Muted (%d)" % n_q, "cmd:quiet")], [("☰ Menu", "cmd:more")])
 
@@ -850,15 +879,19 @@ def a_notes(_=""):
 def a_pricealerts(_=""):
     al = S.load_state().get("alerts") or []
     lines = ["💲 Price alerts (🗑 to delete)"]
-    rows = []
+    rows, trows = [], []
     for a in al[-20:]:
         if a.get("type") == "clock":
             txt = "clock %s" % a.get("level")
+            trows.append(["clock", "", str(a.get("level")), "rang" if a.get("fired_at") else "waiting"])
         else:
-            txt = "%s %s %s%s" % (a.get("symbol"), a.get("type"), a.get("level"), " · rang" if a.get("fired_at") else "")
-        lines.append(("✅ " if a.get("fired_at") else "⏳ ") + txt + (" (%s)" % a["label"] if a.get("label") else ""))
+            txt = "%s %s %s" % (a.get("symbol"), a.get("type"), a.get("level"))
+            trows.append([a.get("symbol"), a.get("type"), F.px(a.get("level")) if isinstance(a.get("level"), (int, float)) else str(a.get("level")),
+                          "rang" if a.get("fired_at") else "waiting"])
         rows.append([("🗑 " + txt[:30], "pd:" + a["id"])])
-    if len(lines) == 1:
+    if trows:
+        lines.append(F.table(trows, head=["Stock", "When", "Level", "Status"]))
+    else:
         lines.append("None. Type: alert HAL below 4500")
     return "\n".join(lines), _btn(*rows, [("◀ Alerts", "cmd:alerts")])
 
@@ -913,10 +946,15 @@ def a_lists(arg=""):
     d = ML.myscan("invest", {"list": lid, "source": "list"})
     icon = {"exit": "🔴", "buy": "🟢", "near": "🟡", "holding": "💼", "watching": "⚪"}
     name = next((x["name"] for x in lists if x["id"] == lid), lid)
-    lines = ["📋 %s · Investing rules" % name] + ["%s %s %s%s%s" % (icon.get(r.get("state"), "⚪"), r["symbol"], _px(r.get("price")),
-                                                                 " · %s" % r["setup"] if r.get("setup") else "",
-                                                                 " · %.1f%% to trigger" % r["dist_trigger"] if r.get("dist_trigger") is not None else "")
-                                                for r in d["rows"][:25]]
+    word = {"exit": "EXIT", "buy": "BUY", "near": "near", "holding": "held", "watching": "watch"}
+    lines = ["📋 %s · Investing rules" % name]
+    if d["rows"]:
+        lines.append(F.table([[r["symbol"], F.px(r.get("price")), word.get(r.get("state"), r.get("state") or ""),
+                               ("%.1f%%" % r["dist_trigger"]) if r.get("dist_trigger") is not None else ""] for r in d["rows"][:30]],
+                             head=["Stock", "Price", "State", "To trig"]))
+        setups = ["%s: %s" % (r["symbol"], r["setup"]) for r in d["rows"][:30] if r.get("setup")]
+        if setups:
+            lines.append("Setups: " + " · ".join(setups))
     if not d["rows"]:
         lines.append("Empty. Type: add HAL to %s" % name)
     rows = [[("➖ %s" % r["symbol"], "lr:%s:%s" % (lid, r["symbol"])) for r in d["rows"][k:k + 4]] for k in range(0, min(len(d["rows"]), 16), 4)]
@@ -943,8 +981,10 @@ def a_signals(_=""):
 def a_top(_=""):
     d = L.scan_long("invest")
     rows = [r for r in d["rows"] if r.get("status") in ("confirmed", "recent", "provisional")][:12]
-    lines = ["🏆 Investing signals now (top by strength)"] + ["%s · %s · %s%s" % (r["symbol"], r.get("setup") or "", _px(r.get("price")),
-                                                                                 " · rank %s" % r["rank"] if r.get("rank") is not None else "") for r in rows]
+    lines = ["🏆 Investing signals now (top by strength)"]
+    if rows:
+        lines.append(F.table([[r["symbol"], F.px(r.get("price")), r.get("rank") if r.get("rank") is not None else "", r.get("setup") or ""] for r in rows],
+                             head=["Stock", "Price", "Rank", "Setup"]))
     if not rows:
         lines.append("No active signal.")
     return "\n".join(lines), _btn(*[[(r["symbol"], "st:" + r["symbol"]) for r in rows[k:k + 4]] for k in range(0, len(rows), 4)], [("◀ Scanner", "cmd:scanner")])
@@ -954,10 +994,12 @@ def a_top(_=""):
 def a_paper(_=""):
     p = L.portfolio_long("invest")
     lines = ["🧾 Paper account · Investing (simulated money)",
-             "Equity %s · cash %s · total P&L %s · drawdown %.1f%%" % (_rs(p["equity"]), _rs(p["cash"]), _rs(p["total_pnl"]), p.get("drawdown") or 0)]
-    for x in p["positions"][:12]:
-        last = x.get("last") or x["entry"]
-        lines.append("• %s %g @ %s → %s (%+.1f%%) · stop %s" % (x["symbol"], x["qty"], _px(x["entry"]), _px(last), (last / x["entry"] - 1) * 100, _px(x["stop"])))
+             F.kv([("Equity", F.rs(p["equity"])), ("Cash", F.rs(p["cash"])), ("Total P/L", F.sg(p["total_pnl"])), ("Drawdown", "%.1f%%" % (p.get("drawdown") or 0))])]
+    if p["positions"]:
+        lines.append(F.table([[x["symbol"], "%g" % x["qty"], F.px(x["entry"]), F.px(x.get("last") or x["entry"]),
+                               F.pc(((x.get("last") or x["entry"]) / x["entry"] - 1) * 100)] for x in p["positions"][:20]],
+                             head=["Stock", "Qty", "Buy", "Now", "P/L"]))
+        lines.append(F.table([[x["symbol"], F.px(x["stop"])] for x in p["positions"][:20]], head=["Stock", "Stop"]))
     if not p["positions"]:
         lines.append("No open paper positions. Type: paper buy HAL")
     rows = [[("✖ Close %s" % x["symbol"], "pc:%s" % x["id"])] for x in p["positions"][:8] if x.get("id")]
@@ -967,7 +1009,9 @@ def a_paper(_=""):
 def a_gtts(_=""):
     d = G.listing("invest")
     act = [o for o in d["orders"] if o.get("status") == "active"][:15]
-    lines = ["⏳ Paper GTTs · Investing"] + ["%s buy at %s%s" % (o["symbol"], _px(o.get("trigger")), " · stop %s" % _px(o["stop"]) if o.get("stop") else "") for o in act]
+    lines = ["⏳ Paper GTTs · Investing"]
+    if act:
+        lines.append(F.table([[o["symbol"], F.px(o.get("trigger")), F.px(o["stop"]) if o.get("stop") else "rule"] for o in act], head=["Stock", "Buy at", "Stop"]))
     if not act:
         lines.append("None active. Set them on the portal (Predictor / My scanner → GTT).")
     return "\n".join(lines), _btn(*[[("✖ Cancel %s" % o["symbol"], "gc:%s" % o["id"])] for o in act[:8]], [("◀ Paper", "cmd:paper")])
@@ -988,6 +1032,259 @@ def _paper_buy(sym):
     _log("paper buy %s" % sym)
     pos = (r or {}).get("position") or {}
     return "✅ Paper order done: %s %s" % (sym, ("%s shares at %s" % (pos.get("qty"), _px(pos.get("entry")))) if pos else (r.get("message") if isinstance(r, dict) else ""))
+
+
+# ----------------------------------------------------------------- AI Robot (paper) · owner 20 Nov 2026
+# Everything about the robot, read-only, plus two changes (risk cap, alert time) behind ✅ Confirm.
+def _RB():
+    rb = getattr(S, "robot", None)
+    if not rb:
+        raise S.ApiError(404, "The AI Robot is not installed on this portal.")
+    return rb
+
+
+def _ri(v):
+    """Indian grouping for the robot screens: ₹1,50,168."""
+    return ("−" if v < 0 else "") + "₹" + _RB()._n(abs(v))
+
+
+def _sg(v):
+    return ("+" if v >= 0 else "−") + "₹" + _RB()._n(abs(v))
+
+
+def _days(a, b=None):
+    from datetime import datetime as _dt
+    try:
+        d0 = _dt.strptime(a[:10], "%Y-%m-%d").date()
+        d1 = _dt.strptime(b[:10], "%Y-%m-%d").date() if b else S.now_ist().date()
+        return (d1 - d0).days
+    except (TypeError, ValueError):
+        return 0
+
+
+def _dmy(t):
+    """'2026-11-20 13:45' -> '20 Nov 13:45'."""
+    from datetime import datetime as _dt
+    try:
+        return _dt.strptime(t[:16], "%Y-%m-%d %H:%M").strftime("%d %b %H:%M")
+    except (TypeError, ValueError):
+        return t or ""
+
+
+def _rbkb(*extra):
+    return _btn(*extra, [("📂 Live", "cmd:rblive"), ("✅ Sold", "cmd:rbsold"), ("📊 Strategies", "cmd:rbstrat")],
+                [("📅 Today", "cmd:rbtoday"), ("📔 Diary", "cmd:rbdiary"), ("💸 Charges", "cmd:rbcharges")],
+                [("🤖 Robot", "cmd:robot"), ("⚙️ Risk & alert", "cmd:rbset"), ("☰ Menu", "cmd:more")])
+
+
+def _label(rb, k):
+    return rb.STRATS.get(k, {}).get("label", k).split(" (")[0]
+
+
+def _sh(rb, k):
+    return rb.STRATS.get(k, {}).get("short", k)
+
+
+def _d(t):
+    """'2026-11-20 13:45' -> '20 Nov'."""
+    return _dmy(t)[:6]
+
+
+def a_robot(_=""):
+    rb = _RB()
+    st, d = rb.status(), rb.load()
+    today = S.now_ist().strftime("%Y-%m-%d")
+    eq, cap = st["equity"], st["capital"]
+    day0 = d["day"]["start_eq"] if d["day"].get("date") == today else eq
+    used = sum(p["entry"] * p["qty"] for p in d["positions"])
+    openpl = sum(((p.get("last") or p["entry"]) - p["entry"]) * p["qty"] for p in d["positions"])
+    tr = d["trades"]
+    prof, loss = sum(t["net"] for t in tr if t["net"] > 0), sum(t["net"] for t in tr if t["net"] <= 0)
+    prog = max(0.0, min(100.0, (eq - cap) / (st["goal"] - cap) * 100)) if st["goal"] > cap else 0
+    began = st["started"] or min([x["opened"] for x in d["positions"] + d["trades"]] or [""]) or None   # first trade if never switched on by hand
+    on = [s["id"] for s in st["strategies"] if s["on"]]
+    off = [s["id"] for s in st["strategies"] if not s["on"]]
+    pairs = [("Wealth now", F.rs(eq)), ("Start money", F.rs(cap)), ("Goal (2x)", F.rs(st["goal"])), ("Progress", "%.1f%%" % prog),
+             ("Since start", "%s %s" % (F.sg(eq - cap), F.pc((eq / cap - 1) * 100))), ("Today", "%s %s" % (F.sg(eq - day0), F.pc((eq / day0 - 1) * 100 if day0 else 0))),
+             ("In use (%d stocks)" % len(d["positions"]), F.rs(used)), ("Free cash", F.rs(d["cash"])),
+             ("Open P/L", F.sg(openpl)), ("Booked profit", F.sg(prof)), ("Booked loss", F.sg(loss)), ("Net booked", F.sg(prof + loss)),
+             ("Sold: won / lost", "%d / %d" % (sum(1 for t in tr if t["net"] > 0), sum(1 for t in tr if t["net"] <= 0))),
+             ("Charges paid", F.rs((st["charges"] or {}).get("total", 0))), ("Est. tax", F.rs(sum(st["tax_est"].values()))),
+             ("Below its peak", "%.1f%%" % ((1 - eq / (st["peak"] or eq)) * 100)), ("Risk cap / trade", "%.2f%%" % (st["risk_cap"] or 2)),
+             ("Daily report", st["alert_at"])]
+    if st.get("pace") and st["pace"].get("days_to_double"):
+        pairs.append(("Days to 2x at pace", "%d" % st["pace"]["days_to_double"]))
+    lines = ["🤖 AI Robot · paper money, never a real order",
+             "%s · started %s · day %d" % ("🟢 RUNNING" if st["on"] else "⏸ STOPPED", _dmy(began) or "–", _days(began or today) + 1),
+             F.kv(pairs)]
+    if st["pause_until"]:
+        lines.append("⛔ New buys paused until %s (fell 15%% from the peak)." % st["pause_until"])
+    lines += ["🟢 On: %s" % (", ".join(_sh(rb, k) for k in on) or "none"),
+              "⚪ Off, trading as shadow: %s" % (", ".join(_sh(rb, k) for k in off) or "none"),
+              "📊 %s" % st["scorecard"]["summary"]]
+    return "\n".join(lines), _rbkb()
+
+
+def a_rblive(_=""):
+    rb = _RB()
+    d = rb.load()
+    ps = sorted(d["positions"], key=lambda p: p["opened"])
+    lines = ["📂 Robot · live positions (%d)" % len(ps)]
+    if not ps:
+        lines.append("No open positions. The robot buys when a tested signal appears (checked every ~3 min, 09:15-15:28).")
+        return "\n".join(lines), _rbkb([("🔄 Refresh", "cmd:rblive")])
+    tot_cap = sum(p["entry"] * p["qty"] for p in ps)
+    tot_pl = sum(((p.get("last") or p["entry"]) - p["entry"]) * p["qty"] for p in ps)
+    lines.append(F.table([[p["symbol"], p["qty"], F.px(p["entry"]), F.px(p.get("last") or p["entry"]),
+                           F.sg(((p.get("last") or p["entry"]) - p["entry"]) * p["qty"])] for p in ps],
+                         head=["Stock", "Qty", "Buy", "Now", "P/L"]))
+    lines.append(F.table([[p["symbol"], F.rs(p["entry"] * p["qty"]), F.pc(((p.get("last") or p["entry"]) / p["entry"] - 1) * 100),
+                           F.px(p["stop"]) + ("^" if p["stop"] > p.get("stop0", p["stop"]) else "")] for p in ps],
+                         head=["Stock", "Capital", "P/L%", "Stop"]))
+    lines.append(F.table([[p["symbol"], _sh(rb, p["strat"]), _d(p["opened"]), "%dd" % _days(p["opened"])] for p in ps],
+                         head=["Stock", "Type", "Bought", "Held"]))
+    lines.append(F.kv([("Capital in use", F.rs(tot_cap)), ("Open P/L", F.sg(tot_pl)), ("Free cash", F.rs(d["cash"]))]))
+    lines.append("^ = stop raised (trailing). Swings exit on the stop / trail; scalps are sold by 15:00.")
+    return "\n".join(lines), _rbkb([("🔄 Refresh", "cmd:rblive")])
+
+
+def a_rbsold(arg=""):
+    rb = _RB()
+    tr = rb.load()["trades"][::-1]
+    page = int(arg) if str(arg).isdigit() else 0
+    per = 10
+    part = tr[page * per:(page + 1) * per]
+    prof, loss = sum(t["net"] for t in tr if t["net"] > 0), sum(t["net"] for t in tr if t["net"] <= 0)
+    lines = ["✅ Robot · sold trades (%d)" % len(tr)]
+    if not tr:
+        lines.append("Nothing sold yet.")
+        return "\n".join(lines), _rbkb()
+    lines.append(F.kv([("Won / lost", "%d / %d" % (sum(1 for t in tr if t["net"] > 0), sum(1 for t in tr if t["net"] <= 0))),
+                       ("Total profit", F.sg(prof)), ("Total loss", F.sg(loss)), ("Net after charges", F.sg(prof + loss)),
+                       ("Charges paid", F.rs(sum(t["charges"]["total"] for t in tr)))]))
+    lines.append(F.table([[_d(t["closed"]), t["symbol"], _sh(rb, t["strat"]), F.sg(t["net"])] for t in part],
+                         head=["Sold", "Stock", "Type", "Net"]))
+    lines.append(F.table([[t["symbol"], t["qty"], F.px(t["entry"]), F.px(t["exit"]), "%dd" % _days(t["opened"], t["closed"])] for t in part],
+                         head=["Stock", "Qty", "Buy", "Sell", "Held"]))
+    lines.append(F.table([[t["symbol"], "%+.2f" % t["r"], t["reason"].split(" (")[0]] for t in part], head=["Stock", "R", "Why sold"]))
+    nav = []
+    if page > 0:
+        nav.append(("◀ Newer", "rbs:%d" % (page - 1)))
+    if (page + 1) * per < len(tr):
+        nav.append(("Older ▶", "rbs:%d" % (page + 1)))
+    lines.append("Page %d of %d · net is after all charges · R = result in units of the risk taken" % (page + 1, (len(tr) - 1) // per + 1))
+    return "\n".join(lines), _rbkb(nav)
+
+
+def a_rbstrat(_=""):
+    rb = _RB()
+    st = rb.status()
+    sc = {r["id"]: r for r in st["scorecard"]["rows"]}
+    ss = st["strategies"]
+    lines = ["📊 Robot · strategies", st["scorecard"]["summary"],
+             F.table([[_sh(rb, s["id"]), "on" if s["on"] else "off", s["n"], ("%d%%" % round(s["won"] / s["n"] * 100)) if s["n"] else "–",
+                       F.sg(s["net"]), ("%+.2f" % sc[s["id"]]["avg_r"]) if sc.get(s["id"], {}).get("avg_r") is not None else "–"] for s in ss],
+                     head=["Strategy", "", "Trd", "Won", "Net", "R"]),
+             "Shadow = trades it would have taken while off (no money):",
+             F.table([[_sh(rb, s["id"]), s["auto"]["sh_n"], ("%+.2f" % s["auto"]["sh_r"]) if s["auto"]["sh_r"] is not None else "–",
+                       F.sg(s["auto"]["sh_net"])] for s in ss], head=["Strategy", "Trd", "R", "Would make"]),
+             "Verdicts:"]
+    lines += ["• %s%s: %s" % (_sh(rb, s["id"]), " 🏆" if st["scorecard"]["best"] == s["id"] else "", sc.get(s["id"], {}).get("verdict", "")) for s in ss]
+    lines.append("Auto: OFF→ON after %d shadow trades at %+.2fR or better; ON→OFF if its trades since then (%d+) average below %+.2fR." % (
+        st["auto_rule"]["on_n"], st["auto_rule"]["on_r"], st["auto_rule"]["off_n"], st["auto_rule"]["off_r"]))
+    return "\n".join(lines), _rbkb()
+
+
+def a_rbtoday(_=""):
+    rb = _RB()
+    d = rb.load()
+    today = S.now_ist().strftime("%Y-%m-%d")
+    eq = rb.equity(d)
+    day0 = d["day"]["start_eq"] if d["day"].get("date") == today else eq
+    bought = sorted([p for p in d["positions"] if p["opened"].startswith(today)] + [t for t in d["trades"] if t["opened"].startswith(today)],
+                    key=lambda x: x["opened"])
+    sold = [t for t in d["trades"] if t["closed"].startswith(today)]
+    lines = ["📅 Robot · today %s" % S.now_ist().strftime("%d %b"),
+             F.kv([("Wealth now", F.rs(eq)), ("Today", "%s %s" % (F.sg(eq - day0), F.pc((eq / day0 - 1) * 100 if day0 else 0))),
+                   ("Bought today", str(len(bought))), ("Sold today", str(len(sold))), ("Booked today", F.sg(sum(t["net"] for t in sold)))])]
+    if bought:
+        lines += ["🛒 Bought", F.table([[x["opened"][11:16], x["symbol"], x["qty"], F.rs(x["entry"] * x["qty"]), _sh(rb, x["strat"])] for x in bought],
+                                       head=["Time", "Stock", "Qty", "Capital", "Type"])]
+    if sold:
+        lines += ["💵 Sold", F.table([[t["closed"][11:16], t["symbol"], F.sg(t["net"]), t["reason"].split(" (")[0]] for t in sold],
+                                     head=["Time", "Stock", "Net", "Why"])]
+    return "\n".join(lines), _rbkb([("🔄 Refresh", "cmd:rbtoday")])
+
+
+def a_rbdiary(arg=""):
+    rb = _RB()
+    page = int(arg) if str(arg).isdigit() else 0
+    per = 12
+    rows = [e for e in rb.diary({"limit": 2000})["items"] if e.get("kind") != "shadow"]
+    part = rows[page * per:(page + 1) * per]
+    lines = ["📔 Robot diary · newest first (shadow trades hidden; full diary on the portal)"]
+    lines += ["▪️ %s · %s" % (_dmy(e["at"]), e["text"][:300]) for e in part] or ["Nothing yet."]
+    nav = []
+    if page > 0:
+        nav.append(("◀ Newer", "rbd:%d" % (page - 1)))
+    if (page + 1) * per < len(rows):
+        nav.append(("Older ▶", "rbd:%d" % (page + 1)))
+    return "\n\n".join([lines[0], "\n".join(lines[1:])]), _rbkb(nav)
+
+
+def a_rbcharges(_=""):
+    st = _RB().status()
+    ch = st["charges"] or {}
+    names = [("brokerage", "Brokerage"), ("stt", "STT"), ("exchange", "Exchange"), ("sebi", "SEBI"), ("stamp", "Stamp duty"), ("gst", "GST"), ("dp", "DP charge")]
+    lines = ["💸 Robot · charges and tax (all sold trades)",
+             F.kv([(n, F.rs(ch.get(k, 0), 2)) for k, n in names] + [("Total charges", F.rs(ch.get("total", 0), 2))]),
+             "If this were real money, estimated tax so far:",
+             F.kv([("Scalps (30% slab)", F.rs(st["tax_est"]["intraday"])), ("Swings (STCG 20%)", F.rs(st["tax_est"]["swing"]))]),
+             "All results already include these charges and 0.03% slippage each side."]
+    return "\n".join(lines), _rbkb()
+
+
+RB_CAPS = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
+RB_TIMES = ("15:32", "15:45", "16:00", "17:00", "18:00", "20:00")
+
+
+def a_rbset(_=""):
+    st = _RB().status()
+    lines = ["⚙️ Robot · risk and alert",
+             F.kv([("Risk cap per trade", "%.2f%%" % (st["risk_cap"] or 2)), ("Daily report", st["alert_at"])]),
+             "The robot itself risks less when a strategy is unproven or losing, below its peak, or when VIX is high.",
+             "Tap a button, or type: robot risk 1.5 · robot alert 15:45. Robot on/off, strategies and close-all stay on the portal."]
+    return "\n".join(lines), _btn([("%s%g%%" % ("✓ " if abs((st["risk_cap"] or 2) - c) < 1e-9 else "", c), "rbk:%g" % c) for c in RB_CAPS[:3]],
+                                  [("%s%g%%" % ("✓ " if abs((st["risk_cap"] or 2) - c) < 1e-9 else "", c), "rbk:%g" % c) for c in RB_CAPS[3:]],
+                                  [("%s%s" % ("✓ " if st["alert_at"] == t else "", t), "rba:" + t) for t in RB_TIMES[:3]],
+                                  [("%s%s" % ("✓ " if st["alert_at"] == t else "", t), "rba:" + t) for t in RB_TIMES[3:]],
+                                  [("🤖 Robot", "cmd:robot"), ("☰ Menu", "cmd:more")])
+
+
+def _rb_act(body, title):
+    r = _RB().act(body, lambda _pw: None)
+    _log(title)
+    return "✅ " + r.get("message", "Done.")
+
+
+def x_rbrisk(arg):
+    v = arg[0] if isinstance(arg, (tuple, list)) else arg
+    try:
+        v = float(str(v).replace(",", "."))
+    except ValueError:
+        return "Type it like: robot risk 1.5", _btn([("⚙️ Risk & alert", "cmd:rbset")])
+    if not 0.25 <= v <= 3:
+        return "Pick a risk cap between 0.25% and 3%.", _btn([("⚙️ Risk & alert", "cmd:rbset")])
+    return _confirm("Set the robot's risk cap to %g%% of its money per trade?" % v, lambda: _rb_act({"action": "risk_cap", "value": v}, "robot risk cap %g%%" % v))
+
+
+def x_rbalert(arg):
+    v = (arg[0] if isinstance(arg, (tuple, list)) else arg).replace(".", ":")
+    if len(v) == 4:
+        v = "0" + v
+    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", v):
+        return "Type it like: robot alert 15:45", _btn([("⚙️ Risk & alert", "cmd:rbset")])
+    return _confirm("Send the daily robot report at %s on trading days?" % v, lambda: _rb_act({"action": "alert_at", "value": v}, "robot alert time %s" % v))
 
 
 # ----------------------------------------------------------------- reports, settings, portal
@@ -1025,11 +1322,11 @@ def a_settings(_=""):
     except Exception:  # noqa: BLE001
         pass
     lines = ["⚙️ Settings & portal",
-             "Zerodha: %s" % ("token saved" if (st.get("kite") or {}).get("token") else "not connected") + (" · last holdings snapshot %s" % last if last else ""),
-             "Answer language: %s · stock answers by %s rules" % ("Hindi" if lang() == "hi" else "English", "Investing" if rules() == "invest" else "Trading"),
-             "AI service: %s" % ("%s · %s%s" % (AI.status()["providers"][AI.cfg()["provider"]]["label"], AI.cfg()["model"], (" · backup " + AI.cfg("backup")["model"]) if AI.status()["backup"]["configured"] else "") if AI.configured() else "not set (keywords only)"),
-             "Portal: running%s" % (" since %s" % code.get("started") if code.get("started") else ""),
-             "Telegram: %d muted alerts · %d other chats ignored" % (len(tg.get("quiet") or {}), _status["ignored"])]
+             F.kv([("Zerodha", "token saved" if (st.get("kite") or {}).get("token") else "not connected"), ("Last holdings snap", str(last or "–")[:16]),
+                   ("Answer language", "Hindi (7 s max)" if lang() == "hi" else "English"), ("Stock answers by", "Investing" if rules() == "invest" else "Trading"),
+                   ("Portal running since", str(code.get("started") or "–")[:16]), ("Muted alerts", str(len(tg.get("quiet") or {}))),
+                   ("Other chats ignored", str(_status["ignored"]))]),
+             "AI service: %s" % ("%s · %s%s" % (AI.status()["providers"][AI.cfg()["provider"]]["label"], AI.cfg()["model"], (" · backup " + AI.cfg("backup")["model"]) if AI.status()["backup"]["configured"] else "") if AI.configured() else "not set (keywords only)")]
     return "\n".join(lines), _btn(
         [("🔑 Zerodha login link", "cmd:login"), ("🌐 Portal link", "pl:")],
         [("🇮🇳 Hindi" if lang() == "en" else "🇬🇧 English", "lg:" + ("hi" if lang() == "en" else "en")),
@@ -1156,6 +1453,14 @@ def _button(chat, mid, data):
         note = "✓ Stock answers now use the %s rules." % ("Trading" if rest == "swing" else "Investing")
     elif head == "pl":
         answer, kb = "🌐 Portal: %s" % D.portal_link(), _btn([("◀ Settings", "cmd:settings")])
+    elif head == "rbs":
+        answer, kb = a_rbsold(rest)
+    elif head == "rbd":
+        answer, kb = a_rbdiary(rest)
+    elif head == "rbk":
+        answer, kb = x_rbrisk(rest)
+    elif head == "rba":
+        answer, kb = x_rbalert(rest)
     elif head == "cf":
         item = _pending.pop(rest, None)
         if not item:
@@ -1180,10 +1485,32 @@ def _numbers(text):
     return sorted(n.replace(",", "") for n in _NUM.findall(text))
 
 
+HINDI_WAIT = 7.0   # owner 20 Nov 2026: wait at most 7 s for the Hindi translation, then send English
+_tx_pool = ThreadPoolExecutor(3)
+
+
+def to_hindi_fast(text):
+    """Hindi for the words, tables kept in English (columns and numbers stay exact); English after HINDI_WAIT seconds."""
+    body, tabs = F.split(text)
+    if not re.search(r"[A-Za-z]{3}", F.plain(body).replace("[[T", "")):
+        return text, ""
+    fut = _tx_pool.submit(to_hindi, body)
+    try:
+        out = fut.result(timeout=HINDI_WAIT)
+    except FuturesTimeout:
+        return text, "\n(English: Hindi took over %d s)" % HINDI_WAIT
+    except Exception as e:  # noqa: BLE001
+        return text, "\n(Hindi skipped: %s)" % str(e)[:80]
+    if any("[[T%d]]" % i not in out.replace(" ", "") for i in range(1, len(tabs) + 1)):
+        return text, "\n(Hindi skipped: a table went missing)"
+    return F.join(out, tabs), ""
+
+
 def to_hindi(text):
     """AI translation; refused (English kept) when any number changed."""
     out = AI.ask("Translate the user's message into simple Hindi (Devanagari script). Keep every number, ₹ amount, %, "
-                 "+/− sign, date, time, NSE stock symbol, emoji, slash command, web link and line break exactly as written, "
+                 "+/− sign, date, time, NSE stock symbol, emoji, slash command, web link, line break and every [[T1]]-style "
+                 "placeholder (on its own line) exactly as written, "
                  "using Western digits 0-9. Do not add, remove or explain anything. Output only the translation.", text, max_tokens=1500,
                  check=lambda o: _numbers(o) == _numbers(text))   # a bad translation from the main AI -> the backup tries
     if not out or _numbers(out) != _numbers(text):
@@ -1194,10 +1521,7 @@ def to_hindi(text):
 def _reply(chat, mid, text, kb, how, question):
     note = ""
     if lang() == "hi" and AI.configured():
-        try:
-            text = to_hindi(text)
-        except Exception as e:  # noqa: BLE001
-            note = "\n(Hindi skipped: %s)" % str(e)[:80]
+        text, note = to_hindi_fast(text)
     if how not in ("command", "words", "button", "AI"):
         note += "\n(%s)" % how
     full = text + note
@@ -1214,7 +1538,7 @@ def _reply(chat, mid, text, kb, how, question):
     else:
         _send(chat, full, kb)
     try:
-        R.log("bot", "Q: %s\nA: %s" % (str(question)[:200], text.split("\n")[0][:200]), "sent")
+        R.log("bot", "Q: %s\nA: %s" % (str(question)[:200], F.plain(text).split("\n")[0][:200]), "sent")
     except Exception:  # noqa: BLE001
         pass
 

@@ -14,6 +14,8 @@ import os
 import threading
 import time
 import urllib.parse
+
+import tgfmt as F   # Telegram tables
 from datetime import date, timedelta
 
 S = None   # server module
@@ -164,7 +166,7 @@ def morning():
         r = by.get(name)
         if r and r["pct"] is not None:
             score += w * r["pct"]
-            lines.append("%s %s %s" % (arrow(r["pct"]), name, pct(r["pct"])))
+            lines.append([name.replace(" FUT", "").replace(" $", ""), F.pc(r["pct"], 2)])
     nifty, vix = by.get("NIFTY 50"), by.get("INDIA VIX")
     if nifty and nifty["pct"] is not None:
         score += 0.3 * nifty["pct"]
@@ -178,9 +180,9 @@ def morning():
     _save_call(tone, score)
     msg = ["🌅 Morning outlook · %s" % S.now_ist().strftime("%a %d %b"),
            "%s Likely opening tone: %s (cue score %+.2f)" % (icon, tone, score),
-           "Yesterday: NIFTY 50 %s %s · VIX %s" % (pts(nifty["price"]) if nifty else "–", pct(nifty and nifty["pct"]),
-                                                   "%.2f" % vix["price"] if vix else "–"),
-           "Global cues:"] + ["  " + x for x in lines]
+           F.kv([("NIFTY 50 yesterday", "%s %s" % (pts(nifty["price"]) if nifty else "–", F.pc(nifty and nifty["pct"], 2))),
+                 ("India VIX", "%.2f" % vix["price"] if vix else "–")]),
+           "Global cues:", F.table(lines, head=["Market", "Change"]) if lines else "none"]
     if vix and vix["price"] and vix["price"] > 20:
         msg.append("⚠️ India VIX above 20: expect wider swings; size positions smaller.")
     if not _zerodha():
@@ -222,20 +224,20 @@ def plan():
     nifty = by.get("NIFTY 50")
     c = _judge_call(nifty and nifty["pct"])
     msg = ["📋 Day plan · %s 09:32" % S.now_ist().strftime("%a %d %b")]
-    if nifty:
-        msg.append("NIFTY 50 %s %s %s%s" % (pts(nifty["price"]), arrow(nifty["pct"]), pct(nifty["pct"]),
-                                            (" · outlook was %s (%s)" % (c["tone"], "right" if c["right"] else "wrong")) if c else ""))
-    for name in ("BANK NIFTY", "INDIA VIX"):
-        r = by.get(name)
-        if r:
-            msg.append("%s %s %s" % (name, pts(r["price"]), pct(r["pct"])))
+    idx = [[n, pts(by[n]["price"]), F.pc(by[n]["pct"], 2)] for n in ("NIFTY 50", "BANK NIFTY", "INDIA VIX") if by.get(n)]
+    if idx:
+        msg.append(F.table(idx, head=["Index", "Level", "Today"]))
+    if nifty and c:
+        msg.append("Morning outlook was %s: %s." % (c["tone"], "right ✅" if c["right"] else "wrong ❌"))
+    filt = []
     for mode in ("swing", "invest"):
         try:
             mk = L.market()
-            ok = mk.regime(mk.ind["d"][-1], mode)
-            msg.append("%s market filter: %s" % (L.LABEL[mode], "buys allowed ✅" if ok else "hold off new buys ⛔"))
+            filt.append(("%s filter" % L.LABEL[mode], "buys allowed" if mk.regime(mk.ind["d"][-1], mode) else "hold off"))
         except Exception:  # noqa: BLE001
             pass
+    if filt:
+        msg.append(F.kv(filt))
     h = _zerodha()
     if h:
         msg.append("\nYour holdings (%d) by the Investing rules:" % len(h["rows"]))
@@ -249,8 +251,8 @@ def plan():
     for mode in ("invest", "swing"):
         rows, _ = _setups(mode, 5)
         if rows:
-            msg.append("\nTop %s setups in a buy zone (rules):" % L.LABEL[mode])
-            msg += ["  %s · %s at %s (rank %d)" % (r["symbol"], r["setup"], rs(r["price"], 2), r["rank"]) for r in rows]
+            msg.append("Top %s setups in a buy zone (rules):" % L.LABEL[mode])
+            msg.append(F.table([[r["symbol"], F.px(r["price"]), r["rank"], r["setup"]] for r in rows], head=["Stock", "Price", "Rank", "Setup"]))
     try:
         msg += D.plan_extra()   # morning reading, last month, Scalping breakouts
     except Exception:  # noqa: BLE001
@@ -267,8 +269,9 @@ def _rule_actions(h):
     for key, icon, label in (("exit", "🔴", "Exit signal (below rule stop)"), ("weak", "🟠", "Weak (trend turned down)"),
                              ("buy", "🟢", "Buy signal (entry rules fire now)")):
         if groups.get(key):
-            out.append("%s %s: %s" % (icon, label, ", ".join(
-                "%s%s" % (r["symbol"], (" stop " + rs(r["rule_stop"], 2)) if r.get("rule_stop") else "") for r in groups[key])))
+            out.append("%s %s: %d" % (icon, label, len(groups[key])))
+            out.append(F.table([[r["symbol"], F.pc(r.get("pnl_pct")), F.px(r["rule_stop"]) if r.get("rule_stop") else "–"] for r in groups[key]],
+                               head=["Stock", "P/L", "Rule stop"]))
     out.append("⚪ Hold: %d stocks" % len(groups.get("hold", [])))
     return out
 
@@ -278,16 +281,16 @@ def close():
     d, by = _quotes()
     n50 = sorted([r for r in d["nifty50"] if r["pct"] is not None], key=lambda r: -r["pct"])
     up = sum(1 for r in n50 if r["pct"] > 0)
-    msg = ["🔔 Market close · %s" % S.now_ist().strftime("%a %d %b")]
-    for r in d["rows"]:
-        msg.append("%s %s %s %s" % (arrow(r["pct"]), r["name"], pts(r["price"]), pct(r["pct"])))
+    msg = ["🔔 Market close · %s" % S.now_ist().strftime("%a %d %b"),
+           F.table([[r["name"], pts(r["price"]), F.pc(r["pct"], 2)] for r in d["rows"]], head=["Index", "Close", "Today"])]
     if n50:
-        msg.append("\nNifty 50 breadth: %d up, %d down" % (up, len(n50) - up))
-        msg.append("Top gainers: " + ", ".join("%s %s" % (r["name"], pct(r["pct"])) for r in n50[:5]))
-        msg.append("Top losers: " + ", ".join("%s %s" % (r["name"], pct(r["pct"])) for r in n50[-5:][::-1]))
+        msg.append("Nifty 50 breadth: %d up, %d down" % (up, len(n50) - up))
+        msg.append(F.table([[g["name"], F.pc(g["pct"], 2), l["name"], F.pc(l["pct"], 2)] for g, l in zip(n50[:5], n50[-5:][::-1])],
+                           head=["Gainer", "", "Loser", ""]))
     w = [r for r in d["world"] if r["name"] in ("S&P 500 FUT", "NIKKEI", "HANG SENG", "BRENT CRUDE $", "USD/INR")]
     if w:
-        msg.append("\nWorld now: " + " · ".join("%s %s" % (r["name"], pct(r["pct"])) for r in w))
+        msg.append("World now:")
+        msg.append(F.table([[r["name"].replace(" FUT", "").replace(" $", ""), F.pc(r["pct"], 2)] for r in w], head=["Market", "Change"]))
     msg.append("Closing prices settle after NSE's closing session (about 15:40); small differences are normal.")
     return "\n".join(msg)
 
@@ -312,17 +315,18 @@ def eod():
         held = [r["symbol"] for r in rows]
         gain = [r for r in rows if (r.get("day_pnl") or 0) > 0]
         loss = [r for r in rows if (r.get("day_pnl") or 0) < 0]
-        msg.append("Value %s · today %s · total %s (%+.1f%%)" % (rs(h["total_value"]), signed(h["day_pnl"]),
-                                                                 signed(h["pnl"]), h["pnl_pct"] or 0))
-        msg.append("Gained today: %s on %d stocks · Lost today: %s on %d stocks" % (
-            signed(sum(r["day_pnl"] for r in gain)), len(gain), signed(sum(r["day_pnl"] for r in loss)), len(loss)))
+        msg.append(F.kv([("Value", F.rs(h["total_value"])), ("Today", F.sg(h["day_pnl"])), ("Total", "%s %s" % (F.sg(h["pnl"]), F.pc(h["pnl_pct"] or 0))),
+                         ("Gained (%d stocks)" % len(gain), F.sg(sum(r["day_pnl"] for r in gain))),
+                         ("Lost (%d stocks)" % len(loss), F.sg(sum(r["day_pnl"] for r in loss)))]))
         gain.sort(key=lambda r: -r["day_pnl"])
         loss.sort(key=lambda r: r["day_pnl"])
         if gain:
-            msg.append("🟢 Best: " + ", ".join("%s %s (%s)" % (r["symbol"], signed(r["day_pnl"]), pct(r["day_pct"])) for r in gain[:5]))
+            msg.append("🟢 Best today")
+            msg.append(F.table([[r["symbol"], F.sg(r["day_pnl"]), F.pc(r["day_pct"], 2)] for r in gain[:5]], head=["Stock", "Today", "%"]))
         if loss:
-            msg.append("🔴 Worst: " + ", ".join("%s %s (%s)" % (r["symbol"], signed(r["day_pnl"]), pct(r["day_pct"])) for r in loss[:5]))
-        msg.append("\nWhat the Investing rules say for tomorrow:")
+            msg.append("🔴 Worst today")
+            msg.append(F.table([[r["symbol"], F.sg(r["day_pnl"]), F.pc(r["day_pct"], 2)] for r in loss[:5]], head=["Stock", "Today", "%"]))
+        msg.append("What the Investing rules say for tomorrow:")
         msg += _rule_actions(h)
         cfg = L.settings_for("invest")
         breach = []
@@ -340,10 +344,10 @@ def eod():
         mine, regime = _setups(mode, 10, only=set(held) | set(S.load_state()["settings"].get("watchlist") or []))
         top, _ = _setups(mode, 3)
         if mine or top:
-            msg.append("\n%s buy signals (rules%s):" % (L.LABEL[mode], "" if regime else "; market filter says hold off"))
-            msg += ["  %s · %s at %s%s" % (r["symbol"], r["setup"], rs(r["price"], 2), " (you hold it)" if r["symbol"] in held else " (watchlist)")
-                    for r in mine]
-            msg += ["  %s · %s (top ranked overall)" % (r["symbol"], r["setup"]) for r in top if r not in mine]
+            msg.append("%s buy signals (rules%s):" % (L.LABEL[mode], "" if regime else "; market filter says hold off"))
+            msg.append(F.table([[r["symbol"], F.px(r["price"]), "held" if r["symbol"] in held else "watch", r["setup"]] for r in mine]
+                               + [[r["symbol"], F.px(r["price"]), "top", r["setup"]] for r in top if r not in mine],
+                               head=["Stock", "Price", "Why", "Setup"]))
     try:   # the same list as My holdings -> Today (exits, limits, rebalance, long-term dates, results, GTT ideas)
         msg.append("")
         msg += LG.today_lines("invest")
@@ -368,10 +372,10 @@ def exits():
     ex = sorted((r for r in h["rows"] if r.get("verdict") == "exit"), key=lambda r: r.get("pnl_pct") or 0)
     if not ex:
         return None
-    return "\n".join(["🔴 Sell · Exit signal (rules) · %s" % S.now_ist().strftime("%a %d %b %H:%M")]
-                     + ["  %s %+.1f%% (%s) · %s%s" % (r["symbol"], r.get("pnl_pct") or 0, signed(r["pnl"]), r.get("why") or "rule exit",
-                                                      " · rule stop " + rs(r["rule_stop"], 2) if r.get("rule_stop") else "") for r in ex]
-                     + [NOTE])
+    return "\n".join(["🔴 Sell · Exit signal (rules) · %s" % S.now_ist().strftime("%a %d %b %H:%M"),
+                      F.table([[r["symbol"], F.pc(r.get("pnl_pct") or 0), F.sg(r["pnl"]), F.px(r["rule_stop"]) if r.get("rule_stop") else "–"] for r in ex],
+                              head=["Stock", "P/L%", "P/L", "Stop"])]
+                     + ["• %s: %s" % (r["symbol"], r.get("why") or "rule exit") for r in ex] + [NOTE])
 
 
 # ---- 07:00 daily: overnight global market news in Hindi (Google News, Hindi edition; no translation service needed)
@@ -417,13 +421,15 @@ def roombuys():
     nx = (LG.report() or {}).get("next") or {}
     buys = nx.get("buys") or []
     msg = ["🟢 Rule buy signals you have room for · %s" % S.now_ist().strftime("%a %d %b %H:%M"),
-           "%s free place%s · up to %s each · funds %s%s" % (nx.get("slots", 0), "" if nx.get("slots") == 1 else "s", rs(nx.get("per_stock") or 0),
-                                                         rs(nx["cash"]) if nx.get("cash") is not None else "unknown",
-                                                         "" if nx.get("regime") is not False else " · market filter is off: rules hold off new buys")]
+           F.kv([("Free places", str(nx.get("slots", 0))), ("Up to, each", F.rs(nx.get("per_stock") or 0)),
+                 ("Funds", F.rs(nx["cash"]) if nx.get("cash") is not None else "unknown")])]
+    if nx.get("regime") is False:
+        msg.append("⛔ Market filter is off: rules hold off new buys.")
     if not buys:
         return None
-    msg += ["  %s · %s · %s at %s%s" % (b["symbol"], b.get("sector") or "", b.get("setup") or "", rs(b.get("price") or 0, 2),
-                                        " · 6-month vs Nifty %+.1f%%" % b["rs6"] if b.get("rs6") is not None else "") for b in buys]
+    msg.append(F.table([[b["symbol"], F.px(b.get("price") or 0), F.pc(b.get("rs6")), b.get("setup") or ""] for b in buys],
+                       head=["Stock", "Price", "vsNifty", "Setup"]))
+    msg += ["• %s: %s" % (b["symbol"], b.get("sector") or "") for b in buys]
     return "\n".join(msg + [NOTE])
 
 
@@ -435,21 +441,21 @@ def whatnext():
         msg.append((p or {}).get("notes", ["No holdings snapshot yet: open My holdings while Zerodha is connected."])[0])
         return "\n".join(msg + [NOTE])
     b = p["before"]
-    msg.append("Holdings %d now → %d after the sells → %d with the buys (limit %d) · your limit %s per stock" % (
-        b["holdings"], p["after"]["max"] - p["free_slots"], p["after"]["holdings"], p["after"]["max"], rs(p.get("per_stock") or 0)))
+    msg.append(F.kv([("Holdings now", str(b["holdings"])), ("After the sells", str(p["after"]["max"] - p["free_slots"])),
+                     ("With the buys", str(p["after"]["holdings"])), ("Your limit", str(p["after"]["max"])), ("Per stock", F.rs(p.get("per_stock") or 0))]))
     if p["sells"]:
-        msg.append("\n🔴 Sell:")
-        msg += ["  %s %s · %s%s" % ("Sell all" if s["all"] else "Sell %d" % s["qty"], s["symbol"], s["reason"],
-                                     " (%+.1f%%)" % s["pnl_pct"] if s.get("pnl_pct") is not None else "") for s in p["sells"]]
+        msg.append("🔴 Sell")
+        msg.append(F.table([[s["symbol"], "all" if s["all"] else s["qty"], F.pc(s.get("pnl_pct"))] for s in p["sells"]], head=["Stock", "Qty", "P/L"]))
+        msg += ["• %s: %s" % (s["symbol"], s["reason"]) for s in p["sells"]]
     cb = p.get("core_buy")
     if cb and cb.get("amount"):
         msg.append("\n🔵 Nifty core first: buy about %s of %s (core %s → about %s of your %d%% target)" % (
             rs(cb["amount"]), cb["fund"], "%.0f%%" % cb["pct_now"] if cb.get("pct_now") is not None else "?",
             "%.0f%%" % cb["pct_after"] if cb.get("pct_after") is not None else "?", cb["target"]))
     if p["buys"]:
-        msg.append("\n🟢 Buy:")
-        msg += ["  Buy %d %s · %s · %s at %s · about %s" % (x["qty"], x["symbol"], x["sector"], x.get("setup") or "", rs(x["price"], 2),
-                                                          rs(x["amount"])) for x in p["buys"]]
+        msg.append("🟢 Buy")
+        msg.append(F.table([[x["symbol"], x["qty"], F.px(x["price"]), F.rs(x["amount"])] for x in p["buys"]], head=["Stock", "Qty", "Price", "Amount"]))
+        msg += ["• %s: %s · %s" % (x["symbol"], x["sector"], x.get("setup") or "") for x in p["buys"]]
     if p.get("waiting"):
         msg.append("\n⚪ Next in line when a place frees up: " + ", ".join(w["symbol"] for w in p["waiting"]))
     if p.get("cash_after") is not None:
@@ -503,18 +509,20 @@ def loss_watch():
     moved = [(s, prev[s], v) for s, v in cur.items() if prev.get(s) and prev[s] != v]
     if moved:
         by = {r["symbol"]: r for r in rows}
-        T.notify("trend", "\n".join(["🔄 Trend changed on your holdings · %s" % now.strftime("%H:%M")]
-                                    + ["  %s %s: %s → %s · %+.1f%% · %s" % ("🔴" if rank.get(v, 2) < rank.get(a, 2) else "🟢", s, name.get(a, a), name.get(v, v),
-                                                                           by[s].get("pnl_pct") or 0, by[s].get("why") or "") for s, a, v in moved]
+        short = {"exit": "Sell", "weak": "Weak", "hold": "Hold", "buy": "Buy"}
+        T.notify("trend", "\n".join(["🔄 Trend changed on your holdings · %s" % now.strftime("%H:%M"),
+                                     F.table([[s, short.get(a, a), short.get(v, v), F.pc(by[s].get("pnl_pct") or 0)] for s, a, v in moved],
+                                             head=["Stock", "Was", "Now", "P/L"])]
+                                    + ["%s %s: %s" % ("🔴" if rank.get(v, 2) < rank.get(a, 2) else "🟢", s, by[s].get("why") or name.get(v, v)) for s, a, v in moved]
                                     + ["Judged on daily bars with today's bar still forming, so it can change back by the close.", NOTE]))
     new = sorted((r for r in rows if (r.get("pnl_pct") or 0) <= LOSS_PCT and r["symbol"] not in lw["loss"]),
                  key=lambda r: r["pnl_pct"])
     if new:
         lw["loss"] += [r["symbol"] for r in new]
-        T.notify("loss10", "\n".join(["🔴 Down 10%% or more from your buy price · %s" % now.strftime("%H:%M")]
-                                     + ["  %s %+.1f%% · %s now %s (avg %s)%s" % (r["symbol"], r["pnl_pct"], signed(r["pnl"]), rs(r["ltp"], 2),
-                                                                                rs(r["avg"], 2), " · rule: " + r["verdict"] if r.get("verdict") else "")
-                                        for r in new] + [NOTE]))
+        T.notify("loss10", "\n".join(["🔴 Down 10%% or more from your buy price · %s" % now.strftime("%H:%M"),
+                                      F.table([[r["symbol"], F.pc(r["pnl_pct"]), F.px(r["avg"]), F.px(r["ltp"]), r.get("verdict") or ""] for r in new],
+                                              head=["Stock", "P/L", "Avg", "Now", "Rule"]),
+                                      F.table([[r["symbol"], F.sg(r["pnl"])] for r in new], head=["Stock", "Loss"]), NOTE]))
     if time.time() - lw.get("news_at", 0) >= 1800:
         lw["news_at"] = time.time()
         hits = []

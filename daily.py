@@ -26,6 +26,8 @@ import time
 import urllib.parse
 from datetime import date, timedelta
 
+import tgfmt as F   # Telegram tables
+
 S = None   # server
 L = None   # longterm
 K = None   # kite
@@ -156,12 +158,13 @@ def headlines(limit_each=4):
 def reading():
     """Combine overnight cues (as before) with headline tone. Returns dict."""
     d, by = R._quotes()
-    cue, lines = 0.0, []
+    cue, lines, rows = 0.0, [], []
     for name, w in R.CUES:
         r = by.get(name)
         if r and r["pct"] is not None:
             cue += w * r["pct"]
             lines.append("%s %s %s" % (R.arrow(r["pct"]), name, R.pct(r["pct"])))
+            rows.append([name.replace(" FUT", "").replace(" $", ""), F.pc(r["pct"], 2)])
     nifty, vix = by.get("NIFTY 50"), by.get("INDIA VIX")
     if nifty and nifty["pct"] is not None:
         cue += 0.3 * nifty["pct"]
@@ -172,7 +175,7 @@ def reading():
     score = cue + 0.6 * news_score
     tone = "Bullish" if score > 0.35 else "Bearish" if score < -0.35 else "Mixed"
     return {"score": score, "cue": cue, "news_score": news_score, "pos": pos, "neg": neg, "tone": tone,
-            "cue_lines": lines, "news": news, "nifty": nifty, "vix": vix}
+            "cue_lines": lines, "cue_rows": rows, "news": news, "nifty": nifty, "vix": vix}
 
 
 def _track_line():
@@ -195,10 +198,10 @@ def morning_plan(update=False):
            "%s Reading for today: %s (score %+.2f: cues %+.2f, news %d positive / %d negative)" % (
                icon, r["tone"], r["score"], r["cue"], r["pos"], r["neg"])]
     n, v = r["nifty"], r["vix"]
-    msg.append("Yesterday: NIFTY 50 %s %s · VIX %s" % (R.pts(n["price"]) if n else "–", R.pct(n and n["pct"]),
-                                                     "%.2f" % v["price"] if v else "–"))
-    msg.append("\nGlobal cues:")
-    msg += ["  " + x for x in r["cue_lines"]]
+    msg.append(F.kv([("NIFTY 50 yesterday", "%s %s" % (R.pts(n["price"]) if n else "–", F.pc(n and n["pct"], 2))),
+                     ("India VIX", "%.2f" % v["price"] if v else "–")]))
+    msg.append("Global cues:")
+    msg.append(F.table(r["cue_rows"], head=["Market", "Change"]) if r["cue_rows"] else "none")
     for label in ("India", "Global"):
         hs = [h for h in r["news"] if h["label"] == label][:5]
         if hs:
@@ -376,21 +379,20 @@ def signin_text():
     f = x.get("funds") or {}
     mfv = sum(m["value"] for m in x["mfs"])
     mfc = sum(m["cost"] for m in x["mfs"])
-    msg = ["✅ Zerodha connected · %s" % _now().strftime("%a %d %b %H:%M"),
-           "Stocks: value %s · invested %s · P&L %s (%+.1f%%) · today %s" % (
-               R.rs(h["total_value"]), R.rs(h["total_cost"]), R.signed(h["pnl"]), h["pnl_pct"] or 0, R.signed(h["day_pnl"])),
-           "Funds available: %s" % (R.rs(f.get("net")) if f.get("net") is not None else "–")]
+    pairs = [("Stocks value", F.rs(h["total_value"])), ("Invested", F.rs(h["total_cost"])),
+             ("P/L", "%s %s" % (F.sg(h["pnl"]), F.pc(h["pnl_pct"] or 0))), ("Today", F.sg(h["day_pnl"])),
+             ("Funds available", F.rs(f.get("net")) if f.get("net") is not None else "–")]
     if x["mfs"]:
-        msg.append("Mutual funds: value %s · P&L %s" % (R.rs(mfv), R.signed(mfv - mfc)))
+        pairs += [("Mutual funds", F.rs(mfv)), ("MF P/L", F.sg(mfv - mfc))]
+    msg = ["✅ Zerodha connected · %s" % _now().strftime("%a %d %b %H:%M"), F.kv(pairs)]
     rows = [r for r in h["rows"] if r.get("qty")]   # Zerodha keeps sold-out stocks with 0 shares for a while
-    msg.append("\nHoldings (%d) · rule verdict:" % len(rows))
-    for r in sorted(rows, key=lambda r: -r["value"]):
-        msg.append("%s %s %g × %s = %s · %s%s" % (icon.get(r.get("verdict"), "⚪"), r["symbol"], r["qty"], R.rs(r["ltp"], 2),
-                                                  R.rs(r["value"]), R.signed(r["pnl"]),
-                                                  " (%+.1f%%)" % r["pnl_pct"] if r.get("pnl_pct") is not None else ""))
+    word = {"exit": "EXIT", "weak": "weak", "buy": "BUY", "hold": "hold"}
+    msg.append("Holdings (%d) · rule verdict:" % len(rows))
+    msg.append(F.table([[r["symbol"], F.rs(r["value"]), F.pc(r.get("pnl_pct")), word.get(r.get("verdict"), "hold")]
+                        for r in sorted(rows, key=lambda r: -r["value"])], head=["Stock", "Value", "P/L", "Rule"]))
     if x["mfs"]:
-        msg.append("\nMutual funds (%d):" % len(x["mfs"]))
-        msg += ["• %s · %s · %s" % (m["fund"][:38], R.rs(m["value"]), R.signed(m["pnl"])) for m in x["mfs"]]
+        msg.append("Mutual funds (%d):" % len(x["mfs"]))
+        msg.append(F.table([[m["fund"], F.rs(m["value"]), F.sg(m["pnl"])] for m in x["mfs"]], head=["Fund", "Value", "P/L"]))
     fit = _fit_lines(h)
     if fit:
         msg.append("\n⚠️ Your own limits: " + "; ".join(fit))
@@ -430,8 +432,7 @@ def month_stats():
         moves.sort(key=lambda z: -z[1])
         up = sum(1 for _, v in moves if v > 0)
         out.append("Your holdings last month: %d up, %d down" % (up, len(moves) - up))
-        out.append("  Best: " + ", ".join("%s %+.1f%%" % z for z in moves[:3]))
-        out.append("  Worst: " + ", ".join("%s %+.1f%%" % z for z in moves[-3:][::-1]))
+        out.append(F.table([[b[0], F.pc(b[1]), w[0], F.pc(w[1])] for b, w in zip(moves[:3], moves[-3:][::-1])], head=["Best", "", "Worst", ""]))
     for mode in ("swing", "invest"):
         try:
             j = L.journal(mode)
@@ -459,8 +460,8 @@ def plan_extra():
         orb = [r for r in d["rows"] if r.get("orb", {}).get("state") == "confirmed" and r["orb"].get("outcome") == "open"]
         orb.sort(key=lambda r: -r.get("rank", 0))
         if orb:
-            msg.append("\nScalping (opening-range breakouts so far, rules):")
-            msg += ["  %s at %s (rank %d)" % (r["symbol"], R.rs(r["price"], 2), r.get("rank", 0)) for r in orb[:5]]
+            msg.append("Scalping (opening-range breakouts so far, rules):")
+            msg.append(F.table([[r["symbol"], F.px(r["price"]), r.get("rank", 0)] for r in orb[:5]], head=["Stock", "Price", "Rank"]))
     except Exception:  # noqa: BLE001
         pass
     return msg
@@ -491,8 +492,8 @@ def stop_watch():
             d = _tg(st).setdefault("daily", {})
             d["stop_alerts"] = {_today(): sorted(done | {h[0] for h in hit})}
             S.save_state(st)
-        _send("stopalert", "🔴 Below the rule stop (Investing rules):\n" + "\n".join(
-            "  %s at %s · rule stop %s" % (s, R.rs(p, 2), R.rs(rs_, 2)) for s, p, rs_ in hit) + "\n" + NOTE)
+        _send("stopalert", "🔴 Below the rule stop (Investing rules)\n" + F.table(
+            [[s, F.px(p), F.px(rs_), F.pc((p / rs_ - 1) * 100)] for s, p, rs_ in hit], head=["Stock", "Now", "Stop", "Below"]) + "\n" + NOTE)
 
 
 def move_watch():
@@ -530,9 +531,8 @@ def weekly():
     if moves:
         moves.sort(key=lambda z: -z[1])
         if any(r.get("qty") for r in rows):
-            msg.append("Your holdings this week: about %s" % R.signed(pnl))
-        msg.append("Best: " + ", ".join("%s %+.1f%%" % z for z in moves[:3]))
-        msg.append("Worst: " + ", ".join("%s %+.1f%%" % z for z in moves[-3:][::-1]))
+            msg.append("Your holdings this week: about %s" % F.sg(pnl))
+        msg.append(F.table([[b[0], F.pc(b[1]), w[0], F.pc(w[1])] for b, w in zip(moves[:3], moves[-3:][::-1])], head=["Best", "", "Worst", ""]))
     for mode in ("swing", "invest"):
         try:
             j = L.journal(mode)

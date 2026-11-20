@@ -775,7 +775,7 @@ const TG_WHEN = {
   login: ['From 07:00, every 30 min', 'Zerodha'], signin: ['First login of the day', 'Zerodha'], plan: ['09:32', 'Market'],
   stopalert: ['Market hours', 'Alerts'], move: ['Market hours', 'Alerts'], alert: ['When it rings', 'Alerts'],
   zerodha: ['Within ~2 min', 'Zerodha'], paper: ['When it happens', 'Paper'], close: ['15:32', 'Market'], eod: ['15:35', 'Market'],
-  weekly: ['Sunday 10:00', 'Weekly'], gtt: ['When you save a GTT', 'Paper'], custom: ['Your settings below', 'Custom'], robot: ['09:35 · 15:00 · 15:32', 'Robot'],
+  weekly: ['Sunday 10:00', 'Weekly'], gtt: ['When you save a GTT', 'Paper'], custom: ['Your settings below', 'Custom'], robot: ['After the close (15:32)', 'Robot'], robotlive: ['The moment it happens', 'Robot'],
 };
 function tgCollapsed() { try { return localStorage.getItem('ts.tgCollapsed') === '1'; } catch (e) { return false; } }
 async function tgCard(box) {

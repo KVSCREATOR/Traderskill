@@ -32,6 +32,8 @@ import threading
 import time
 from datetime import datetime
 
+import tgfmt as F   # Telegram tables (rendered by telegram._call)
+
 S = None   # server module
 L = None   # longterm module
 T = None   # telegram module
@@ -55,17 +57,17 @@ MAX_EXT = 0.03           # buy a daily signal only within 3% above its signal-da
 DIARY_YEARS = 5          # owner: keep the diary 5 years; entries can be deleted by hand on the page
 # expect = average R per trade after all charges in the 20 Nov 2026 study (2017-22 / 2022-26 halves)
 STRATS = {
-    "swing": {"label": "Short swing (Trading v2 rules)", "kind": "delivery", "prior": 1.0, "expect": 0.30,
+    "swing": {"short": "Swing", "label": "Short swing (Trading v2 rules)", "kind": "delivery", "prior": 1.0, "expect": 0.30,
               "why": "Base breakout / pullback in an uptrend, stop 2 ATR, trail 3 ATR, break-even after +2R. Backtest 2017-2026: +0.14R / +0.40R per trade after costs."},
-    "dip": {"label": "Dip buy in an uptrend", "kind": "delivery", "prior": 1.0, "expect": 0.35,
+    "dip": {"short": "Dip", "label": "Dip buy in an uptrend", "kind": "delivery", "prior": 1.0, "expect": 0.35,
             "why": "Stock in an uptrend (above rising 50-day, 50 above 200) falls 3 days in a row or RSI(2) under 10; same stop and trail as Short swing. Backtest: +0.27R / +0.43R per trade after costs."},
-    "candle": {"label": "Bullish candle at the average", "kind": "delivery", "prior": 1.0, "expect": 0.27,
+    "candle": {"short": "Candle", "label": "Bullish candle at the average", "kind": "delivery", "prior": 1.0, "expect": 0.27,
                "why": "Bullish engulfing or hammer after touching the 20/50-day average in an uptrend, stronger than Nifty; same stop and trail. Backtest: +0.28R / +0.25R per trade after costs."},
-    "high52": {"label": "52-week-high breakout", "kind": "delivery", "prior": 1.0, "expect": 0.29,
+    "high52": {"short": "52wk", "label": "52-week-high breakout", "kind": "delivery", "prior": 1.0, "expect": 0.29,
                "why": "Closes above its 52-week high on 1.5x volume, near the day's high, in an uptrend, stronger than Nifty; same stop and trail. Backtest: +0.13R / +0.45R per trade after costs."},
-    "orb": {"label": "Morning breakout scalp (ORB)", "kind": "intraday", "prior": 0.5, "expect": -0.15, "default_off": True,
+    "orb": {"short": "ORB", "label": "Morning breakout scalp (ORB)", "kind": "intraday", "prior": 0.5, "expect": -0.15, "default_off": True,
             "why": "9:15-9:30 range breakout, stop 1 ATR, target 2R. Lost money after charges in the 60-day studies (19-20 Nov), so it is OFF; switch on only to watch it."},
-    "pm": {"label": "Afternoon momentum scalp (experiment)", "kind": "intraday", "prior": 0.25, "expect": -0.12, "default_off": True,
+    "pm": {"short": "PM", "label": "Afternoon momentum scalp (experiment)", "kind": "intraday", "prior": 0.25, "expect": -0.12, "default_off": True,
            "why": "14:30 stocks at the day's high on strong volume. Tested 20 Nov on 60 days: -0.14R / -0.10R per trade after charges, so it is OFF."},
 }
 NEW_DAILY = ("high52", "dip", "candle")   # order tried per stock (one signal per stock per day)
@@ -480,6 +482,11 @@ def _open(d, strat, sym, price, stop, target, feats, why, sector="", shadow=Fals
         return pos
     d["cash"] -= need
     d["positions"].append(pos)
+    _live("\n".join(["🤖🟢 ROBOT BUY (paper) · %s %s" % (sym, S.now_ist().strftime("%d %b %H:%M")),
+                     F.kv([("Stock", sym), ("Strategy", STRATS[strat]["short"]), ("Qty", str(qty)), ("Buy price", F.px(fill)),
+                           ("Capital used", F.rs(fill * qty)), ("Stop", F.px(stop)), ("Target", F.px(target) if target else "trailing"),
+                           ("Risk", "%.2f%% · %s" % (rp, F.rs(per * qty))), ("Free cash now", F.rs(d["cash"]))]),
+                     "Why: %s" % why]))
     _say(d, "BUY %d %s @ ₹%.2f · %s · stop ₹%.2f%s · risk %.2f%% (%s)" % (
         qty, sym, fill, STRATS[strat]["label"], stop, " · target ₹%.2f" % target if target else "", rp, "; ".join(notes)), "buy", strat)
     return pos
@@ -512,6 +519,13 @@ def _close(d, p, price, reason):
          "gross": round(gross, 2), "charges": ch, "net": round(net, 2), "r": round(r, 3), "why": p["why"], "risk_pct": p["risk_pct"]}
     d["trades"].append(t)
     d["positions"] = [x for x in d["positions"] if x["id"] != p["id"]]
+    _live("\n".join(["🤖%s ROBOT SELL (paper) · %s %s · %s" % ("✅" if net > 0 else "❌", p["symbol"], S.now_ist().strftime("%d %b %H:%M"),
+                                                                 "PROFIT" if net > 0 else "LOSS"),
+                     F.kv([("Stock", p["symbol"]), ("Strategy", STRATS.get(p["strat"], {}).get("short", p["strat"])), ("Qty", str(p["qty"])),
+                           ("Bought", "%s · %s" % (datetime.strptime(p["opened"][:16], "%Y-%m-%d %H:%M").strftime("%d %b"), F.px(p["entry"]))),
+                           ("Sold", F.px(fill)), ("Capital", F.rs(bv)), ("Gross", F.sg(gross)), ("Charges", F.rs(ch["total"])),
+                           ("Net", "%s %+.2fR" % (F.sg(net), r)), ("Wealth now", F.rs(equity(d)))]),
+                     "Why sold: %s" % reason]))
     for s in d["samples"]:
         if s.get("pid") == p["id"]:
             s["y"] = 1 if net > 0 else 0
@@ -944,12 +958,14 @@ def auto_decide(d):
             if a["live_n"] >= AUTO_OFF_N and a["live_r"] is not None and a["live_r"] < AUTO_OFF_R:
                 d["strat_on"][k] = False
                 d.setdefault("off_since", {})[k] = now
+                _live("🤖🔴 ROBOT: %s switched OFF automatically (lost %+.2fR per trade after charges). It keeps trading as a shadow, no money." % (v["label"], a["live_r"]))
                 _say(d, "🔴 AUTO OFF: %s lost %+.2fR per trade after charges over its last %d trades (limit %+.2fR). "
                         "It keeps trading as a shadow (no money) and comes back on when the shadow earns again."
                      % (v["label"], a["live_r"], min(a["live_n"], 20), AUTO_OFF_R), "info", k)
         elif a["sh_n"] >= AUTO_ON_N and a["sh_r"] is not None and a["sh_r"] >= AUTO_ON_R:
             d["strat_on"][k] = True
             d["since"][k] = now
+            _live("🤖🟢 ROBOT: %s switched ON automatically (its shadow earned %+.2fR per trade after charges). It now trades with money." % (v["label"], a["sh_r"]))
             _say(d, "🟢 AUTO ON: %s earned %+.2fR per trade after charges over its last %d shadow trades (needs %+.2fR). "
                     "It now trades with money, sized by its own results." % (v["label"], a["sh_r"], min(a["sh_n"], 30), AUTO_ON_R), "info", k)
 
@@ -1044,7 +1060,7 @@ def day_summary(d, today):
 
 
 def alert_text(d, today, test=False):
-    """Robot trading alert: today's buys, closed trades, open trades, money made or lost, wealth now."""
+    """Robot trading alert: wealth, today, since start, bought today, closed today, open now (tables)."""
     eq = equity(d)
     day = d["day"] if d["day"].get("date") == today else {"start_eq": eq}
     opened = [p for p in d["positions"] if p["opened"].startswith(today)] + [t for t in d["trades"] if t["opened"].startswith(today)]
@@ -1052,27 +1068,26 @@ def alert_text(d, today, test=False):
     booked = sum(t["net"] for t in closed)
     unreal = sum(((p.get("last") or p["entry"]) - p["entry"]) * p["qty"] for p in d["positions"])
     dchg, tot = eq - day["start_eq"], eq - d["capital"]
-    sg = lambda v: ("+" if v >= 0 else "−") + "₹" + _n(abs(v))
-    typ = lambda x: "scalp" if x["kind"] == "intraday" else "swing"
+    sh = lambda k: STRATS.get(k, {}).get("short", k)
     out = ["🤖 ROBOT TRADING ALERT%s · %s" % (" (test)" if test else "", S.now_ist().strftime("%a %d %b %H:%M")),
-           "Paper money only, no real orders.", "",
-           "💰 Wealth now: ₹%s (start ₹%s · goal ₹%s)" % (_n(eq), _n(d["capital"]), _n(d["capital"] * TARGET_X)),
-           "%s today: %s (%+.2f%%) · since start: %s (%+.2f%%)" % ("📈 Earned" if dchg >= 0 else "📉 Lost", sg(dchg),
-                                                                  dchg / max(day["start_eq"], 1) * 100, sg(tot), tot / d["capital"] * 100),
-           "Booked today %s · open trades %s" % (sg(booked), sg(unreal)), "",
-           "🛒 Bought today: %d" % len(opened)]
-    out += ["  %s %d @ ₹%.2f · capital ₹%s · %s" % (x["symbol"], x["qty"], x["entry"], _n(x["entry"] * x["qty"]), typ(x)) for x in opened]
-    out += ["", "✅ Closed today: %d (won %d, lost %d) · charges ₹%s" % (
-        len(closed), sum(1 for t in closed if t["net"] > 0), sum(1 for t in closed if t["net"] <= 0), _n(sum(t["charges"]["total"] for t in closed)))]
-    out += ["  %s %s %d · capital ₹%s · ₹%.2f → ₹%.2f · %s · %s" % ("✅" if t["net"] > 0 else "❌", t["symbol"], t["qty"], _n(t["entry"] * t["qty"]), t["entry"], t["exit"], sg(t["net"]), t["reason"])
-            for t in closed]
-    out += ["", "📂 Open now: %d · capital in use ₹%s · free cash ₹%s" % (
-        len(d["positions"]), _n(sum(p["entry"] * p["qty"] for p in d["positions"])), _n(d["cash"]))]
-    for p in d["positions"]:
-        last = p.get("last") or p["entry"]
-        pl = (last - p["entry"]) * p["qty"]
-        out.append("  %s %d · capital ₹%s · ₹%.2f → ₹%.2f · %s (%+.1f%%) · stop ₹%.2f · %s" % (
-            p["symbol"], p["qty"], _n(p["entry"] * p["qty"]), p["entry"], last, sg(pl), (last / p["entry"] - 1) * 100, p["stop"], typ(p)))
+           "Paper money only, no real orders.",
+           F.kv([("Wealth now", F.rs(eq)), ("Start / goal", "%s / %s" % (F.rs(d["capital"]), F.rs(d["capital"] * TARGET_X))),
+                 ("Today", "%s %s" % (F.sg(dchg), F.pc(dchg / max(day["start_eq"], 1) * 100, 2))),
+                 ("Since start", "%s %s" % (F.sg(tot), F.pc(tot / d["capital"] * 100, 2))),
+                 ("Booked today", F.sg(booked)), ("Open trades P/L", F.sg(unreal)),
+                 ("In use / free", "%s / %s" % (F.rs(sum(p["entry"] * p["qty"] for p in d["positions"])), F.rs(d["cash"])))])]
+    out.append("🛒 Bought today: %d" % len(opened))
+    if opened:
+        out.append(F.table([[x["symbol"], x["qty"], F.px(x["entry"]), F.rs(x["entry"] * x["qty"]), sh(x["strat"])] for x in opened],
+                           head=["Stock", "Qty", "Price", "Capital", "Type"]))
+    out.append("✅ Closed today: %d (won %d, lost %d) · charges %s" % (len(closed), sum(1 for t in closed if t["net"] > 0),
+                                                                      sum(1 for t in closed if t["net"] <= 0), F.rs(sum(t["charges"]["total"] for t in closed))))
+    if closed:
+        out.append(F.table([[t["symbol"], F.px(t["entry"]), F.px(t["exit"]), F.sg(t["net"])] for t in closed], head=["Stock", "Buy", "Sell", "Net"]))
+    out.append("📂 Open now: %d" % len(d["positions"]))
+    if d["positions"]:
+        out.append(F.table([[p["symbol"], F.px(p.get("last") or p["entry"]), F.sg(((p.get("last") or p["entry"]) - p["entry"]) * p["qty"]),
+                             F.px(p["stop"])] for p in d["positions"]], head=["Stock", "Now", "P/L", "Stop"]))
     return "\n".join(out)
 
 
@@ -1108,6 +1123,14 @@ def ai_review(d, facts):
                       check=lambda o: _numbers(o) <= nums)
     except Exception:  # noqa: BLE001
         return None
+
+
+def _live(text):
+    """Owner 20 Nov 2026: Telegram the moment a real buy / sell / auto on-off happens (kind robotlive, mutable on Limits)."""
+    try:
+        T.notify("robotlive", text)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _send(text):
@@ -1166,19 +1189,10 @@ def tick():
                     pm_entries(d, clk, md)
                 swing_entries(d, clk, md)
                 daily_entries(d, clk, md)
-                changed = True
-                if 575 <= m <= 600 and not d["sent"].get(clk["date"] + "a") and day["scalps"]:
-                    d["sent"][clk["date"] + "a"] = 1
-                    _send("🤖 Robot trading alert · 09:35 · bought (paper):\n" + "\n".join(
-                        "  %s %d @ ₹%.2f · stop ₹%.2f · %s" % (p["symbol"], p["qty"], p["entry"], p["stop"], STRATS[p["strat"]]["label"])
-                        for p in d["positions"] if p["opened"].startswith(clk["date"])))
+                changed = True   # each buy is sent the moment it happens (_live), so no 09:35 summary
             if m >= SCALP_EXIT_M and not day["closed15"]:
                 day["closed15"] = True
                 manage(d, clk)
-                closed = [t for t in d["trades"] if t["closed"].startswith(clk["date"]) and t["kind"] == "intraday"]
-                if closed:
-                    _send("🤖 Robot trading alert · 15:00 · scalps closed: " + ", ".join(
-                        "%s %s₹%s" % (t["symbol"], "+" if t["net"] >= 0 else "−", _n(abs(t["net"]))) for t in closed))
                 changed = True
         if m >= 935 and not day["after"]:            # 15:35
             day["after"] = True

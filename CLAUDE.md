@@ -398,3 +398,26 @@ diary per strategy kept 5 years, deletable by hand). Owner chose: add only strat
   OFF->ON at >=20 shadow trades since off_since[k], last 30 avg >= +0.10R; ON->OFF at >=15 live trades since since[k], last 20 avg < -0.10R.
   Manual switch still works (sets since/off_since); robot reviews it after the next close. Page cards show the rule + shadow results.
 - Page tweaks: diary filter row on one line, strategy cards 3 per row, robot title centred, no strategy tag on diary lines.
+- Telegram (das925chat bot, bot.py, owner 20 Nov 2026): 4th bottom row '🤖 Robot', /robot, 'robot' word, Robot under ☰ More.
+  Screens (read-only, via S.robot): robot (wealth, start/goal/progress, since start, today, corpus in use/free cash, open P/L,
+  booked profit/loss, charges, tax est., below peak, on/off strategies, risk cap, report time), rblive (each position: strategy,
+  bought date, days, qty, entry->now, capital, P/L, stop/trail/target), rbsold (8 per page, rbs:N; dates, days held, net after
+  charges, R, reason + totals), rbstrat (scorecard + shadow), rbtoday, rbdiary (12 per page, rbd:N, shadow hidden), rbcharges, rbset.
+  Changes ONLY risk cap (rbk:X, 'robot risk 1.5') and report time (rba:HH:MM, 'robot alert 15:45'), both behind ✅ Confirm and
+  blocked for view-only people. Robot on/off, strategy switches and close-all stay on the portal (owner's choice).
+  _poll sends setMyCommands once per start so /robot shows. Robot screens use Indian grouping (_ri).
+- Instant alerts: robot._live -> telegram kind 'robotlive' (mutable on Limits) for every REAL buy, sell and AUTO ON/OFF; the old
+  09:35 buys and 15:00 scalps-closed summaries were removed (duplicates). Kind 'robot' = the after-close report only.
+  Tested offline with Telegram faked (scratchpad t_bot.py): all screens, paging, confirm, view-only, live alerts.
+- Telegram FORMAT (owner 20 Nov 2026: "proper and tabular"): tgfmt.py. Builders put fixed-width tables in text with
+  F.table(rows, head) / F.kv(pairs) (invisible markers \x0e..\x0f, width 34 = phone; no emoji inside tables; numbers right-aligned;
+  widest text column cut with …). telegram._call renders EVERY sendMessage/editMessageText as HTML (F.render: first line bold,
+  tables in <pre>, rest escaped); if Telegram refuses HTML it re-sends F.plain(text). Logs store F.plain. _quiet keeps the
+  table markers when it drops a row. Money helpers: F.rs (Indian grouping), F.sg (signed), F.pc, F.px.
+  Converted: all bot screens (robot, holdings, stock, stops, plan, vsnifty, tax, core, sectors, results, longterm, limits, nifty,
+  alerts, price alerts, lists, top, paper, GTTs, settings), reports (morning, plan, close, eod, exits, roombuys, whatnext, trend,
+  loss10), daily (morning plan, sign-in, month stats, stop alert, weekly), telegram after_close (signals, holdings, summary),
+  ledger.stop_lines, robot buy/sell/daily alert. Short one-line events (price alert, Zerodha trade, paper sell, GTT) stay text.
+- Hindi: bot.to_hindi_fast: tables taken out (F.split) and kept English, words translated; HINDI_WAIT = 7 s total (owner),
+  then English is sent with a note. Fixed: News button with no symbol errored (clean_symbol('')).
+  Tested offline (scratchpad t_fmt.py): every screen + report renders valid HTML, tables <= 34 chars, fallback, 7 s limit.
