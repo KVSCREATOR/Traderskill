@@ -393,10 +393,19 @@ def _safe_hist(sym):
         return None
 
 
-def portfolio_backtest(mode, refresh=False):
-    """The full rule set on all 250 stocks with the owner's capital and limits."""
+def portfolio_backtest(mode, refresh=False, weekly=False):
+    """The full rule set on all 250 stocks with the owner's capital and limits.
+
+    weekly=True: you look once a week, after the close on the week's last trading day.
+    Stop-loss GTTs keep working every day in Kite, but you raise them only on that day.
+    Close-based exits (200-day, time) seen during the week are sold at that day's close.
+    New buys: the week's signals, bought at the next open if the price has not run more
+    than the rules allow (max_ext above the signal day's close)."""
+    key = (mode, "weekly", weekly) if weekly else mode
+    wk_buy = weekly in (True, "buys")     # research switches: only the buys weekly, or only the stops/exits weekly
+    wk_stop = weekly in (True, "stops")
     with _bt_lock:
-        hit = _bt_cache.get(mode)
+        hit = _bt_cache.get(key)
         if hit and not refresh and time.time() - hit["at"] < 6 * 3600:
             return hit["data"]
         t0 = time.time()
@@ -409,6 +418,9 @@ def portfolio_backtest(mode, refresh=False):
         days = [d for d in mkt.ind["d"] if not (clk["open"] and d == clk["date"])]   # completed days only
         warm = 260 if mode == "swing" else 300
         days = days[warm:]
+        review = {d for k, d in enumerate(days) if k == len(days) - 1 or
+                  date.fromisoformat(days[k + 1]).isocalendar()[:2] != date.fromisoformat(d).isocalendar()[:2]}
+        week_sigs = []
         sigs = {}   # date -> [(rs, sym, i, setup)]
         for s, ind in inds.items():
             for i in range(len(ind["c"]) - 1):
@@ -421,10 +433,10 @@ def portfolio_backtest(mode, refresh=False):
         top, pause_left, pauses = cash, 0, 0
         for day in days:
             # 1. fills at today's open for yesterday's signals
-            for rs, s, i, setup in pending:
+            for rs, s, i, setup, at in pending:
                 ind = inds[s]
                 j = ind["idx"].get(day)
-                if j is None or j != i + 1 or s in pos or len(pos) >= cfg["max_positions"]:
+                if j is None or j != at + 1 or s in pos or len(pos) >= cfg["max_positions"]:
                     continue
                 sector = S.UNIVERSE.get(s, {}).get("industry", "")
                 if sector and sum(1 for p in pos.values() if p["sector"] == sector) >= cfg["max_per_sector"]:
@@ -444,12 +456,22 @@ def portfolio_backtest(mode, refresh=False):
                           "target": target_for(mode, entry, stop), "in": day, "sector": sector, "setup": setup}
             pending = []
             # 2. work open positions on today's bar
+            look = not wk_stop or day in review
             for s in list(pos):
                 ind, p = inds[s], pos[s]
                 j = ind["idx"].get(day)
                 if j is None:
                     continue
+                stop_before = p["stop"]
                 out = step(mode, ind, j, p)
+                if wk_stop:
+                    if out and out[1] in ("trend broken", "time"):   # seen on the close: acted on at the weekly look
+                        p["flag"] = out[1]
+                        out = None
+                    if not look:
+                        p["stop"] = stop_before   # the GTT is raised only at the weekly look
+                    elif p.get("flag") and not out:
+                        out = (ind["c"][j], p.pop("flag"))
                 if out:
                     px, why = out
                     gross = (px - p["entry"]) * p["qty"]
@@ -484,10 +506,24 @@ def portfolio_backtest(mode, refresh=False):
                 pause_left -= 1
                 if pause_left == 0:
                     peak = equity
-            if mkt.regime(day, mode) and not pause_left:
-                pending = sorted(sigs.get(day, []), reverse=True)
+            if not wk_buy:
+                if mkt.regime(day, mode) and not pause_left:
+                    pending = sorted(((rs, s, i, st, i) for rs, s, i, st in sigs.get(day, [])), reverse=True)
+            else:
+                week_sigs += sigs.get(day, [])
+                if day in review:
+                    if mkt.regime(day, mode) and not pause_left:
+                        pending = sorted(((rs, s, i, st, inds[s]["idx"].get(day, -9)) for rs, s, i, st in week_sigs), reverse=True)
+                    week_sigs = []
         data = _summarise(mode, cfg, trades, curve, max_dd, invested_sum, pos, len(uni), time.time() - t0)
         data["pauses"] = pauses
+        data["weekly"] = weekly
+        cut = "2022-07-01"   # the project's two test periods
+        a = [e for d_, e in curve if d_ < cut]
+        b = [e for d_, e in curve if d_ >= cut]
+        per = len(curve) / max(data["years"], 0.01)
+        data["halves"] = {"cut": cut, "a": ((a[-1] / data["start"]) ** (per / len(a)) - 1) * 100 if a else None,
+                          "b": ((b[-1] / a[-1]) ** (per / len(b)) - 1) * 100 if a and b else None}
         try:
             data["bench"] = benchmark(curve, float(cfg["capital"]), mkt)
             y = max(len(curve) / 248, 0.01)
@@ -496,7 +532,7 @@ def portfolio_backtest(mode, refresh=False):
             data["mixes"] = mixes(curve, mkt, data["cagr"] - data["cagr_after_tax"], wd["cagr"] - wd["cagr_after_tax"])
         except Exception as e:  # noqa: BLE001  (the comparison must never break the backtest)
             data["bench"] = {"error": str(e)[:150]}
-        _bt_cache[mode] = {"at": time.time(), "data": data}
+        _bt_cache[key] = {"at": time.time(), "data": data}
         return data
 
 

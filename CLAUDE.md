@@ -282,6 +282,16 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
   every buy/sell copied into Nifty 50 (price index) at that day's close; end = last snapshot value. XIRR via
   longterm._xirr. Dividends/charges out on both sides; stocks with no price history left out and listed. 20 Nov 2026
   (206 days from 28 Apr): you +23k / 2.9%/yr vs Nifty +77k / 9.6%/yr (test run, no network: NSE/STLTECH/NIFTYBEES left out).
+- BUILT 20 Nov 2026: weekly-check backtest. longterm.portfolio_backtest(mode, refresh, weekly) - weekly=True: act only
+  after the close on each ISO week's last trading day (close-based exits flagged in the week sold then; stop raised only
+  then, but stop GTT works daily; the week's signals bought at next open if within max_ext of the signal close).
+  Research switches weekly='buys' / 'stops'. data['halves'] = CAGR to / after 2022-07-01. GET /api/backtest?weekly=1;
+  Time machine shows a daily-vs-weekly card (modes2.weeklyCompare). Daily path verified identical to the old code.
+  Results (limits 6.15L/7.5k/75k, Feb 2018-Nov 2026, pre-tax CAGR, to Jun22 / after, worst fall):
+  Investing daily 9.7% (7.8/11.8) -27.2%; weekly 15.6% (20.2/11.2) -21.4%; buys-only weekly 16.6% (22.2/11.4); stops-only 11.1% -37.1%.
+  Trading daily 7.1% (3.9/10.5) -23.6%; weekly 9.4% (6.2/12.7) -18.6%.
+  => weekly does NOT cost profit (Trading better in both halves; Investing gain is all in the first half = likely luck,
+  second half -0.6%/yr). Owner's routine can be weekly + daily GTT stops. Rules NOT changed.
 - Next to build (ask owner first):
-  then build: weekly-check backtest,
+  then build:
   March tax-harvest reminder.

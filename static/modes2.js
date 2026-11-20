@@ -59,6 +59,8 @@ async function portfolioBacktest(box, fresh) {
     <div class="card"><h2>Latest backtest trades</h2><div class="tablewrap"><table><thead><tr><th>Stock</th><th>Bought</th><th>Sold</th><th class="num">Days</th><th class="num">Qty</th><th>Exit</th><th class="num">Result</th><th class="num">P&amp;L</th></tr></thead><tbody>
       ${b.recent.map(t => `<tr><td class="sym"><b>${esc(t.symbol)}</b><small>${esc(t.setup)}</small></td><td class="mono">${fdate(t.in)}</td><td class="mono">${fdate(t.out)}</td><td class="num">${t.held}</td><td class="num">${t.qty}</td><td><span class="tag">${esc(t.why)}</span></td><td class="num ${cls(t.r)}">${sgn(t.r, 2, 'R')}</td><td class="num ${cls(t.pnl)}">${money(t.pnl)}</td></tr>`).join('')}</tbody></table></div></div>`;
   $('#rerun', box).onclick = () => portfolioBacktest(box, true);
+  box.insertAdjacentHTML('beforeend', `<div class="card" id="wkBox"><h2>Check daily or once a week?</h2><div class="empty">Running the same rules as if you look only once a week…</div></div>`);
+  weeklyCompare(b, my, fresh);
   S.chartRedraw = () => { const e = $('#eqBox', box); if (e) e.innerHTML = equityChart(b.curve, b.start, b.bench && b.bench.curve); };
 }
 
@@ -82,6 +84,29 @@ function benchBlock(b) {
     ${b.mixes.map(m => `<tr class="${m.core_pct === 50 ? 'inper' : ''}"><td><b>${m.core_pct}% Nifty + ${100 - m.core_pct}% rules</b>${m.core_pct === 100 ? ' <small class="muted">(index only)</small>' : m.core_pct === 0 ? ' <small class="muted">(rules only)</small>' : ''}</td><td class="num ${cls(m.cagr)}">${sgn(m.cagr)}</td><td class="num ${cls(m.cagr_after_tax)}">${sgn(m.cagr_after_tax)}</td><td class="num down">−${m.max_dd.toFixed(1)}%</td><td class="num">−${m.dd_a.toFixed(1)}%</td><td class="num">${m.dd_b != null ? '−' + m.dd_b.toFixed(1) + '%' : '–'}</td></tr>`).join('')}</tbody></table></div>
     <p class="note" style="margin-top:6px">A mix keeps most of the index's return while the rules' cash periods soften the deep falls. Set your target split and see your real split under My holdings → Core + satellite.</p>` : ''}
     <p class="note" style="margin-top:8px">${verdict} Both sides pay delivery costs; the Nifty is taxed once when sold at the end (long-term 12.5% above ₹1.25 lakh), the rules every year on short-term gains. The rules use today's index members (flatters them a little). Past results do not promise future returns.</p>`;
+}
+
+/* Same rules, looked at once a week (after the week's last close) vs every day. Stop GTTs work daily either way. */
+async function weeklyCompare(b, my, fresh) {
+  let w; try { w = await api('/api/backtest?weekly=1' + (fresh ? '&refresh=1' : '')); } catch (e) { const x = $('#wkBox'); if (x && my === S.nav) x.innerHTML = '<h2>Check daily or once a week?</h2>' + failBox(e); return; }
+  const box = $('#wkBox');
+  if (!box || my !== S.nav) return;
+  const h = x => x != null ? sgn(x) : '–', pf = x => x != null ? x.toFixed(2) : '–';
+  const row = (l, d, k) => `<tr><td>${l}</td><td class="num">${d(b)}</td><td class="num"><b>${d(w)}</b></td></tr>`;
+  const da = b.halves || {}, wa = w.halves || {};
+  const better = (w.halves && b.halves && w.halves.a >= b.halves.a - 0.5 && w.halves.b >= b.halves.b - 0.5) || w.cagr >= b.cagr;
+  box.innerHTML = `<h2>Check daily or once a week?</h2>
+    <div class="tablewrap"><table><thead><tr><th></th><th class="num">Every day</th><th class="num">Once a week</th></tr></thead><tbody>
+      ${row('Per year (CAGR)', x => `<span class="${cls(x.cagr)}">${h(x.cagr)}</span>`)}
+      ${row('Per year after tax', x => h(x.cagr_after_tax))}
+      ${row(`Per year to ${fdate('2022-06-30')}`, x => h((x.halves || {}).a))}
+      ${row('Per year after that', x => h((x.halves || {}).b))}
+      ${row('Worst fall', x => `<span class="down">−${x.max_dd.toFixed(1)}%</span>`)}
+      ${row('Trades', x => x.trades)}${row('Profit factor', x => pf(x.profit_factor))}
+    </tbody></table></div>
+    <p class="note">Once a week = you look after the close on the week's last trading day: sell what a closing-price exit flagged during the week, raise the stop GTTs, and buy that week's signals at the next open if the price hasn't run too far. Stop-loss GTTs keep working every day in Kite.
+    ${better ? 'Looking once a week did not cost profit in this test, so a weekly routine is enough.' : 'Here, looking once a week cost some profit compared with every day.'}
+    Differences of 1–2% a year are within noise (the order signals get bought in alone moves results that much), so judge both test periods, not one number.</p>`;
 }
 
 function skillLong(key, p, h1) {

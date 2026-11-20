@@ -1510,7 +1510,7 @@ def api(method, path, q, body):
     if path == "/api/backtest":
         if not long_mode:
             raise ApiError(400, "The portfolio backtest is for Trading and Investing modes.")
-        return longterm.portfolio_backtest(mode, q.get("refresh") == "1")
+        return longterm.portfolio_backtest(mode, q.get("refresh") == "1", weekly=q.get("weekly") == "1")
     if path == "/api/journal":
         if not long_mode:
             raise ApiError(400, "The forward test is for Trading and Investing modes.")
