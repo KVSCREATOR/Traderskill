@@ -8,6 +8,7 @@
 Everything here reports what the portal's tested rules and the data say. It is not personal
 advice, and the outlook is a reading of overnight cues, not a forecast.
 """
+import hashlib
 import json
 import os
 import threading
@@ -40,12 +41,37 @@ def log(kind, text, status, error=None):
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
+def _mid(r):
+    """A stable id for one logged message (when + kind + text)."""
+    return hashlib.sha1(("%s|%s|%s" % (r.get("ts"), r.get("kind"), r.get("text"))).encode("utf-8")).hexdigest()[:14]
+
+
+def delete_log(ids=None, everything=False):
+    """Delete sent-message records for good: the given ids, or all of them."""
+    ids = set(ids or [])
+    with _log_lock:
+        try:
+            with open(_log_path(), encoding="utf-8") as f:
+                lines = [x for x in f if x.strip()]
+        except OSError:
+            lines = []
+        keep = [] if everything else [x for x in lines if _mid(json.loads(x)) not in ids]
+        tmp = _log_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.writelines(keep)
+        os.replace(tmp, _log_path())
+    n = len(lines) - len(keep)
+    return {"ok": True, "deleted": n, "message": "Deleted %d message record%s." % (n, "" if n == 1 else "s")}
+
+
 def history(limit=500, kind=None):
     try:
         with open(_log_path(), encoding="utf-8") as f:
             rows = [json.loads(x) for x in f if x.strip()]
     except OSError:
         rows = []
+    for r in rows:
+        r["mid"] = _mid(r)
     if kind:
         rows = [r for r in rows if r["kind"] == kind]
     return {"rows": rows[::-1][:limit], "total": len(rows)}
@@ -485,7 +511,7 @@ def loss_watch():
                  key=lambda r: r["pnl_pct"])
     if new:
         lw["loss"] += [r["symbol"] for r in new]
-        T.notify("loss10", "\n".join(["🔴 Down 10% or more from your buy price · %s" % now.strftime("%H:%M")]
+        T.notify("loss10", "\n".join(["🔴 Down 10%% or more from your buy price · %s" % now.strftime("%H:%M")]
                                      + ["  %s %+.1f%% · %s now %s (avg %s)%s" % (r["symbol"], r["pnl_pct"], signed(r["pnl"]), rs(r["ltp"], 2),
                                                                                 rs(r["avg"], 2), " · rule: " + r["verdict"] if r.get("verdict") else "")
                                         for r in new] + [NOTE]))
