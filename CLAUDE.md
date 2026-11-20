@@ -370,3 +370,26 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
 - Telegram kind "robot": "ROBOT TRADING ALERT" at d.alert_at (default 15:32, owner: after the market close; editable on the page; test button) = wealth, earned/lost today + since start, bought today, closed today, open now, capital used per scrip; + AI review (numbers checked). Also 09:35 buys, 15:00 scalps closed.
 - Tested offline (scratchpad t_rb.py: charges vs Zerodha calculator, open/close money, catch-up, factor, model). First live run 20 Nov 2026 13:4x: bought 5 swings at 1% risk.
 - NEXT (not done): watch the first ORB morning (Mon) in the diary; check the 15:45 report arrives; consider a per-strategy equity split view.
+
+Robot v2 (20 Nov 2026 evening, owner: "double the wealth in minimum time", add chart/price-action strategies, no fixed buy/sell time,
+diary per strategy kept 5 years, deletable by hand). Owner chose: add only strategies that pass tests; stop the losing scalps;
+"all day, tested way"; diary delete with confirm only (NO password).
+- Study (cached data/hist, 242 stocks, per-signal R after delivery charges+slippage+DP, halves Dec 2017-Jun 2022 / Jul 2022-Nov 2026,
+  all with Trading v2 exits): PASS dip buy (RSI-2<10 above rising 200 / 3 down days in uptrend) +0.27/+0.43R; bullish engulfing/hammer at
+  20/50-day +0.28/+0.25R (nudges +0.25..+0.30, ~80% not already v2 signals); 52-week-high breakout 1.5x vol +0.13/+0.45R; v2 base +0.14/+0.40R
+  (harness matches the earlier +0.16/+0.42). FAIL: inside bar / NR7 / any fast 2R or 3-4 day mean-reversion exit (negative after charges),
+  gap-and-go mixed. Intraday (Yahoo 5-min, 60 days, halves at 7 Oct, 0.17% round trip): ALL fail - VWAP pullback long -0.13/-0.10,
+  midday high break, gap-down reversal mixed, ORB short ~0.00/+0.03, VWAP reject short, gap-up fade mixed, midday low short,
+  and the robot's own pm experiment -0.14/-0.10R.
+- Portfolio sim ₹1.5 lakh, cash-bound delivery, 10 shuffled buy orders: every mix ~3-7%/yr median, worst fall 30-45%; RS-ranked order
+  looked 12-17%/yr but shuffles say that is luck. Told owner honestly: no tested rule set doubles money fast.
+- Built: robot.STRATS swing/dip/candle/high52 (delivery, prior 1.0, 'expect' R) + orb/pm default_off; daily_signal(), scan_daily()
+  (outside lock, completed-day signals once a day, today's forming bar every 5 min from 15:10), daily_entries() (price within 3% of the
+  signal close, L.stop_for swing, same L.step exits via swing_update; one signal per stock, v2 signals stay 'swing').
+  All strategies checked every ~3 min 09:15-15:28 (DAY_FROM_M/DAY_TO_M); swing also takes 'provisional' from 15:10.
+  MAX_SWING 10, SWING_CAP 20%, BASE_RISK 1.5% (x strategy factor, capped by risk_cap 2%). Cash limits it to ~5-7 swings in practice.
+- Diary: data/robot_diary.jsonl (_say(d, text, kind, strat) appends; kinds buy/sell/loss/skip/score/info/ai/error), kept DIARY_YEARS=5
+  (diary_prune after the close), skip_notes() + score_note() after the close (scorecard(): verdict per strategy, best after 15 trades).
+  API: POST /api/robot {action:'diary', strat, kind, from, to, q, limit} and {action:'diary_delete', ids:[...]} or same filters.
+  migrate() (v1->v2, at start) moved the old log into the file and switched both scalps off. Page: filters, per-entry ✕, 'Delete shown'.
+- NOT yet verified in the browser (Chrome extension was not connected); offline test on a temp copy of data/ passed.

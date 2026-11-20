@@ -600,3 +600,12 @@ html.slocked #slock { display: grid; }
 .rb-log { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow: auto; font-size: 13px; }
 .rb-log li { padding: 6px 4px; border-bottom: 1px solid var(--border); }
 .rb-log li.buy { color: var(--accent); } .rb-log li.loss, .rb-log li.error { color: var(--fail, #dc2626); } .rb-log li.sell { color: var(--pass); }
+
+.rb-verdict { margin: 4px 0 10px; font-weight: 600; }
+.rb-v { margin: 6px 0 0; font-size: 13px; font-weight: 600; } .rb-v.good { color: var(--pass); } .rb-v.bad { color: var(--fail, #dc2626); }
+.rb-dfilter { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.rb-dfilter label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.rb-dfilter input { min-width: 0; }
+.rb-log li.score { font-weight: 600; } .rb-log li.skip { color: var(--muted, #6b7280); }
+.rb-x { float: right; border: 0; background: none; color: var(--muted, #6b7280); cursor: pointer; padding: 0 4px; font-size: 13px; }
+.rb-x:hover { color: var(--fail, #dc2626); }

@@ -5,7 +5,9 @@
   if (nav && !document.querySelector('#nav a[data-view="robot"]')) {
     nav.insertAdjacentHTML('afterend', '<a href="#/robot" data-view="robot"><i>🤖</i><span>AI Robot<small>paper · runs by itself</small></span></a>');
   }
-  const SL = { orb: '🌅', swing: '📈', pm: '🧪' };
+  const SL = { orb: '🌅', swing: '📈', pm: '🧪', dip: '🪂', candle: '🕯️', high52: '🏔️' };
+  const KL = { buy: 'Buy', sell: 'Sell (profit)', loss: 'Sell (loss)', skip: 'Daily notes', score: 'Scorecard', info: 'Info', ai: 'AI review', error: 'Error' };
+  const dflt = { strat: '', kind: '', from: '', to: '', q: '' };   // diary filter, kept while the page refreshes
   const money = v => (v < 0 ? '−' : '+') + inr(Math.abs(v), 0);
 
   function curve(pts, cap) {
@@ -47,13 +49,15 @@
     </div>
 
     <div class="card"><h2>How the robot decides</h2>
-      <p class="note" style="margin-top:0">Each strategy starts at a size that matches how well it was tested, then <b>earns or loses its share by its own results after all charges</b> (last 20 trades). It trades smaller when below the peak or when India VIX is above 22, stops for the day after −3%, pauses a week after −15%. Never more than your cap per trade.</p>
+      <p class="note" style="margin-top:0">Every strategy is checked about every 3 minutes from 09:15 to 15:28. Daily-chart signals are bought any time the price is still within 3% of the signal close, and a signal forming today counts from 15:10. Each strategy starts at a size that matches how well it was tested, then <b>earns or loses its share by its own results after all charges</b> (last 20 trades). Base risk ${d.limits.base_risk}% per trade, up to ${d.limits.max_swing} swings at ${d.limits.swing_cap}% of the money each. It trades smaller when below the peak or when India VIX is above 22, stops for the day after −3%, pauses a week after −15%. Never more than your cap per trade.</p>
+      <p class="rb-verdict">📊 ${esc(d.scorecard.summary)}</p>
       <div class="rb-strats">${d.strategies.map(s => `<div class="rb-strat ${s.on ? '' : 'off'}">
         <div class="row" style="justify-content:space-between"><b>${SL[s.id] || ''} ${esc(s.label)}</b><span class="switch"><input type="checkbox" data-rbs="${s.id}" ${s.on ? 'checked' : ''}><span></span></span></div>
         <p class="note">${esc(s.why)}</p>
         <div class="rb-nums"><span>Size <b>${s.factor}×</b></span><span>Trades <b>${s.n}</b></span><span>Won <b>${s.n ? Math.round(s.won / s.n * 100) + '%' : '–'}</b></span>
           <span>Net <b class="${cls(s.net)}">${money(s.net)}</b></span><span>Charges <b>${inr(s.charges, 0)}</b></span></div>
-        <p class="note" style="margin:6px 0 0">${esc(s.factor_why)}</p></div>`).join('')}</div>
+        <p class="note" style="margin:6px 0 0">${esc(s.factor_why)}</p>
+        ${(v => v ? `<p class="rb-v ${/GOOD/.test(v.verdict) ? 'good' : /COSTING/.test(v.verdict) ? 'bad' : ''}">${d.scorecard.best === s.id ? '🏆 Best so far · ' : ''}${esc(v.verdict)}${v.avg_r != null ? ` · ${v.avg_r >= 0 ? '+' : ''}${v.avg_r.toFixed(2)}R per trade (tested ${v.expect >= 0 ? '+' : ''}${v.expect.toFixed(2)}R)` : ''}</p>` : '')(d.scorecard.rows.find(r => r.id === s.id))}</div>`).join('')}</div>
       <div class="row" style="gap:10px;margin-top:12px;align-items:center"><span class="note" style="margin:0">Most it may risk on one trade:</span>
         <select id="rbCap" class="sel">${[0.5, 1, 1.5, 2, 2.5, 3].map(v => `<option value="${v}" ${+d.risk_cap === v ? 'selected' : ''}>${v}% of its money</option>`).join('')}</select></div>
     </div>
@@ -75,7 +79,17 @@
       ${d.trades.map(t => `<tr><td class="mono">${esc(t.closed.slice(5))}</td><td><b>${esc(t.symbol)}</b></td><td>${SL[t.strat] || ''} ${t.kind === 'intraday' ? 'Scalp' : 'Swing'}</td><td class="num">${t.qty}</td><td class="num">${inr(t.entry)}</td><td class="num">${inr(t.exit)}</td><td class="num">${inr(t.entry * t.qty, 0)}</td>
         <td class="num">${inr(t.charges.total)}</td><td class="num ${cls(t.net)}">${money(t.net)}</td><td class="num ${cls(t.r)}">${t.r.toFixed(2)}</td><td><small>${esc(t.reason)}</small></td></tr>`).join('')}</tbody></table></div>` : '<p class="note">None yet.</p>'}</div>
 
-    <div class="card"><h2>Robot diary</h2><ul class="rb-log">${d.log.length ? d.log.map(l => `<li class="${esc(l.kind)}"><span class="mono">${esc(l.at.slice(5))}</span> ${esc(l.text)}</li>`).join('') : '<li>Nothing yet. Entries appear as the robot works.</li>'}</ul></div>
+    <div class="card"><h2>Robot diary</h2>
+      <p class="note" style="margin-top:0">Every buy, sell, stop move and daily note, tagged by strategy, plus a scorecard after each close (best performer and what suits your goal). Kept ${d.limits.diary_years} years${d.diary.oldest ? ` · oldest entry ${esc(d.diary.oldest.slice(0, 10))}` : ''} · ${d.diary.all} entries. You can delete entries by hand.</p>
+      <div class="rb-dfilter">
+        <select id="dfStrat" class="sel"><option value="">All strategies</option><option value="general">General (no strategy)</option>${d.strategies.map(s => `<option value="${s.id}">${SL[s.id] || ''} ${esc(s.label)}</option>`).join('')}</select>
+        <select id="dfKind" class="sel"><option value="">All entries</option>${Object.entries(KL).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+        <label>From <input id="dfFrom" type="date"></label><label>To <input id="dfTo" type="date"></label>
+        <input id="dfQ" placeholder="Search text, e.g. RELIANCE">
+        <button class="btn ghost" id="dfClear" type="button">Clear</button>
+        <button class="btn danger" id="dfDel" type="button">Delete shown</button></div>
+      <p class="note" id="dfCount"></p>
+      <ul class="rb-log" id="dfList"></ul></div>
 
     <div class="card"><h2>Your controls</h2>
       <form class="cnform" autocomplete="off" onsubmit="return false"><div class="cngrid">
@@ -86,6 +100,25 @@
         <div class="row" style="gap:8px;justify-content:flex-end"><button class="btn" type="button" id="rbClose">Close all positions now</button><button class="btn danger" type="button" id="rbReset">Reset the robot</button></div></form>
       <p class="note">The robot keeps working whatever else the portal does, and after a NAS restart it carries on: scalps left open are squared off at the 15:20 price, swings catch up on missed days. Telegram: “🤖 ROBOT TRADING ALERT” after the close (time above), plus 09:35 buys and 15:00 scalps closed; switch it off in the Telegram table on the Limits page. Paper only; no strategy is promised to make money.</p></div>`;
     if (keep) { if (keep.pw && $('#rbPw')) $('#rbPw').value = keep.pw; if (keep.cap && $('#rbCapital')) $('#rbCapital').value = keep.cap; if (keep.at && $('#rbAlertAt')) $('#rbAlertAt').value = keep.at; window.scrollTo(0, keep.y); }
+    const dlist = dd => {
+      $('#dfCount').textContent = dd.total ? `Showing ${dd.items.length} of ${dd.total} matching entr${dd.total === 1 ? 'y' : 'ies'}.` : '';
+      $('#dfList').innerHTML = dd.items.length ? dd.items.map(l => `<li class="${esc(l.kind)}"><button class="rb-x" data-did="${esc(l.id || '')}" title="Delete this entry" aria-label="Delete this entry">✕</button><span class="mono">${esc(l.at)}</span> ${l.strat ? `<span class="pill">${SL[l.strat] || ''} ${esc((d.strategies.find(s => s.id === l.strat) || {}).label || l.strat)}</span> ` : ''}${esc(l.text)}</li>`).join('') : '<li>No entries match.</li>';
+      $('#dfList').querySelectorAll('[data-did]').forEach(b => b.onclick = async () => {
+        if (!b.dataset.did || !await askConfirm('Delete this diary entry?', 'It is removed from the record for good.', 'Delete')) return;
+        try { const r = await api('/api/robot', Object.assign({ action: 'diary_delete', ids: [b.dataset.did] }, dflt)); toast(r.message); dlist(r.diary); } catch (e) { toast(e.message, 'bad'); }
+      });
+    };
+    const dload = async () => { try { dlist((await api('/api/robot', Object.assign({ action: 'diary', limit: 300 }, dflt))).diary); } catch (e) { toast(e.message, 'bad'); } };
+    [['#dfStrat', 'strat'], ['#dfKind', 'kind'], ['#dfFrom', 'from'], ['#dfTo', 'to'], ['#dfQ', 'q']].forEach(([id, k]) => { const el = $(id); el.value = dflt[k]; el.onchange = () => { dflt[k] = el.value.trim(); dload(); }; });
+    $('#dfClear').onclick = () => { Object.keys(dflt).forEach(k => dflt[k] = ''); robotPage(true); };
+    $('#dfDel').onclick = async () => {
+      const any = Object.values(dflt).some(Boolean);
+      const n = (await api('/api/robot', Object.assign({ action: 'diary', limit: 1 }, dflt))).diary.total;
+      if (!n) return toast('Nothing to delete.');
+      if (!await askConfirm(`Delete ${n} diary entr${n === 1 ? 'y' : 'ies'}?`, any ? 'Every entry matching the filter above is removed for good.' : 'No filter is set: this deletes the WHOLE diary for good.', 'Delete')) return;
+      try { const r = await api('/api/robot', Object.assign({ action: 'diary_delete' }, dflt)); toast(r.message); dlist(r.diary); } catch (e) { toast(e.message, 'bad'); }
+    };
+    if (Object.values(dflt).some(Boolean)) dload(); else dlist(d.diary);
     const go = async body => { try { const r = await api('/api/robot', body); toast(r.message); robotPage(true); } catch (e) { toast(e.message, 'bad'); } };
     $('#rbOn').onchange = e => go({ action: e.target.checked ? 'on' : 'off' });
     view.querySelectorAll('[data-rbs]').forEach(x => x.onchange = () => go({ action: 'strat', id: x.dataset.rbs, on: x.checked }));
@@ -94,7 +127,7 @@
     $('#rbAlertTest').onclick = () => go({ action: 'alert_test' });
     $('#rbClose').onclick = async () => { if (await askConfirm('Close every robot position?', 'All open paper positions are sold at the latest price.', 'Close all')) go({ action: 'close_all', password: $('#rbPw').value }); };
     $('#rbReset').onclick = async () => { if (await askConfirm('Reset the robot?', 'All its trades, history and learning are wiped and it starts again with the money you entered.', 'Reset')) go({ action: 'reset', password: $('#rbPw').value, capital: +$('#rbCapital').value }); };
-    clearInterval(S.timer); S.timer = setInterval(() => { if (location.hash.startsWith('#/robot') && !document.querySelector('#rbPw:focus, #rbCapital:focus, #rbAlertAt:focus')) robotPage(true); }, 60000);
+    clearInterval(S.timer); S.timer = setInterval(() => { if (location.hash.startsWith('#/robot') && !document.querySelector('#rbPw:focus, #rbCapital:focus, #rbAlertAt:focus, .rb-dfilter :focus')) robotPage(true); }, 60000);
   }
 
   VIEWS.robot = robotPage;
