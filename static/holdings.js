@@ -85,7 +85,7 @@ async function pinGate(then) {
     <div class="pin-dots" aria-hidden="true">${'<i></i>'.repeat(n)}</div>
     <input id="pinHidden" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="${n}" autocomplete="off" class="pin-in" aria-label="PIN">
     <div class="pin-pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, '', 0, '⌫'].map(k => k === '' ? '<span></span>' : `<button type="button" data-k="${k}">${k}</button>`).join('')}</div>
-    <p class="note">${st.tries_left < 5 ? `<b>${st.tries_left} tries left</b> before it locks. ` : ''}<a href="#" id="pinForgot">Forgot PIN?</a></p></div>`;
+    <p class="note">${st.tries_left < 3 ? `<b>${st.tries_left} tries left</b> before it locks. ` : ''}<a href="#" id="pinForgot">Forgot PIN?</a> · <a href="#" id="pinChange">Change PIN</a></p><p class="note">Same PIN as the 🔒 screen lock.</p></div>`;
   const inp = $('#pinHidden'), dots = view.querySelectorAll('.pin-dots i');
   const show = () => dots.forEach((d, i) => d.classList.toggle('on', i < pin.length));
   const go = async () => {
@@ -97,6 +97,7 @@ async function pinGate(then) {
   inp.oninput = () => { pin = inp.value.replace(/\D/g, '').slice(0, n); inp.value = pin; show(); if (pin.length === n) go(); };
   inp.focus();
   $('#pinForgot').onclick = e => { e.preventDefault(); S.pinReset = true; pinGate(then); };
+  $('#pinChange').onclick = e => { e.preventDefault(); const c = view.querySelector('.pin-card'); pinChangeForm(c, then, () => pinGate(then)); };
 }
 
 /* ---- Today: the 15-minute daily checklist */
@@ -455,14 +456,14 @@ const fmtQ = v => v == null ? '–' : (Math.round(v * 1000) / 1000).toLocaleStri
 /* ---- Limits: change / reset the PIN */
 function pinCard(box) {
   if (!box) return;
-  box.innerHTML = `<h2>My holdings PIN</h2><p class="note">Asked every time My holdings opens. 4 digits.</p>
+  box.innerHTML = `<h2>PIN · My holdings + screen lock</h2><p class="note">One 4-digit PIN: asked every time My holdings opens and to unlock the 🔒 screen lock. Change it here, on the My holdings PIN screen or on the lock screen. 3 wrong tries lock it; then reset with the portal password.</p>
     <form id="pinChg" class="grid" autocomplete="off"><label>Current PIN<input id="pcOld" type="password" inputmode="numeric" maxlength="4" class="pin-in"></label>
       <label>New PIN<input id="pcNew" type="password" inputmode="numeric" maxlength="4" class="pin-in"></label><label>New PIN again<input id="pcNew2" type="password" inputmode="numeric" maxlength="4" class="pin-in"></label>
       <div class="row" style="grid-column:1/-1"><button class="btn primary">Change PIN</button><a href="#/holdings" id="pcForgot" class="btn ghost">Forgot it? Reset with the portal password</a></div></form>`;
   $('#pinChg').onsubmit = async e => {
     e.preventDefault();
     if ($('#pcNew').value !== $('#pcNew2').value) { toast('The two new PINs are not the same.', 'bad'); return; }
-    try { const r = await api('/api/ledger/pin/change', { old: $('#pcOld').value, pin: $('#pcNew').value }); toast(r.message); e.target.reset(); S.pinTok = null; }
+    try { const r = await api('/api/ledger/pin/change', { old: $('#pcOld').value, pin: $('#pcNew').value }); toast('PIN changed for My holdings and the screen lock.'); e.target.reset(); S.pinTok = null; }
     catch (err) { toast(err.message, 'bad'); }
   };
   $('#pcForgot').onclick = () => { S.pinReset = true; };

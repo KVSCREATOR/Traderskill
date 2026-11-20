@@ -717,6 +717,30 @@ function askConfirm(title, text, okLabel = 'Delete') {
   });
 }
 
+/* One PIN for My holdings and the screen lock: change it from any place (Limits, My holdings, lock screen). */
+function pinChangeForm(el, done, cancel) {
+  el.innerHTML = `<form class="pinchg" autocomplete="off" onsubmit="return false"><h3 style="margin:0 0 4px">Change PIN</h3>
+    <p class="note" style="margin:0 0 8px">One PIN for My holdings and the screen lock.</p>
+    <input id="pcgOld" type="password" inputmode="numeric" maxlength="4" placeholder="Current PIN" autocomplete="off">
+    <input id="pcgNew" type="password" inputmode="numeric" maxlength="4" placeholder="New PIN" autocomplete="off">
+    <input id="pcgNew2" type="password" inputmode="numeric" maxlength="4" placeholder="New PIN again" autocomplete="off">
+    <div class="err" id="pcgErr" style="color:var(--fail,#dc2626);min-height:18px;font-size:13px"></div>
+    <div class="row" style="gap:8px;justify-content:center"><button type="button" class="btn" id="pcgCancel">Cancel</button><button class="btn primary" id="pcgGo">Change PIN</button></div></form>`;
+  const g = x => el.querySelector(x), err = g('#pcgErr');
+  g('#pcgCancel').onclick = cancel;
+  g('#pcgGo').onclick = async () => {
+    const o = g('#pcgOld').value, a = g('#pcgNew').value;
+    if (!o || !a) { err.textContent = 'Fill in the current and the new PIN.'; return; }
+    if (a !== g('#pcgNew2').value) { err.textContent = 'The two new PINs are not the same.'; return; }
+    try {
+      await api('/api/ledger/pin/change', { old: o, pin: a });
+      const r = await api('/api/ledger/unlock', { pin: a }); if (typeof S !== 'undefined') S.pinTok = r.token;
+      toast('PIN changed for My holdings and the screen lock.'); done();
+    } catch (e) { err.textContent = e.message; }
+  };
+  setTimeout(() => g('#pcgOld').focus(), 50);
+}
+
 /* ---------------------------------------------------------------- Screen lock (this browser only)
    Hides the page until the My holdings PIN is typed. Only the 🔒 button locks it. Nothing stops behind it:
    polling, alerts, the ticker and every NAS job keep running. Stays locked after a reload or NAS restart. */
@@ -740,10 +764,12 @@ function askConfirm(title, text, okLabel = 'Delete') {
         <p class="note" style="margin:0">Everything keeps working in the background.</p>
         <input id="slockIn" type="password" inputmode="numeric" maxlength="4" placeholder="PIN" autocomplete="off" aria-label="PIN">
         <div class="err" id="slockErr"></div>
-        <a href="#" class="alt" id="slockAlt">🔑 Forgot PIN? Reset with the portal password</a></form>`;
+        <a href="#" class="alt" id="slockAlt">🔑 Forgot PIN? Reset with the portal password</a><br><a href="#" class="alt" id="slockChg">✏️ Change PIN</a></form>`;
     const err = el.querySelector('#slockErr'), $l = x => el.querySelector(x);
     const alt = $l('#slockAlt'); if (alt) alt.onclick = e => { e.preventDefault(); usePw = !usePw; draw(); };
     const toReset = m => { usePw = true; draw(m); };
+    const chg = $l('#slockChg'); if (chg) chg.onclick = e => { e.preventDefault(); const box = document.createElement('div'); box.className = 'box'; box.innerHTML = '<div class="ic">🔒</div>';
+      $l('form.box').replaceWith(box); const f = document.createElement('div'); box.appendChild(f); pinChangeForm(f, () => set(false), () => draw()); };
     let busy = false;
     if (usePw) {
       const go = async () => {

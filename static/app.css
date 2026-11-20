@@ -582,3 +582,7 @@ html.slocked #slock { display: grid; }
 #slock input { width: 100%; box-sizing: border-box; text-align: center; font: 600 22px var(--mono, monospace); letter-spacing: .4em; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text); margin: 14px 0 10px; }
 #slock .err { color: var(--fail, #dc2626); min-height: 18px; font-size: 13px; }
 #slock .alt { font-size: 12.5px; margin-top: 10px; display: inline-block; }
+
+.pinchg { display: grid; gap: 8px; max-width: 300px; margin: 0 auto; text-align: center; }
+.pinchg input { text-align: center; font: 600 18px var(--mono, monospace); letter-spacing: .3em; padding: 9px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text); }
+#slock .pinchg input { margin: 0; font-size: 18px; }
