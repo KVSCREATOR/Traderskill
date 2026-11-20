@@ -51,6 +51,12 @@ CATALOG = [
      [P("x", "Move at least", default=4, unit="%"), P("dir", "Direction", "sel", "either", options=DIR3)], "holdings", "market"),
     ("h_day_rs", "My holdings", "Gains or loses ₹X today", "A holding gains or loses ₹X or more today (price move × your shares).",
      [P("x", "At least", default=5000, unit="₹"), P("dir", "Direction", "sel", "either", options=DIR3)], "holdings", "market"),
+    ("h_from_peak", "My holdings", "Falls X% from its peak since you bought", "A holding closes X% or more below its highest close since you bought it (or the last 12 months when the buy date is not in your records): protects profits.",
+     [P("x", "Fall at least", default=12, unit="%")], "holdings", "close"),
+    ("h_weight", "My holdings", "Grows over X% of your portfolio", "A holding is worth more than X% of all your holdings together.",
+     [P("x", "More than", default=15, unit="%")], "holdings", "close"),
+    ("h_deal", "My holdings", "Bulk or block deal in your stock", "NSE reports a bulk or block deal (a big named buyer or seller) in the stock.",
+     [P("side", "Side", "sel", "any", options=[["any", "Buy or sell"], ["BUY", "Buy"], ["SELL", "Sell"]])], "stocks", "close"),
     ("h_near_stop", "My holdings", "Near its stop", "A holding is within X% above its Investing rule stop.",
      [P("x", "Within", default=3, unit="%")], "holdings", "close"),
     ("h_long_soon", "My holdings", "Turns long-term soon", "Shares turn long-term (held 12 months) within X days: tax drops from 20% to 12.5%.",
@@ -73,6 +79,17 @@ CATALOG = [
      [P("x", "Price", default=None, unit="₹")], "stocks", "market"),
     ("day_pct", "Price and % moves", "Up or down X% today", "The price moves X% or more today.",
      [P("x", "Move at least", default=5, unit="%"), P("dir", "Direction", "sel", "either", options=DIR3)], "stocks", "market"),
+    ("from_dayhigh", "Price and % moves", "Falls X% from today's high", "The price is X% or more below today's high (a sharp fall during the day).",
+     [P("x", "Fall at least", default=3, unit="%")], "stocks", "market"),
+    ("gap_open", "Price and % moves", "Gap at the open", "The stock opens X% or more above or below yesterday's close (checked in the first hour).",
+     [P("x", "Gap at least", default=2, unit="%"), P("dir", "Direction", "sel", "either", options=DIR3)], "stocks", "market"),
+    # --- The market
+    ("nifty_move", "The market", "Nifty 50 moves X% today", "The Nifty 50 is X% or more up or down today.",
+     [P("x", "Move at least", default=1, unit="%"), P("dir", "Direction", "sel", "either", options=DIR3)], "none", "market"),
+    ("nifty_level", "The market", "Nifty 50 above or below a level", "The Nifty 50 is at or above / at or below the level you set.",
+     [P("x", "Level", default=None), P("dir", "When it is", "sel", "below", options=[["above", "At or above"], ["below", "At or below"]])], "none", "market"),
+    ("vix", "The market", "India VIX above X", "India VIX (expected volatility) is above X: wider swings, stops hit more easily.",
+     [P("x", "Above", default=18)], "none", "market"),
     # --- Chart signals (daily bars: today's price in market hours, the close after it)
     ("cross_ma", "Chart signals", "Crosses its 50 / 200-day average", "The price crosses its moving average since the day before.",
      [P("ma", "Average", "sel", "200", options=[["50", "50-day"], ["200", "200-day"]]),
@@ -121,7 +138,10 @@ def listing():
     st = S.load_state()
     d = _data(st)
     lists = [{"id": x["id"], "name": x["name"], "n": len(x["symbols"])} for x in ML.get_lists()["lists"]]
-    return {"rules": d["rules"], "catalog": catalog(), "lists": lists, "master_on": (st.get("telegram") or {}).get("on", {}).get("custom", True)}
+    snap = _snap()
+    held = sorted(r["symbol"] for r in (snap or {}).get("holdings") or [] if r.get("symbol") and (r.get("qty") or 0) > 0)
+    return {"rules": d["rules"], "catalog": catalog(), "lists": lists, "held": held,
+            "master_on": (st.get("telegram") or {}).get("on", {}).get("custom", True)}
 
 
 def _clean(body, old=None):
@@ -147,12 +167,20 @@ def _clean(body, old=None):
             v = str(v or "").strip()[:40]
         vals[p["k"]] = v
     scope = str(body.get("scope") or "")
-    if scope_kind == "portfolio":
+    if scope.startswith("pick:"):   # some of my holdings, ticked one by one
+        syms = [S.clean_symbol(x) for x in scope[5:].split(",") if x.strip()]
+        syms = list(dict.fromkeys(s for s in syms if s))[:60]
+        if not syms:
+            raise S.ApiError(400, "Tick at least one of your holdings.")
+        scope = "pick:" + ",".join(syms)
+    if scope_kind == "none":
+        scope = "none"
+    elif scope_kind == "portfolio":
         scope = "holdings"
     elif scope_kind == "holdings":
-        if not (scope == "holdings" or scope.startswith("stock:")):
+        if not (scope == "holdings" or scope.startswith("stock:") or scope.startswith("pick:")):
             scope = "holdings"
-    elif not (scope in ("holdings", "all") or scope.startswith("list:") or scope.startswith("stock:")):
+    elif not (scope in ("holdings", "all") or scope.startswith(("list:", "stock:", "pick:"))):
         raise S.ApiError(400, "Choose which stocks to watch.")
     if scope.startswith("stock:"):
         sym = S.clean_symbol(scope[6:])
@@ -263,6 +291,8 @@ def _symbols(scope, hold):
         return list(S.NAMES)
     if scope.startswith("stock:"):
         return [scope[6:]]
+    if scope.startswith("pick:"):
+        return [s for s in scope[5:].split(",") if s]
     if scope.startswith("list:"):
         for x in ML.get_lists()["lists"]:
             if x["id"] == scope[5:]:
@@ -329,6 +359,72 @@ def evaluate(r, mem):
             elif what == "h_near_stop" and h["stop"] and h["price"] > h["stop"] and (h["price"] / h["stop"] - 1) * 100 <= x:
                 hits.append((s, "🟡 %s is %.1f%% above its rule stop %s (within %g%%) · %s" % (s, (h["price"] / h["stop"] - 1) * 100,
                                                                                             _px(h["stop"]), x, tail)))
+    elif what in ("h_from_peak", "h_weight"):
+        if what == "h_from_peak":
+            with LG._lock:
+                d = LG._load()
+            _, lots, _ = LG.compute(d)
+        tv = sum(h["value"] for h in hold.values()) or 1
+        for s in syms:
+            h = hd(s)
+            if not h:
+                continue
+            if what == "h_weight":
+                w = h["value"] / tv * 100
+                if w > x:
+                    hits.append((s, "⚖ %s is %.1f%% of your holdings (%s of %s; limit %g%%)." % (s, w, _rs(h["value"]), _rs(tv), x)))
+                continue
+            ind = _ind(s)
+            if not ind:
+                continue
+            dated = [l["date"] for l in lots.get(s) or [] if l.get("date")]
+            since = min(dated) if dated else None
+            k0 = ind["idx"].get(since) if since else None
+            if k0 is None and since:
+                k0 = next((i for i, dd in enumerate(ind["d"]) if dd >= since), None)
+            if k0 is None:
+                k0 = max(0, len(ind["c"]) - 252)
+            closes = ind["c"][k0:]
+            peak = max(closes)
+            fall = (1 - h["price"] / peak) * 100 if peak else 0
+            if fall >= x:
+                at = ind["d"][k0 + closes.index(peak)]
+                hits.append((s, "🔻 %s is %.1f%% below its peak close %s (%s)%s · limit %g%% · %g shares at %s · %s vs buy" % (
+                    s, fall, _px(peak), at, "" if dated else ", last 12 months", x, h["qty"], _px(h["price"]),
+                    _rs(h["pnl"]) if h["pnl"] is not None else "?")))
+    elif what == "h_deal":
+        seen = mem.setdefault("deals", {})
+        want = set(syms)
+        try:
+            rows = S.deals()["rows"]
+        except Exception:  # noqa: BLE001
+            rows = []
+        cutoff = (S.now_ist().date() - timedelta(days=5)).isoformat()
+        for r_ in rows:
+            if r_["symbol"] not in want or r_["date"] < cutoff or (p["side"] != "any" and r_["side"] != p["side"]):
+                continue
+            key = "%s|%s|%s|%s|%s" % (r_["date"], r_["kind"], r_["symbol"], r_["client"], r_["qty"])
+            if key in seen:
+                continue
+            seen[key] = r_["date"]
+            hits.append(("deal:" + key, "%s %s %s deal %s: %s %s %s shares at %s (%s)" % (
+                "🟢" if r_["side"] == "BUY" else "🔴", r_["symbol"], r_["kind"], r_["date"], r_["client"], r_["side"].lower() + "s",
+                format(int(r_["qty"]), ","), _px(r_["price"]), _rs(r_["value"]))))
+        for k in [k for k, v in seen.items() if v < cutoff]:
+            seen.pop(k)
+    elif what in ("nifty_move", "nifty_level", "vix"):
+        try:
+            _, by = R._quotes()
+        except Exception:  # noqa: BLE001
+            by = {}
+        n, v = by.get("NIFTY 50"), by.get("INDIA VIX")
+        if what == "nifty_move" and n and n.get("pct") is not None and abs(n["pct"]) >= x and dir_ok(n["pct"], p["dir"]):
+            hits.append(("nifty", "%s Nifty 50 %s, %+.2f%% today (alert at %g%%)." % ("🟢" if n["pct"] >= 0 else "🔴", format(n["price"], ",.2f"), n["pct"], x)))
+        elif what == "nifty_level" and n and n.get("price") and x and ((p["dir"] == "above" and n["price"] >= x) or (p["dir"] == "below" and n["price"] <= x)):
+            hits.append(("nifty", "%s Nifty 50 %s, %s your level %s (%+.2f%% today)." % ("🟢" if p["dir"] == "above" else "🔴", format(n["price"], ",.2f"),
+                                                                                    "at or above" if p["dir"] == "above" else "at or below", format(x, ",.0f"), n.get("pct") or 0)))
+        elif what == "vix" and v and v.get("price") and v["price"] > x:
+            hits.append(("vix", "⚠️ India VIX %.2f, above %g (%+.1f%% today): expect wider swings." % (v["price"], x, v.get("pct") or 0)))
     elif what == "h_long_soon":
         with LG._lock:
             d = LG._load()
@@ -392,7 +488,8 @@ def evaluate(r, mem):
                 if len(hs) > cfg["max_per_sector"] or v / tv * 100 > 25:
                     hits.append((sec, "⚖ %s: %d stocks, %.0f%% of your holdings (limits: %d stocks, 25%%) · %s" % (
                         sec, len(hs), v / tv * 100, cfg["max_per_sector"], ", ".join(h["symbol"] for h in hs))))
-    elif what in ("price_above", "price_below", "day_pct", "cross_ma", "high52", "vol_spike", "rsi"):
+    elif what in ("price_above", "price_below", "day_pct", "cross_ma", "high52", "vol_spike", "rsi", "from_dayhigh", "gap_open"):
+        today = S.now_ist().date().isoformat()
         for s in syms[:260]:
             ind = _ind(s)
             if not ind or len(ind["c"]) < 2:
@@ -400,6 +497,18 @@ def evaluate(r, mem):
             c, c1 = ind["c"][-1], ind["c"][-2]
             dp = _today_pct(ind)
             base = "%s %s (%+.1f%% today)" % (s, _px(c), dp or 0)
+            if what == "from_dayhigh":
+                hi = ind["h"][-1]
+                if ind["d"][-1] == today and hi and (1 - c / hi) * 100 >= x:
+                    hits.append((s, "🔻 %s · %.1f%% below today's high %s" % (base, (1 - c / hi) * 100, _px(hi))))
+                continue
+            if what == "gap_open":
+                o = ind["o"][-1]
+                g = (o / c1 - 1) * 100 if o and c1 else None
+                if ind["d"][-1] == today and g is not None and abs(g) >= x and dir_ok(g, p["dir"]):
+                    hits.append((s, "%s %s opened %+.1f%% vs yesterday's close %s (at %s) · now %s (%+.1f%% today)" % (
+                        "🟢" if g >= 0 else "🔴", s, g, _px(c1), _px(o), _px(c), dp or 0)))
+                continue
             if what == "price_above" and x and c >= x:
                 hits.append((s, "🟢 %s · at or above %s" % (base, _px(x))))
             elif what == "price_below" and x and c <= x:

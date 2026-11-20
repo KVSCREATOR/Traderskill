@@ -532,3 +532,9 @@ dialog#cnDlg { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 4
 .tgdeleted { margin-top: 10px; }
 .tgdeleted summary { cursor: pointer; font-weight: 600; color: var(--muted); }
 .tgdeleted li { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cnpick { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: var(--surface-2); }
+.cnpickgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px 10px; max-height: 180px; overflow-y: auto; }
+.cnpickgrid label { display: flex; align-items: center; gap: 6px; font: 500 13px var(--mono); color: var(--text); }
+.cnpickgrid label, .cndays label { flex-direction: row; }
+.cnpickgrid input, .cndays input { width: auto; flex: none; margin: 0; }
+.cnpickgrid { overflow-x: hidden; }

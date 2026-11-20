@@ -834,6 +834,8 @@ async function cnCard(host) {
   const C = d.catalog, blk = Object.fromEntries(C.blocks.map(b => [b.id, b]));
   const scopeTxt = r => { const b = blk[r.what] || {}; const s = r.scope;
     if (b.scope === 'portfolio') return 'All my holdings together';
+    if (b.scope === 'none') return 'The market';
+    if (s.startsWith('pick:')) { const p = s.slice(5).split(','); return 'My holdings: ' + p.slice(0, 4).join(', ') + (p.length > 4 ? ` +${p.length - 4}` : ''); }
     return s === 'holdings' ? 'My holdings' : s === 'all' ? 'All 250 stocks' : s.startsWith('list:') ? 'List · ' + ((d.lists.find(l => 'list:' + l.id === s) || {}).name || 'deleted list') : s.slice(6); };
   const whenTxt = r => r.when === 'time' ? `${r.time} · ${cnDaysTxt(r.days)}` : C.when[r.when];
   const parTxt = r => (blk[r.what] ? blk[r.what].params : []).map(p => { const v = r.params[p.k];
@@ -880,6 +882,9 @@ function cnForm(rule, host) {
       <label id="cnSymL">NSE symbol<input id="cnSym" placeholder="e.g. HAL" autocomplete="off" spellcheck="false"></label>
       <label id="cnListL">List<select id="cnList">${d.lists.map(l => `<option value="${esc(l.id)}">${esc(l.name)} (${l.n})</option>`).join('')}</select></label>
     </div>
+    <div id="cnPickRow" class="cnpick"><div class="row" style="justify-content:space-between;gap:8px"><span class="note" style="margin:0">Tick the holdings to watch</span>
+      <span class="row" style="gap:6px"><button type="button" class="btn sm" data-pickall="1">All</button><button type="button" class="btn sm" data-pickall="0">None</button></span></div>
+      <div class="cnpickgrid">${(d.held || []).map(s => `<label><input type="checkbox" value="${esc(s)}" ${r.scope.startsWith('pick:') && r.scope.slice(5).split(',').includes(s) ? 'checked' : ''}> ${esc(s)}</label>`).join('') || '<span class="note">No holdings snapshot yet: open My holdings once with Zerodha connected.</span>'}</div></div>
     <div class="cngrid">
       <label>When to check<select id="cnWhen">${Object.entries(C.when).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select></label>
       <label id="cnTimeL">Time (IST)<input id="cnTime" type="time" value="${esc(r.time || '16:00')}"></label>
@@ -899,9 +904,12 @@ function cnForm(rule, host) {
       if (p.type === 'sel') return `<label>${esc(p.label)}<select data-p="${p.k}">${p.options.map(o => `<option value="${esc(o[0])}" ${String(o[0]) === String(v) ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select></label>`;
       if (p.type === 'num') return `<label>${esc(p.label)}${p.unit ? ` (${esc(p.unit)})` : ''}<input data-p="${p.k}" type="number" step="any" min="0" value="${v != null ? v : ''}" required></label>`;
       return `<label>${esc(p.label)}<input data-p="${p.k}" maxlength="40" value="${esc(v || '')}" placeholder="empty = any new headline"></label>`; }).join('');
-    const opts = b.scope === 'portfolio' ? [['holdings', 'All my holdings together']] : b.scope === 'holdings' ? [['holdings', 'My holdings'], ['stock', 'One stock I hold']]
-      : [['holdings', 'My holdings'], ['stock', 'One stock'], ...(d.lists.length ? [['list', 'A My scanner list']] : []), ['all', 'All 250 stocks']];
-    const cur = keep ? (r.scope.startsWith('stock:') ? 'stock' : r.scope.startsWith('list:') ? 'list' : r.scope) : $f('#cnScope').value;
+    const pickOpt = d.held && d.held.length ? [['pick', 'Some of my holdings (tick)']] : [];
+    const opts = b.scope === 'none' ? [['none', 'The market (no stocks)']] : b.scope === 'portfolio' ? [['holdings', 'All my holdings together']]
+      : b.scope === 'holdings' ? [['holdings', 'All my holdings'], ...pickOpt, ['stock', 'One stock I hold']]
+      : [['holdings', 'All my holdings'], ...pickOpt, ['stock', 'One stock'], ...(d.lists.length ? [['list', 'A My scanner list']] : []), ['all', 'All 250 stocks']];
+    $f('#cnScopeRow').hidden = b.scope === 'none';
+    const cur = keep ? (r.scope.startsWith('stock:') ? 'stock' : r.scope.startsWith('list:') ? 'list' : r.scope.startsWith('pick:') ? 'pick' : r.scope) : $f('#cnScope').value;
     $f('#cnScope').innerHTML = opts.map(([k, l]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${l}</option>`).join('');
     if (keep && r.scope.startsWith('stock:')) $f('#cnSym').value = r.scope.slice(6);
     if (keep && r.scope.startsWith('list:')) $f('#cnList').value = r.scope.slice(5);
@@ -916,17 +924,20 @@ function cnForm(rule, host) {
   const vis = () => {
     const sc = $f('#cnScope').value, w = $f('#cnWhen').value;
     $f('#cnSymL').hidden = sc !== 'stock'; $f('#cnListL').hidden = sc !== 'list';
+    $f('#cnPickRow').hidden = sc !== 'pick' || $f('#cnScopeRow').hidden;
     $f('#cnTimeL').hidden = w !== 'time'; $f('#cnDaysRow').hidden = w !== 'time';
   };
   const collect = () => {
     const params = {}; dlg.querySelectorAll('[data-p]').forEach(x => { params[x.dataset.p] = x.value; });
     const sc = $f('#cnScope').value;
-    return { what: $f('#cnWhat').value, params, scope: sc === 'stock' ? 'stock:' + $f('#cnSym').value.trim().toUpperCase() : sc === 'list' ? 'list:' + $f('#cnList').value : sc,
+    const picked = [...dlg.querySelectorAll('.cnpickgrid input:checked')].map(x => x.value).join(',');
+    return { what: $f('#cnWhat').value, params, scope: sc === 'stock' ? 'stock:' + $f('#cnSym').value.trim().toUpperCase() : sc === 'list' ? 'list:' + $f('#cnList').value : sc === 'pick' ? 'pick:' + picked : sc,
       when: $f('#cnWhen').value, time: $f('#cnTime').value, days: [...dlg.querySelectorAll('#cnDaysRow input:checked')].map(x => +x.value),
       repeat: $f('#cnRepeat').value, name: $f('#cnName').value, note: $f('#cnNote').value, on: rule ? rule.on : true };
   };
   $f('#cnWhat').onchange = () => paint(false);
   $f('#cnScope').onchange = vis; $f('#cnWhen').onchange = vis;
+  dlg.querySelectorAll('[data-pickall]').forEach(b => b.onclick = () => dlg.querySelectorAll('.cnpickgrid input').forEach(x => { x.checked = b.dataset.pickall === '1'; }));
   $f('#cnTest').onclick = async () => { const o = $f('#cnOut'); o.textContent = 'Checking…';
     try { const t = await api('/api/notify/custom/test', { rule: collect() }); o.innerHTML = `<b>${esc(t.message)}</b>${t.lines.length ? '<ul class="steps" style="margin-top:6px">' + t.lines.map(l => `<li>${esc(l)}</li>`).join('') + '</ul>' : ''}`; }
     catch (e) { o.innerHTML = `<span class="down">${esc(e.message)}</span>`; } };

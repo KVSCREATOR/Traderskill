@@ -307,6 +307,9 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
   telegram.watcher calls custom.tick() (background thread); sends as kind 'custom' (master switch in KINDS).
   API GET/POST /api/notify/custom, POST /api/notify/custom/test. To add a new check: add a CATALOG entry + a branch
   in evaluate(). Tested offline on every block (scratchpad test_custom.py pattern).
+- 20 Nov 2026: custom notifications now 32 blocks (+ h_from_peak, h_weight, h_deal, from_dayhigh, gap_open, nifty_move,
+  nifty_level, vix; market blocks use scope 'none' and R._quotes()). Scope 'pick:SYM,SYM' = some of my holdings, ticked
+  in the form (listing() returns 'held' from the last snapshot).
 - BUILT 20 Nov 2026: permanent deletes. Built-in Telegram messages: Delete -> state telegram.removed (never sends, logs
   'not sent: deleted', hidden from the table) with a 'Deleted messages' list + Restore (POST /api/telegram/remove
   {kind, restore}). Sent-message history: Delete per message row + 'Delete all message records' on History > Messages
