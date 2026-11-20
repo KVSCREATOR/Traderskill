@@ -730,20 +730,23 @@ function askConfirm(title, text, okLabel = 'Delete') {
     if (!el) { el = document.createElement('div'); el.id = 'slock'; document.body.appendChild(el); }
     el.innerHTML = `<form class="box" autocomplete="off" onsubmit="return false"><div class="ic">🔒</div><h2>SCREEN LOCKED</h2>
       <p class="note" style="margin:0">Everything keeps working in the background.</p>
-      <input id="slockIn" type="password" ${usePw ? 'placeholder="Portal password"' : 'inputmode="numeric" maxlength="8" placeholder="PIN"'} autocomplete="off" aria-label="${usePw ? 'Portal password' : 'PIN'}">
+      <input id="slockIn" type="password" ${usePw ? 'placeholder="Portal password"' : 'inputmode="numeric" maxlength="4" placeholder="PIN"'} autocomplete="off" aria-label="${usePw ? 'Portal password' : 'PIN'}">
       <div class="err" id="slockErr"></div><button class="btn primary" id="slockGo" style="width:100%">Unlock</button>
       <a href="#" class="alt" id="slockAlt">${usePw ? '← Use my 4-digit PIN' : '🔑 Forgot PIN? Unlock with the portal password'}</a></form>`;
     const inp = el.querySelector('#slockIn'), err = el.querySelector('#slockErr');
+    let busy = false;
     const go = async () => {
-      const v = inp.value; if (!v) return;
+      const v = inp.value; if (!v || busy) return; busy = true;
       try {
         if (usePw) await api('/api/screen/unlock_pw', { password: v });
         else { const r = await api('/api/ledger/unlock', { pin: v }); if (r.token && typeof S !== 'undefined') S.pinTok = r.token; }
         inp.value = ''; set(false);
       } catch (e) { err.textContent = e.message; inp.value = ''; inp.focus(); }
+      busy = false;
     };
     el.querySelector('#slockGo').onclick = go;
     inp.onkeydown = e => { if (e.key === 'Enter') go(); };
+    if (!usePw) inp.oninput = () => { inp.value = inp.value.replace(/\D/g, ''); err.textContent = ''; if (inp.value.length >= 4) go(); };   // opens as soon as the 4th digit is typed
     el.querySelector('#slockAlt').onclick = e => { e.preventDefault(); usePw = !usePw; draw(); };
     setTimeout(() => inp.focus(), 50);
   }
