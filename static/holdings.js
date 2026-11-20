@@ -16,7 +16,7 @@ function planBlock(p) {
   const keeps = p.keeps.length ? `<ul class="nlist">${p.keeps.map(k => `<li><a href="#/predictor/${encodeURIComponent(k.symbol)}"><b>${esc(k.symbol)}</b></a> · ${esc(k.sector)} · ${esc(k.verdict || '')}${k.pnl_pct != null ? ` · <span class="${cls(k.pnl_pct)}">${sgn(k.pnl_pct)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="note">None.</p>';
   return `<div class="card plan-card">
     <h2>Your ${esc(p.horizon)} plan · Trading rules</h2>
-    <p class="note" style="margin-top:0">As of ${esc(p.as_of || '')} · holdings ${p.before.holdings} now → ${p.after.max - p.free_slots} after the sells → ${p.after.holdings} with the buys (limit ${p.after.max}) · cash ${p.cash != null ? inr(p.cash, 0) : 'unknown'}${p.cash_after != null ? ` → ${inr(p.cash_after, 0)} after the sells` : ''}${p.per_stock ? ` · your limit ${inr(p.per_stock, 0)} per stock (Limits › Investing)` : ''}</p>
+    <p class="note" style="margin-top:0">As of ${esc(p.as_of || '')} · stocks ${p.before.holdings} now${p.before.core && p.before.core.length ? ` (+ ${p.before.core.length} index fund${p.before.core.length > 1 ? 's' : ''}, outside the stock limits)` : ''} → ${p.after.max - p.free_slots} after the sells → ${p.after.holdings} with the buys (limit ${p.after.max}) · cash ${p.cash != null ? inr(p.cash, 0) : 'unknown'}${p.cash_after != null ? ` → ${inr(p.cash_after, 0)} after the sells` : ''}${p.per_stock ? ` · your limit ${inr(p.per_stock, 0)} per stock (Limits › Investing)` : ''}</p>
     <div class="grid2">
       <div><h2 class="plan-sell-h">Sell</h2>${sells}</div>
       <div><h2 class="plan-buy-h">Buy</h2>${buys}</div>

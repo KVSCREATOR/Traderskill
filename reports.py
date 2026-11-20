@@ -300,9 +300,11 @@ def eod():
         msg += _rule_actions(h)
         cfg = L.settings_for("invest")
         breach = []
-        if len(rows) > cfg["max_positions"]:
-            breach.append("%d holdings vs your limit of %d" % (len(rows), cfg["max_positions"]))
-        over = [r["symbol"] for r in rows if r["value"] > cfg["max_per_stock"]]
+        core = LG.core_symbols()   # index funds (NIFTYBEES etc.) are outside the stock limits
+        stocks = [r for r in rows if r["symbol"] not in core]
+        if len(stocks) > cfg["max_positions"]:
+            breach.append("%d stocks held vs your limit of %d" % (len(stocks), cfg["max_positions"]))
+        over = [r["symbol"] for r in stocks if r["value"] > cfg["max_per_stock"]]
         if over:
             breach.append("%d over your %s per-stock cap: %s" % (len(over), rs(cfg["max_per_stock"]), ", ".join(over[:8])))
         if breach:

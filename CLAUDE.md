@@ -225,9 +225,10 @@ Today checklist BUILT (19 Nov 2026): first tab of My holdings (ledger.today, GET
 connected, exit + weak verdicts, own limits, rebalance due, lots turning long-term within 30 days, results within 7 days,
 paper positions near stop / closed today, paper GTTs, Trading-rule buy signals with room, list stocks within 3% of
 breakout. Same list (short) appended to the 15:35 Telegram eod message (reports.eod -> LG.today_lines).
-NEXT TODO (19 Nov 2026, not done): index funds in the core list (NIFTYBEES etc.) should NOT count against the
-per-stock Rs 25,000 cap or the 10-stock limit in ledger.report "next.limits" / n_held. Today tab not yet viewed in a
-browser (server function tested on test data).
+DONE 20 Nov 2026: index funds in the core list (ledger.core_symbols(), default CORE_DEFAULT) are outside the stock
+limits everywhere: per-stock cap + stock count in ledger.report next.limits / slots, kite.holdings flags + warning,
+reports.eod breach line; _plan(snap, cfg, core) never sells them and does not count them as stocks, but their value
+stays in the total that sector shares are measured against. Today tab still not viewed in a browser.
 
 19 Nov 2026 (evening session), all committed + pushed, checked in the owner's Chrome:
 - Look: screener-style, light by default (◐ for dark), 15px text, more colour tokens (--info/--violet/--pink).

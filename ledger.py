@@ -463,6 +463,13 @@ def _core_cfg(d):
     return {"target": c.get("target", 50), "symbols": c.get("symbols") or list(CORE_DEFAULT), "count_mf": c.get("count_mf", True)}
 
 
+def core_symbols():
+    """Index funds you count as core (NIFTYBEES etc.): they are not stocks, so the per-stock cap,
+    the stock-count limit and the plan's sells leave them alone."""
+    with _lock:
+        return set(_core_cfg(_load())["symbols"])
+
+
 def core_set(body):
     """Your target split: share in Nifty index funds (core) vs stocks run by the rules (satellite)."""
     try:
@@ -808,6 +815,7 @@ def report(fy=None, d_from=None, d_to=None):
         pass
     held = {h["symbol"]: h for h in (snap or {}).get("holdings", [])}
     cfg = L.settings_for("invest")
+    core_syms = set(_core_cfg(d)["symbols"])   # index funds: outside the stock limits
     # ---- open lots, matched to what Zerodha shows now
     holdings = []
     for sym in sorted(set(lots) | set(held)):
@@ -948,13 +956,13 @@ def report(fy=None, d_from=None, d_to=None):
         item = {"symbol": h["symbol"], "why": h["why"], "rule_stop": h["rule_stop"], "pnl": h["pnl"], "value": h["value"],
                 "next_long": h["next_long"]}
         nxt[{"exit": "exit", "weak": "weak", "buy": "buy_more", "hold": "keep"}.get(h["verdict"], "unknown")].append(item)
-        if (h["value"] or 0) > cfg["max_per_stock"]:
+        if (h["value"] or 0) > cfg["max_per_stock"] and h["symbol"] not in core_syms:
             nxt["limits"].append("%s is %s, over your ₹%s per-stock limit" % (h["symbol"], _rs(h["value"]), format(int(cfg["max_per_stock"]), ",")))
         nl = h["next_long"]
         if h["verdict"] in ("exit", "weak") and nl and nl["days"] <= 60 and (h["unreal_short"] or 0) > 0:
             nxt["tax"].append("%s: %g shares turn long-term on %s (%d days). A sale before then is taxed %d%%, after it %.1f%% (above the ₹1.25 lakh exemption)." % (
                 h["symbol"], nl["qty"], nl["date"], nl["days"], _rates(fy)[0] * 100, _rates(fy)[1] * 100))
-    n_held = sum(1 for h in holdings if h["counted"])
+    n_held = sum(1 for h in holdings if h["counted"] and h["symbol"] not in core_syms)
     if n_held > cfg["max_positions"]:
         nxt["limits"].append("%d stocks held vs your limit of %d" % (n_held, cfg["max_positions"]))
     for s_ in secs.values():
@@ -972,7 +980,7 @@ def report(fy=None, d_from=None, d_to=None):
         nxt["cash"] = (snap.get("funds") or {}).get("net")
     nxt["slots"] = max(0, cfg["max_positions"] - n_held)
     nxt["per_stock"] = cfg["max_per_stock"]
-    nxt["plan"] = _plan(snap, cfg)   # same limits as the rest of My holdings (your Investing limits); verdicts and buys: Trading rules
+    nxt["plan"] = _plan(snap, cfg, core_syms)   # same limits as the rest of My holdings (your Investing limits); verdicts and buys: Trading rules
     funds_hist = [{"date": k, "at": v["at"], **(v.get("funds") or {}), "value": v.get("total_value"), "cost": v.get("total_cost")}
                   for k, v in sorted(snaps.items())]
     fys = sorted({fy_of(t["date"]) for t in trades} | {fy_of(k) for k in snaps} | {fy_of(today)}, reverse=True)
@@ -1009,7 +1017,7 @@ def report(fy=None, d_from=None, d_to=None):
 PLAN_HORIZON = "3–6 months"
 
 
-def _plan(snap, cfg):
+def _plan(snap, cfg, core=()):
     """One rebalance plan from your last snapshot: what to sell and what to buy, sector by sector.
 
     Sells, in order: rule exit fired; over the per-stock limit (trim the excess); sector over its
@@ -1017,6 +1025,8 @@ def _plan(snap, cfg):
     when a limit forces it. Buys: the Best-odds Investing signals (confirmed, top-half strength,
     market filter on) in sectors with room after the sells, strongest 6-month strength first,
     one per free slot, sized to the per-stock limit and your cash. Mechanical rule results, not advice.
+    Index funds in your core list are left alone: not sold, not counted as stocks; their value still
+    counts in the total that sector shares are measured against.
     """
     if not snap or not snap.get("holdings"):
         return None
@@ -1026,14 +1036,17 @@ def _plan(snap, cfg):
                 "buys": [], "free_slots": 0, "cash": None,
                 "notes": ["Open My holdings while Zerodha is connected once to take a fresh snapshot, then the plan appears."]}
     act = {r["symbol"]: dict(r, verdict=r.get("verdict_t"), why=r.get("why_t")) for r in snap["holdings"] if (r.get("value") or 0) > 0}
-    before = {"holdings": len(act), "value": sum(r["value"] for r in act.values()), "max": maxn}
+    core_held = sorted(s for s in act if s in core)
+    core_value = sum(act.pop(s)["value"] for s in core_held)
+    before = {"holdings": len(act), "value": sum(r["value"] for r in act.values()), "max": maxn,
+              "core": core_held, "core_value": core_value}
     sells = []
 
     def sec(r):
         return r.get("sector") or "Other"
 
     def total():
-        return sum(r["value"] for r in act.values()) or 1
+        return core_value + sum(r["value"] for r in act.values()) or 1
 
     def weakest(rs):   # weak trend first, then the biggest loss first (keep the winners)
         return sorted(rs, key=lambda r: (0 if r.get("verdict") == "weak" else 1, r.get("pnl_pct") or 0))
@@ -1114,6 +1127,9 @@ def _plan(snap, cfg):
     if free > len(buys):
         notes.append("%d free slot%s not filled: no Best-odds buy fits the sector and cash limits." % (
             free - len(buys), "" if free - len(buys) == 1 else "s"))
+    if core_held:
+        notes.append("Index funds (%s, %s) are your core: not counted in the %d-stock or per-stock limits and not sold by this plan." % (
+            ", ".join(core_held), _rs(core_value), maxn))
     if not sells and not buys:
         notes.append("Nothing to change: holdings are within your limits and there is no buy signal with room.")
     return {"horizon": PLAN_HORIZON, "as_of": snap.get("at"), "before": before,

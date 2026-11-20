@@ -342,6 +342,11 @@ def holdings(mode="invest"):
         return {"connected": True, "error": (r.get("error") or r.get("text") or "Unexpected answer")[:300]}
     rmode = mode if mode in ("swing", "invest") else "invest"   # Scalping is same-day: judge holdings by Investing rules
     cfg = L.settings_for(rmode, st)
+    try:   # index funds you count as core (NIFTYBEES etc.) are outside the stock limits
+        import ledger
+        core = ledger.core_symbols()
+    except Exception:  # noqa: BLE001
+        core = set()
     mkt = L.market()
     out = []
     for h in rows:
@@ -378,7 +383,7 @@ def holdings(mode="invest"):
             row["verdict_t"], row["why_t"] = tv_["verdict"], tv_["why"]
         except Exception:  # noqa: BLE001
             row["trend"] = "–"
-        if value > cfg["max_per_stock"]:
+        if value > cfg["max_per_stock"] and sym not in core:
             row["flags"].append("Over your ₹%s per-stock cap" % format(int(cfg["max_per_stock"]), ","))
         out.append(row)
     out.sort(key=lambda x: -x["value"])
@@ -387,8 +392,9 @@ def holdings(mode="invest"):
     for x in out:
         secs[x["sector"] or "Other"] = secs.get(x["sector"] or "Other", 0) + x["value"]
     warn = []
-    if len(out) > cfg["max_positions"]:
-        warn.append("%d holdings vs your limit of %d" % (len(out), cfg["max_positions"]))
+    n_stocks = sum(1 for x in out if x["symbol"] not in core)   # index funds are not stocks
+    if n_stocks > cfg["max_positions"]:
+        warn.append("%d stocks held vs your limit of %d" % (n_stocks, cfg["max_positions"]))
     try:
         fit = _sector_fit(out, tv, cfg)
     except Exception as e:  # noqa: BLE001
