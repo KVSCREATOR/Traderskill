@@ -586,3 +586,17 @@ html.slocked #slock { display: grid; }
 .pinchg { display: grid; gap: 8px; max-width: 300px; margin: 0 auto; text-align: center; }
 .pinchg input { text-align: center; font: 600 18px var(--mono, monospace); letter-spacing: .3em; padding: 9px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text); }
 #slock .pinchg input { margin: 0; font-size: 18px; }
+
+/* AI Robot page */
+.rb-bar { height: 12px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; margin-top: 14px; }
+.rb-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--pass)); }
+.rb-curve { width: 100%; height: 140px; margin-top: 12px; }
+.rb-strats { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.rb-strat { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--surface-2); }
+.rb-strat.off { opacity: .55; }
+.rb-nums { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); }
+.rb-nums b { color: var(--text); }
+.rb-nums.wide span { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+.rb-log { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow: auto; font-size: 13px; }
+.rb-log li { padding: 6px 4px; border-bottom: 1px solid var(--border); }
+.rb-log li.buy { color: var(--accent); } .rb-log li.loss, .rb-log li.error { color: var(--fail, #dc2626); } .rb-log li.sell { color: var(--pass); }

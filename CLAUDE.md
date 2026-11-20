@@ -357,3 +357,16 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
 - Each real holding is tagged Investing (default) or Trading (`state.hold_mode`, set from the Live holdings table via /api/kite/holdmode); its verdict uses that mode's rules. Scalping never judges delivery holdings.
 - ETFs / gold / silver / anything outside the stock list (`kite.is_other`) are 'Other assets': outside stock count, per-stock and sector limits; sold only when the trailing stop breaks.
 - The plan never trims winners for the per-stock limit: the limit only blocks new buys. A stock appears at most once in the sell list.
+
+## AI Robot (paper, self-running) — added 20 Nov 2026, owner's 1-month test
+- Files: robot.py (engine + own thread), static/robot.js (page #/robot, adds its own menu link + VIEWS entry), data/robot.json (all its state; NOT state.json).
+- Removable: delete robot.py, static/robot.js, the <script src="robot.js"> line in index.html, the guarded `import robot` block + `robot.start()` + /api/robot route in server.py, the 'robot' KINDS line in telegram.py and TG_WHEN robot in modes2.js.
+- Always ON by default (owner: runs whenever the portal runs, resumes after NAS restart). Own thread every 30 s; scans are warmed outside its lock.
+- Strategies: orb (09:35-10:30, OR 0.5-1 ATR, stop 1 ATR, 2R, prior size 0.5 because the 19 Nov study found no edge after charges), swing (Trading v2 signals confirmed/recent, regime on, L.stop_for + L.step trail, max 5, 2/sector, 25% each), pm (14:30 day-high momentum, EXPERIMENT, prior 0.25). All scalps closed 15:00.
+- Size = 1% risk x strategy factor (earned from its last 20 trades after charges: >=+0.2R 1.5x, >=0 1x, >=-0.15R 0.5x, else 0.25x; <15 trades = prior), x0.75/x0.5 in 5%/10% drawdown, x0.5 if VIX>22, capped by risk_cap (default 2%). Day stop -3%, pause 7 days after -15% from peak. Scalp margin 20% (5x), notional <= 2x equity.
+- Charges: real Zerodha intraday/delivery formulas (robot.charges) + 0.03% slippage per side. Tax shown as estimate (intraday 30% slab assumed, swing STCG 20%).
+- Restart-proof: scalps left open after 15:30 / from an earlier day are squared off at the 15:20 bar close; swings replay L.step on every completed day after p['seen'].
+- Learning model: logistic regression (pure Python) on samples of every candidate (taken or skipped; skipped ORBs labelled from the scanner's own simulation). Walk-forward 70/30 by date; may filter (p<0.35) only when AUC >= 0.56 on >=25 unseen samples. Retrains daily after the close.
+- Telegram kind 'robot': 09:35 buys, 15:00 scalps closed, 15:45 day summary + AI review (ai.ask with check: every number must appear in the facts).
+- Tested offline (scratchpad t_rb.py: charges vs Zerodha calculator, open/close money, catch-up, factor, model). First live run 20 Nov 2026 13:4x: bought 5 swings at 1% risk.
+- NEXT (not done): watch the first ORB morning (Mon) in the diary; check the 15:45 report arrives; consider a per-strategy equity split view.

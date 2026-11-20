@@ -1,0 +1,848 @@
+"""AI Robot: a self-running PAPER trader (owner's 1-month test, started 20 Nov 2026).
+
+Separate on purpose so it can be removed without touching anything else:
+  - its own data file  data/robot.json   (nothing in state.json)
+  - its own thread      start() from server main, guarded
+  - its own page        static/robot.js (adds itself to the menu)
+To remove: delete robot.py + static/robot.js + the <script> line + the guarded lines in server.py.
+
+What it does (never a real order, Zerodha is never touched):
+  09:35-10:30  Opening-range breakout scalps (ORB, filtered as the 19 Nov study found best)
+  09:20-15:00  Short swings: Trading v2 rule signals (backtested +0.30R per trade after costs)
+  14:30-14:45  Afternoon momentum scalps (EXPERIMENT: untested, starts at a tiny probe size)
+  15:00        every scalp closed
+  15:45        day report + AI review on Telegram (numbers checked)
+The robot decides its own size: each strategy earns or loses its share by its own results
+after all charges (STT, brokerage, exchange, SEBI, stamp, GST, DP, slippage); it trades smaller
+in a drawdown, stops for the day after -3%, pauses after -15% from the peak.
+A small learning model (logistic regression, pure Python) is trained on every candidate it saw;
+it is only allowed to filter trades after it beats chance on days it was not trained on.
+"""
+import json
+import math
+import os
+import random
+import re
+import threading
+import time
+from datetime import datetime
+
+S = None   # server module
+L = None   # longterm module
+T = None   # telegram module
+AI = None  # ai module
+
+START_CAPITAL = 150000.0
+TARGET_X = 2.0
+SLIP = 0.0003            # 0.03% slippage each side (buy fills higher, sell lower)
+MIS_MARGIN = 0.20        # intraday needs 20% margin (5x, like Zerodha MIS)
+DAY_STOP = 0.03          # no new entries after -3% on the day
+PAUSE_DD = 0.15          # no new entries for 5 trading days after -15% from the peak
+MAX_SCALPS_DAY = 6
+MAX_SWING = 5
+MAX_PER_SECTOR = 2
+SCALP_EXIT_M = 900       # 15:00
+STRATS = {
+    "orb": {"label": "Morning breakout scalp (ORB)", "kind": "intraday", "prior": 0.5,
+            "why": "9:15-9:30 range breakout, range 0.5-1 x ATR, stop 1 ATR, target 2R. Study 19 Nov: no edge after charges in 60 days, so it starts at half size and must earn more."},
+    "swing": {"label": "Short swing (Trading v2 rules)", "kind": "delivery", "prior": 1.0,
+              "why": "Base breakout / pullback in an uptrend, stop 2 ATR, trail 3 ATR, break-even after +2R. Backtest 2017-2026: +0.30R per trade after costs."},
+    "pm": {"label": "Afternoon momentum scalp (experiment)", "kind": "intraday", "prior": 0.25,
+           "why": "14:30 stocks at the day's high on strong volume, stop 0.5 ATR, target 1.5R. Never tested: starts at a quarter size."},
+}
+_lock = threading.Lock()
+_mem = {"last_scan": 0, "busy": False}
+
+
+# ----------------------------------------------------------------- storage
+def _path():
+    return os.path.join(S.DATA, "robot.json")
+
+
+def _fresh(capital=START_CAPITAL):
+    return {"on": True, "capital": capital, "cash": capital, "started": None, "positions": [], "trades": [],
+            "equity": [], "peak": capital, "pause_until": None, "day": {}, "samples": [], "log": [],
+            "strat_on": {k: True for k in STRATS}, "risk_cap": 2.0, "model": None, "sent": {}, "version": 1}
+
+
+def load():
+    try:
+        with open(_path(), encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        d = _fresh()
+    base = _fresh(d.get("capital") or START_CAPITAL)
+    for k, v in base.items():
+        d.setdefault(k, v)
+    for k in STRATS:
+        d["strat_on"].setdefault(k, True)
+    return d
+
+
+def save(d):
+    d["log"] = d["log"][-300:]
+    d["samples"] = d["samples"][-4000:]
+    d["sent"] = dict(list(d["sent"].items())[-60:])
+    os.makedirs(S.DATA, exist_ok=True)
+    tmp = _path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False)
+    os.replace(tmp, _path())
+
+
+def _say(d, text, kind="info"):
+    d["log"].append({"at": S.now_ist().strftime("%Y-%m-%d %H:%M"), "kind": kind, "text": text})
+
+
+# ----------------------------------------------------------------- charges (Zerodha, Nov 2026)
+def charges(kind, buy_val, sell_val):
+    """Every charge on one round trip. intraday = MIS equity, delivery = CNC equity."""
+    turnover = buy_val + sell_val
+    txn = 0.0000297 * turnover          # NSE transaction charge
+    sebi = 0.000001 * turnover          # SEBI ₹10 per crore
+    if kind == "intraday":
+        brok = min(20.0, 0.0003 * buy_val) + min(20.0, 0.0003 * sell_val)
+        stt = 0.00025 * sell_val
+        stamp = 0.00003 * buy_val
+        dp = 0.0
+    else:
+        brok = 0.0
+        stt = 0.001 * turnover
+        stamp = 0.00015 * buy_val
+        dp = 15.93                      # depository charge per sell (₹13.5 + GST)
+    gst = 0.18 * (brok + txn + sebi)
+    parts = {"brokerage": brok, "stt": stt, "exchange": txn, "sebi": sebi, "stamp": stamp, "gst": gst, "dp": dp}
+    parts = {k: round(v, 2) for k, v in parts.items()}
+    parts["total"] = round(sum(parts.values()), 2)
+    return parts
+
+
+# ----------------------------------------------------------------- money
+def _mark(d, prices=None):
+    prices = prices or {}
+    val = 0.0
+    for p in d["positions"]:
+        px = prices.get(p["symbol"]) or p.get("last") or p["entry"]
+        if p["kind"] == "intraday":
+            val += p["margin"] + (px - p["entry"]) * p["qty"]
+        else:
+            val += px * p["qty"]
+    return d["cash"] + val
+
+
+def equity(d):
+    return _mark(d)
+
+
+def _strat_stats(d, k, last=20):
+    tr = [t for t in d["trades"] if t["strat"] == k]
+    recent = tr[-last:]
+    n = len(tr)
+    avg_r = sum(t["r"] for t in recent) / len(recent) if recent else None
+    return {"n": n, "won": sum(1 for t in tr if t["net"] > 0), "net": round(sum(t["net"] for t in tr), 2),
+            "charges": round(sum(t["charges"]["total"] for t in tr), 2), "avg_r": avg_r}
+
+
+def strat_factor(d, k):
+    """How much of the normal size this strategy has earned: by its own results after charges."""
+    st = _strat_stats(d, k)
+    if st["n"] < 15:
+        return STRATS[k]["prior"], "learning (%d of 15 trades)" % st["n"]
+    a = st["avg_r"] or 0
+    if a >= 0.2:
+        return 1.5, "proven: %+.2fR per trade (last 20)" % a
+    if a >= 0.0:
+        return 1.0, "break-even or a little better: %+.2fR" % a
+    if a >= -0.15:
+        return 0.5, "slightly losing: %+.2fR, half size" % a
+    return 0.25, "losing: %+.2fR, probe size only" % a
+
+
+def risk_pct(d, k, vix=None):
+    """Risk per trade as % of equity: the robot's own decision."""
+    eq = equity(d)
+    dd = 1 - eq / max(d["peak"], 1)
+    f, why = strat_factor(d, k)
+    base = 1.0 * f
+    notes = [why]
+    if dd > 0.10:
+        base *= 0.5
+        notes.append("down %.0f%% from the peak: half size" % (dd * 100))
+    elif dd > 0.05:
+        base *= 0.75
+        notes.append("down %.0f%% from the peak: 3/4 size" % (dd * 100))
+    elif eq > d["capital"] * 1.15 and f >= 1.0:
+        base *= 1.25
+        notes.append("ahead >15%%: a little bigger")
+    if vix and vix > 22:
+        base *= 0.5
+        notes.append("India VIX %.1f: half size" % vix)
+    return min(base, d.get("risk_cap") or 2.0), notes
+
+
+# ----------------------------------------------------------------- learning model (logistic regression)
+FEATS = ("orb", "swing", "pm", "minute", "gap", "rvol", "or_atr", "risk_pct", "nifty", "vix", "news", "chg")
+
+
+def _x(f):
+    s = f.get("strat")
+    v = [1.0 if s == "orb" else 0.0, 1.0 if s == "swing" else 0.0, 1.0 if s == "pm" else 0.0,
+         ((f.get("minute") or 600) - 600) / 300.0, (f.get("gap") or 0) / 2.0, min(f.get("rvol") or 1, 5) - 1,
+         (f.get("or_atr") or 0.7) - 0.7, (f.get("risk_pct") or 1) - 1, (f.get("nifty") or 0) / 1.0,
+         ((f.get("vix") or 14) - 14) / 5.0, (f.get("news") or 0) / 2.0, (f.get("chg") or 0) / 2.0]
+    return v
+
+
+def _fit(rows, epochs=300, lr=0.1, l2=0.01):
+    w = [0.0] * (len(FEATS) + 1)
+    for _ in range(epochs):
+        g = [0.0] * len(w)
+        for x, y in rows:
+            z = w[0] + sum(a * b for a, b in zip(w[1:], x))
+            p = 1 / (1 + math.exp(-max(-30, min(30, z))))
+            e = p - y
+            g[0] += e
+            for i, a in enumerate(x):
+                g[i + 1] += e * a
+        n = len(rows)
+        w = [w[0] - lr * g[0] / n] + [wi - lr * (gi / n + l2 * wi) for wi, gi in zip(w[1:], g[1:])]
+    return w
+
+
+def _prob(w, x):
+    z = w[0] + sum(a * b for a, b in zip(w[1:], x))
+    return 1 / (1 + math.exp(-max(-30, min(30, z))))
+
+
+def _auc(pairs):
+    pos = [p for p, y in pairs if y]
+    neg = [p for p, y in pairs if not y]
+    if not pos or not neg:
+        return None
+    win = sum((1.0 if a > b else 0.5 if a == b else 0.0) for a in pos for b in neg)
+    return win / (len(pos) * len(neg))
+
+
+def train(d):
+    """Walk-forward: train on the older 70% of days, judge on the newest 30% it never saw."""
+    rows = [s for s in d["samples"] if s.get("y") is not None]
+    if len(rows) < 80:
+        d["model"] = {"ready": False, "n": len(rows), "why": "needs 80 finished samples, has %d" % len(rows)}
+        return d["model"]
+    rows.sort(key=lambda s: s["day"])
+    cut = int(len(rows) * 0.7)
+    tr, te = rows[:cut], rows[cut:]
+    w = _fit([(_x(s), s["y"]) for s in tr])
+    auc = _auc([(_prob(w, _x(s)), s["y"]) for s in te])
+    useful = auc is not None and auc >= 0.56 and len(te) >= 25
+    w_all = _fit([(_x(s), s["y"]) for s in rows]) if useful else w
+    d["model"] = {"ready": useful, "n": len(rows), "auc": round(auc, 3) if auc else None, "w": w_all,
+                  "base": round(sum(s["y"] for s in rows) / len(rows), 3), "trained": S.now_ist().strftime("%Y-%m-%d"),
+                  "why": ("beats chance on unseen days (AUC %.2f): it may skip weak trades" % auc) if useful
+                  else ("not better than chance on unseen days yet (AUC %s): watching only" % ("%.2f" % auc if auc else "–"))}
+    return d["model"]
+
+
+def model_p(d, f):
+    m = d.get("model") or {}
+    return _prob(m["w"], _x(f)) if m.get("w") else None
+
+
+# ----------------------------------------------------------------- market mood
+def mood():
+    out = {"nifty": None, "vix": None}
+    for key, ys in (("nifty", "^NSEI"), ("vix", "^INDIAVIX")):
+        try:
+            m = S.yahoo_chart(ys, "1d", "5m", 120)[0]
+            px, prev = m.get("regularMarketPrice"), m.get("chartPreviousClose") or m.get("previousClose")
+            out[key] = ((px / prev - 1) * 100 if px and prev else None) if key == "nifty" else px
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+def news_score(sym):
+    """+1 per positive, -1 per negative headline of the last day (0 if none)."""
+    try:
+        cutoff = time.time() - 86400
+        its = [i for i in S.news(sym)["items"] if i["ts"] >= cutoff]
+        return sum(1 if i["tone"] == "pos" else -1 if i["tone"] == "neg" else 0 for i in its)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+# ----------------------------------------------------------------- trading
+def _day(d, today):
+    if d["day"].get("date") != today:
+        d["day"] = {"date": today, "start_eq": equity(d), "scalps": 0, "orb_done": [], "pm_done": False,
+                    "swing_done": [], "closed15": False, "after": False, "report": False}
+    return d["day"]
+
+
+def _can_enter(d, today):
+    day = _day(d, today)
+    eq = equity(d)
+    if d.get("pause_until") and today < d["pause_until"]:
+        return False, "paused after a 15%% fall until %s" % d["pause_until"]
+    if eq <= day["start_eq"] * (1 - DAY_STOP):
+        return False, "day stop: down 3% today"
+    return True, ""
+
+
+def _open(d, strat, sym, price, stop, target, feats, why, sector=""):
+    k = STRATS[strat]["kind"]
+    fill = price * (1 + SLIP)
+    rp, notes = risk_pct(d, strat, feats.get("vix"))
+    eq = equity(d)
+    risk_amt = eq * rp / 100
+    per = fill - stop
+    if per <= 0:
+        return None
+    qty = int(risk_amt // per)
+    need = (fill * qty * (MIS_MARGIN if k == "intraday" else 1))
+    if k == "delivery":
+        qty = min(qty, int((eq * 0.25) // fill))       # one swing <= 25% of the money
+        need = fill * qty
+    if need > d["cash"]:
+        qty = int(d["cash"] // (fill * (MIS_MARGIN if k == "intraday" else 1)))
+        need = fill * qty * (MIS_MARGIN if k == "intraday" else 1)
+    if k == "intraday":
+        qty = min(qty, int((2 * eq) // fill))          # one scalp <= 2x the money (40% margin)
+        need = fill * qty * MIS_MARGIN
+    if qty < 1:
+        return None
+    pos = {"t_open": time.time(), "id": "%s-%s-%d" % (strat, sym, int(time.time())), "strat": strat, "kind": k, "symbol": sym, "sector": sector,
+           "qty": qty, "entry": round(fill, 2), "stop": round(stop, 2), "stop0": round(stop, 2), "R": round(per, 4),
+           "target": round(target, 2) if target else None, "opened": S.now_ist().strftime("%Y-%m-%d %H:%M"),
+           "margin": round(need, 2), "risk_pct": round(rp, 2), "why": why, "size_why": notes, "feats": feats,
+           "last": fill, "maxc": fill, "bars": 0}
+    d["cash"] -= need
+    d["positions"].append(pos)
+    _say(d, "BUY %d %s @ ₹%.2f · %s · stop ₹%.2f%s · risk %.2f%% (%s)" % (
+        qty, sym, fill, STRATS[strat]["label"], stop, " · target ₹%.2f" % target if target else "", rp, "; ".join(notes)), "buy")
+    return pos
+
+
+def _close(d, p, price, reason):
+    fill = price * (1 - SLIP)
+    bv, sv = p["entry"] * p["qty"], fill * p["qty"]
+    ch = charges(p["kind"], bv, sv)
+    gross = sv - bv
+    net = gross - ch["total"]
+    if p["kind"] == "intraday":
+        d["cash"] += p["margin"] + gross - ch["total"]
+    else:
+        d["cash"] += sv - ch["total"]
+    r = net / (p["R"] * p["qty"]) if p["R"] else 0
+    t = {"id": p["id"], "strat": p["strat"], "kind": p["kind"], "symbol": p["symbol"], "qty": p["qty"], "entry": p["entry"],
+         "exit": round(fill, 2), "opened": p["opened"], "closed": S.now_ist().strftime("%Y-%m-%d %H:%M"), "reason": reason,
+         "gross": round(gross, 2), "charges": ch, "net": round(net, 2), "r": round(r, 3), "why": p["why"], "risk_pct": p["risk_pct"]}
+    d["trades"].append(t)
+    d["positions"] = [x for x in d["positions"] if x["id"] != p["id"]]
+    for s in d["samples"]:
+        if s.get("pid") == p["id"]:
+            s["y"] = 1 if net > 0 else 0
+            s["r"] = round(r, 3)
+    _say(d, "SELL %d %s @ ₹%.2f · %s · net %s₹%.0f (charges ₹%.0f) · %+.2fR" % (
+        p["qty"], p["symbol"], fill, reason, "+" if net >= 0 else "−", abs(net), ch["total"], r), "sell" if net >= 0 else "loss")
+    return t
+
+
+def _sample(d, f, pid=None, taken=False, skip=None):
+    s = dict(f, day=S.now_ist().strftime("%Y-%m-%d"), pid=pid, taken=taken, skip=skip, y=None)
+    d["samples"].append(s)
+    return s
+
+
+def _recent_exit(d, sym, days=5):
+    from datetime import timedelta
+    cut = (S.now_ist() - timedelta(days=days)).strftime("%Y-%m-%d")
+    return any(t["symbol"] == sym and t["closed"][:10] >= cut for t in d["trades"])
+
+
+def _price(sym):
+    q = S.quote(sym, 20)
+    return q.get("price"), q.get("bars") or []
+
+
+def manage(d, clk):
+    """Stops, targets, the 15:00 close for scalps; intraday stop check for swings."""
+    m = clk["minute"]
+    for p in list(d["positions"]):
+        try:
+            px, bars = _price(p["symbol"])
+        except Exception:  # noqa: BLE001
+            continue
+        if not px:
+            continue
+        p["last"] = px
+        if p["kind"] == "intraday":
+            after = [b for b in bars if b["t"] >= p.get("t_open", 0)]   # only bars after the entry
+            lo = min([b["l"] for b in after] + [px])
+            hi = max([b["h"] for b in after] + [px])
+            if lo <= p["stop"]:
+                _close(d, p, min(px, p["stop"]), "stop hit")
+            elif p.get("target") and hi >= p["target"]:
+                _close(d, p, max(px, p["target"]) if px >= p["target"] else p["target"], "target hit")
+            elif m >= SCALP_EXIT_M:
+                _close(d, p, px, "15:00 close (scalps never stay overnight)")
+        elif px <= p["stop"]:
+            _close(d, p, px, "trailing stop" if p["stop"] > p["stop0"] else "stop hit")
+
+
+def _atr_daily(sym):
+    _, daily = S.chart(sym, "1y", "1d", 300)
+    return S.atr(daily[:-1] if daily else daily), daily
+
+
+def orb_entries(d, clk, md):
+    if not d["strat_on"].get("orb"):
+        return
+    day = _day(d, clk["date"])
+    rows = S.scan()["rows"]
+    for r in rows:
+        if day["scalps"] >= MAX_SCALPS_DAY:
+            break
+        o = r.get("orb") or {}
+        sym = r["symbol"]
+        if o.get("state") != "confirmed" or o.get("outcome") != "open" or sym in day["orb_done"] or not r.get("live"):
+            continue
+        if any(p["symbol"] == sym for p in d["positions"]):
+            continue
+        day["orb_done"].append(sym)
+        f = {"strat": "orb", "symbol": sym, "minute": clk["minute"], "gap": None, "rvol": r.get("rvol"), "or_atr": o.get("or_atr"),
+             "risk_pct": o.get("risk_pct"), "nifty": md["nifty"], "vix": md["vix"], "chg": r.get("change_pct")}
+        skip = None
+        if not o.get("or_atr") or not (0.5 <= o["or_atr"] <= 1.0):
+            skip = "range not 0.5-1 x ATR"
+        elif (o.get("risk_pct") or 0) < 0.4:
+            skip = "stop too tight for charges"
+        price = r.get("price")
+        if not skip and (not price or not o.get("entry") or price > o["entry"] * 1.005):
+            skip = "price already ran past the entry"
+        if not skip:
+            f["news"] = news_score(sym)
+            if f["news"] <= -2:
+                skip = "negative news today"
+        p = model_p(d, f)
+        f["p"] = round(p, 3) if p is not None else None
+        if not skip and (d.get("model") or {}).get("ready") and p is not None and p < 0.35:
+            skip = "learning model: low win chance (%.0f%%)" % (p * 100)
+        if skip:
+            _sample(d, f, skip=skip)
+            continue
+        ok, why = _can_enter(d, clk["date"])
+        if not ok:
+            _sample(d, f, skip=why)
+            continue
+        try:
+            a, _ = _atr_daily(sym)
+        except Exception:  # noqa: BLE001
+            continue
+        if not a:
+            continue
+        stop = price - 1.0 * a
+        pos = _open(d, "orb", sym, price, stop, price + 2 * (price - stop), f,
+                    "ORB breakout at %s, range %.2f x ATR" % (o.get("time") or "", o["or_atr"]), r.get("industry", ""))
+        _sample(d, f, pid=pos["id"] if pos else None, taken=bool(pos), skip=None if pos else "no money for even 1 share")
+        if pos:
+            day["scalps"] += 1
+
+
+def pm_entries(d, clk, md):
+    if not d["strat_on"].get("pm"):
+        return
+    day = _day(d, clk["date"])
+    day["pm_done"] = True
+    rows = [r for r in S.scan()["rows"] if r.get("live")]
+    picks = 0
+    for r in rows:
+        if picks >= 2 or day["scalps"] >= MAX_SCALPS_DAY:
+            break
+        sym = r["symbol"]
+        if any(p["symbol"] == sym for p in d["positions"]):
+            continue
+        try:
+            px, bars = _price(sym)
+        except Exception:  # noqa: BLE001
+            continue
+        tb = [b for b in bars if datetime.fromtimestamp(b["t"], S.IST).date().isoformat() == clk["date"]] if bars else []
+        if not px or len(tb) < 30:
+            continue
+        hi = max(b["h"] for b in tb)
+        if not ((r.get("change_pct") or 0) > 1 and px >= hi * 0.997 and (r.get("rvol") or 0) >= 1.2 and r.get("trend_up")):
+            continue
+        f = {"strat": "pm", "symbol": sym, "minute": clk["minute"], "rvol": r.get("rvol"), "nifty": md["nifty"],
+             "vix": md["vix"], "chg": r.get("change_pct"), "news": news_score(sym)}
+        p = model_p(d, f)
+        f["p"] = round(p, 3) if p is not None else None
+        ok, why = _can_enter(d, clk["date"])
+        if not ok or f["news"] <= -2:
+            _sample(d, f, skip=why or "negative news today")
+            continue
+        try:
+            a, _ = _atr_daily(sym)
+        except Exception:  # noqa: BLE001
+            continue
+        if not a:
+            continue
+        stop = px - 0.5 * a
+        pos = _open(d, "pm", sym, px, stop, px + 1.5 * (px - stop), f, "At the day's high at %s on %.1fx volume" % (S.hm(clk["minute"]), r.get("rvol") or 0), r.get("industry", ""))
+        _sample(d, f, pid=pos["id"] if pos else None, taken=bool(pos))
+        if pos:
+            day["scalps"] += 1
+            picks += 1
+
+
+def swing_entries(d, clk, md):
+    if not d["strat_on"].get("swing"):
+        return
+    day = _day(d, clk["date"])
+    data = L.scan_long("swing")
+    if not data.get("regime"):
+        if "regime" not in day:
+            day["regime"] = False
+            _say(d, "Swing: market filter is off (Nifty trend down), so no new swing buys today.")
+        return
+    held = [p for p in d["positions"] if p["kind"] == "delivery"]
+    for r in data["rows"]:
+        if len(held) >= MAX_SWING:
+            break
+        sym = r["symbol"]
+        if r.get("status") not in ("confirmed", "recent") or sym in day["swing_done"] or any(p["symbol"] == sym for p in d["positions"]):
+            continue
+        if _recent_exit(d, sym):
+            continue
+        day["swing_done"].append(sym)
+        sec = r.get("industry") or ""
+        if sec and sum(1 for p in held if p.get("sector") == sec) >= MAX_PER_SECTOR:
+            continue
+        f = {"strat": "swing", "symbol": sym, "minute": clk["minute"], "nifty": md["nifty"], "vix": md["vix"],
+             "chg": r.get("change_pct"), "rvol": None, "news": news_score(sym)}
+        p = model_p(d, f)
+        f["p"] = round(p, 3) if p is not None else None
+        if f["news"] <= -2:
+            _sample(d, f, skip="negative news today")
+            continue
+        ok, why = _can_enter(d, clk["date"])
+        if not ok:
+            _sample(d, f, skip=why)
+            continue
+        try:
+            px, _ = _price(sym)
+            ind = L.indicators(L.history(sym)["bars"])
+        except Exception:  # noqa: BLE001
+            continue
+        sd = ind["idx"].get(r.get("setup_day"))
+        a = ind["atr"][sd if sd is not None else -1]
+        if not px:
+            continue
+        stop = L.stop_for("swing", px, a)
+        pos = _open(d, "swing", sym, px, stop, None, f, "%s (%s)" % (r.get("setup") or "Trading signal", r.get("setup_day") or ""), sec)
+        _sample(d, f, pid=pos["id"] if pos else None, taken=bool(pos))
+        if pos:
+            held.append(pos)
+
+
+def swing_update(d, clk):
+    """Trading v2 rules on every completed daily bar since the last one seen (catches up after a NAS restart)."""
+    why = {"stop": "stop hit", "trail": "trailing stop", "time": "time limit", "target": "target"}
+    for p in [x for x in d["positions"] if x["kind"] == "delivery"]:
+        try:
+            ind = L.indicators(L.history(p["symbol"])["bars"])
+        except Exception:  # noqa: BLE001
+            continue
+        n = len(ind["c"])
+        last_done = n - 2 if (clk["open"] and ind["d"][-1] == clk["date"]) else n - 1
+        seen = p.get("seen") or p["opened"][:10]
+        for j in range(n):
+            if ind["d"][j] <= seen or j > last_done:
+                continue
+            p.setdefault("maxc", p["entry"])
+            p.setdefault("bars", 0)
+            old = p["stop"]
+            ex = L.step("swing", ind, j, p)
+            p["seen"] = ind["d"][j]
+            p["last"] = ind["c"][j]
+            if ex:
+                _close(d, p, ex[0], why.get(ex[1], ex[1]) + " (%s)" % ind["d"][j])
+                break
+            if p["stop"] > old:
+                _say(d, "%s: stop raised to ₹%.2f (trail)" % (p["symbol"], p["stop"]))
+
+
+def scalp_catch_up(d, clk):
+    """Scalps never stay overnight: if the robot was not running at 15:00 (NAS off), square off at the 15:20 price, like Zerodha."""
+    for p in [x for x in d["positions"] if x["kind"] == "intraday"]:
+        day = p["opened"][:10]
+        if day == clk["date"] and clk["minute"] < 930:
+            continue
+        px = None
+        try:
+            _, bars = S.chart(p["symbol"], "5d", "5m", 60)
+            sb = S.sessions(bars).get(day) or []
+            done = [b for b in sb if b["m"] <= 920]
+            px = done[-1]["c"] if done else None
+        except Exception:  # noqa: BLE001
+            pass
+        _close(d, p, px or p.get("last") or p["entry"], "auto square-off at 15:20 (robot was not running at 15:00)")
+
+
+def label_skipped(d, clk):
+    """End of day: what each skipped ORB would have done (the scanner's own simulation), so the model learns from skips too."""
+    try:
+        rows = {r["symbol"]: r for r in S.scan(refresh=True)["rows"]}
+    except Exception:  # noqa: BLE001
+        return
+    for s in d["samples"]:
+        if s["day"] == clk["date"] and s["strat"] == "orb" and not s.get("taken") and s.get("y") is None:
+            o = (rows.get(s["symbol"]) or {}).get("orb") or {}
+            if o.get("outcome") in ("target", "stop"):
+                s["y"] = 1 if o["outcome"] == "target" else 0
+            elif o.get("outcome") == "open":
+                s["y"] = 0   # no target by the close: after charges a flat scalp is a small loss
+
+
+# ----------------------------------------------------------------- reports
+def day_summary(d, today):
+    tr = [t for t in d["trades"] if t["closed"].startswith(today)]
+    eq = equity(d)
+    day = d["day"] if d["day"].get("date") == today else {"start_eq": eq}
+    lines = ["🤖 AI Robot · paper · %s" % today,
+             "Money ₹%s (start ₹%s, goal ₹%s) · today %s₹%s" % (_n(eq), _n(d["capital"]), _n(d["capital"] * TARGET_X),
+                                                              "+" if eq >= day["start_eq"] else "−", _n(abs(eq - day["start_eq"])))]
+    if tr:
+        lines.append("Closed today: %d trades (%d won, %d lost), charges ₹%s" % (
+            len(tr), sum(1 for t in tr if t["net"] > 0), sum(1 for t in tr if t["net"] <= 0), _n(sum(t["charges"]["total"] for t in tr))))
+    for t in tr:
+        lines.append("  %s %s %s: %s₹%s after ₹%s charges (%s)" % ("✅" if t["net"] > 0 else "❌", STRATS[t["strat"]]["label"].split(" (")[0],
+                                                                t["symbol"], "+" if t["net"] >= 0 else "−", _n(abs(t["net"])), _n(t["charges"]["total"]), t["reason"]))
+    op = d["positions"]
+    if op:
+        lines.append("Open: " + ", ".join("%s %s" % (p["symbol"], "swing" if p["kind"] == "delivery" else "scalp") for p in op))
+    if not tr and not op:
+        lines.append("No trades today: nothing passed the robot's checks.")
+    return "\n".join(lines), tr
+
+
+def _n(v):
+    return format(int(round(v)), ",")
+
+
+def _numbers(t):
+    return set(re.findall(r"\d[\d,]*\.?\d*", t))
+
+
+def ai_review(d, facts):
+    if not AI or not AI.configured():
+        return None
+    nums = _numbers(facts)
+    try:
+        return AI.ask("You review one day of a PAPER trading robot for its owner. Write 3-5 short bullet lines in simple English: "
+                      "what worked, what did not, one pattern worth watching. Start lines with • (no numbered lists). Use ONLY numbers that appear in the facts; "
+                      "never invent a number. No advice to trade real money.", facts, max_tokens=350,
+                      check=lambda o: _numbers(o) <= nums)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _send(text):
+    try:
+        T.notify("robot", text)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+# ----------------------------------------------------------------- the loop
+def _trading_day(clk):
+    try:
+        import reports
+        return S.now_ist().weekday() < 5 and clk["date"] not in reports.holidays()
+    except Exception:  # noqa: BLE001
+        return S.now_ist().weekday() < 5
+
+
+def tick():
+    clk = S.market_clock()
+    if not _trading_day(clk):
+        return
+    m = clk["minute"]
+    if clk["open"] and 560 <= m <= 900 and time.time() - _mem["last_scan"] > 170:
+        try:
+            if 575 <= m <= 630 or 870 <= m <= 885:
+                S.scan()
+            L.scan_long("swing")
+        except Exception:  # noqa: BLE001
+            pass
+    with _lock:
+        d = load()
+        if not d["on"]:
+            return
+        day = _day(d, clk["date"])
+        changed = False
+        if any(p["kind"] == "intraday" and (p["opened"][:10] < clk["date"] or m >= 930) for p in d["positions"]):
+            scalp_catch_up(d, clk)
+            changed = True
+        if not day.get("swing_am") and m >= 556:
+            day["swing_am"] = True
+            swing_update(d, clk)                     # days missed while the NAS was off
+            changed = True
+        if clk["open"]:
+            if d["positions"]:
+                manage(d, clk)
+                changed = True
+            md = None
+            if 560 <= m <= 900 and time.time() - _mem["last_scan"] > 170:
+                _mem["last_scan"] = time.time()
+                md = mood()
+                if 575 <= m <= 630:          # 09:35-10:30
+                    orb_entries(d, clk, md)
+                if 870 <= m <= 885 and not day["pm_done"]:
+                    pm_entries(d, clk, md)
+                if m <= 900:
+                    swing_entries(d, clk, md)
+                changed = True
+                if 575 <= m <= 600 and not d["sent"].get(clk["date"] + "a") and day["scalps"]:
+                    d["sent"][clk["date"] + "a"] = 1
+                    _send("🤖 AI Robot 09:35 · bought (paper):\n" + "\n".join(
+                        "  %s %d @ ₹%.2f · stop ₹%.2f · %s" % (p["symbol"], p["qty"], p["entry"], p["stop"], STRATS[p["strat"]]["label"])
+                        for p in d["positions"] if p["opened"].startswith(clk["date"])))
+            if m >= SCALP_EXIT_M and not day["closed15"]:
+                day["closed15"] = True
+                manage(d, clk)
+                closed = [t for t in d["trades"] if t["closed"].startswith(clk["date"]) and t["kind"] == "intraday"]
+                if closed:
+                    _send("🤖 AI Robot 15:00 · scalps closed: " + ", ".join(
+                        "%s %s₹%s" % (t["symbol"], "+" if t["net"] >= 0 else "−", _n(abs(t["net"]))) for t in closed))
+                changed = True
+        if m >= 935 and not day["after"]:            # 15:35
+            day["after"] = True
+            swing_update(d, clk)
+            label_skipped(d, clk)
+            eq = equity(d)
+            d["peak"] = max(d["peak"], eq)
+            if eq < d["peak"] * (1 - PAUSE_DD) and not d.get("pause_until"):
+                from datetime import timedelta
+                d["pause_until"] = (S.now_ist() + timedelta(days=7)).strftime("%Y-%m-%d")
+                _say(d, "Down 15%% from the peak: new entries paused until %s." % d["pause_until"], "loss")
+            elif d.get("pause_until") and clk["date"] >= d["pause_until"]:
+                d["pause_until"] = None
+            d["equity"] = [e for e in d["equity"] if e["date"] != clk["date"]] + [{"date": clk["date"], "equity": round(eq, 2)}]
+            train(d)
+            changed = True
+        if m >= 945 and not day["report"]:           # 15:45
+            day["report"] = True
+            text, tr = day_summary(d, clk["date"])
+            review = ai_review(d, text) if tr else None
+            _send(text + ("\n\n🧠 AI review:\n" + review if review else ""))
+            if review:
+                _say(d, "AI review: " + review.replace("\n", " "), "ai")
+            changed = True
+        if changed:
+            save(d)
+
+
+def _loop():
+    time.sleep(20)
+    while True:
+        try:
+            tick()
+        except Exception as e:  # noqa: BLE001
+            try:
+                with _lock:
+                    d = load()
+                    _say(d, "Robot error (it keeps running): %s" % str(e)[:150], "error")
+                    save(d)
+            except Exception:  # noqa: BLE001
+                pass
+        time.sleep(30)
+
+
+def start():
+    threading.Thread(target=_loop, name="ai-robot", daemon=True).start()
+
+
+# ----------------------------------------------------------------- page API
+def status():
+    d = load()
+    eq = equity(d)
+    days = len(d["equity"])
+    first = d["equity"][0]["equity"] if d["equity"] else d["capital"]
+    gain = eq / d["capital"] - 1
+    tr = d["trades"]
+    ch_tot = {}
+    for t in tr:
+        for k, v in t["charges"].items():
+            ch_tot[k] = round(ch_tot.get(k, 0) + v, 2)
+    net_intra = sum(t["net"] for t in tr if t["kind"] == "intraday")
+    net_deliv = sum(t["net"] for t in tr if t["kind"] == "delivery")
+    tax = {"intraday": round(max(net_intra, 0) * 0.30, 2), "swing": round(max(net_deliv, 0) * 0.20, 2)}
+    pace = None
+    if days >= 5 and eq > 0 and first > 0:
+        per_day = (eq / first) ** (1 / days) - 1
+        pace = {"per_day_pct": round(per_day * 100, 3),
+                "days_to_double": round(math.log(TARGET_X * d["capital"] / eq) / math.log(1 + per_day)) if per_day > 0 and eq < TARGET_X * d["capital"] else None}
+    return {"on": d["on"], "capital": d["capital"], "cash": round(d["cash"], 2), "equity": round(eq, 2), "peak": round(d["peak"], 2),
+            "goal": d["capital"] * TARGET_X, "gain_pct": round(gain * 100, 2), "started": d["started"], "pause_until": d["pause_until"],
+            "positions": d["positions"], "trades": tr[-200:][::-1], "curve": d["equity"], "log": d["log"][-80:][::-1],
+            "strategies": [dict(id=k, label=v["label"], why=v["why"], kind=v["kind"], on=d["strat_on"].get(k, True),
+                                factor=strat_factor(d, k)[0], factor_why=strat_factor(d, k)[1], **_strat_stats(d, k)) for k, v in STRATS.items()],
+            "charges": ch_tot, "tax_est": tax, "pace": pace, "risk_cap": d.get("risk_cap"),
+            "model": {k: v for k, v in (d.get("model") or {"ready": False, "n": 0, "why": "not trained yet"}).items() if k != "w"},
+            "samples": len(d["samples"]), "clock": S.market_clock(), "ai": bool(AI and AI.configured())}
+
+
+def act(body, check_pw):
+    a = body.get("action")
+    with _lock:
+        d = load()
+        if a == "on":
+            d["on"] = True
+            d["started"] = d["started"] or S.now_ist().strftime("%Y-%m-%d %H:%M")
+            _say(d, "Robot switched ON by you.")
+            msg = "Robot is ON. It trades paper money by itself from the next market minute."
+        elif a == "off":
+            d["on"] = False
+            _say(d, "Robot switched OFF by you (open positions kept, not managed until ON).")
+            msg = "Robot is OFF. Open positions stay as they are until you switch it on or close them."
+        elif a == "strat":
+            k = body.get("id")
+            if k not in STRATS:
+                raise S.ApiError(400, "Unknown strategy.")
+            d["strat_on"][k] = bool(body.get("on"))
+            _say(d, "%s switched %s by you." % (STRATS[k]["label"], "on" if d["strat_on"][k] else "off"))
+            msg = "%s %s." % (STRATS[k]["label"], "on" if d["strat_on"][k] else "off")
+        elif a == "risk_cap":
+            v = float(body.get("value") or 2)
+            if not 0.25 <= v <= 3:
+                raise S.ApiError(400, "Pick a cap between 0.25% and 3%.")
+            d["risk_cap"] = v
+            msg = "The robot will never risk more than %.2f%% of its money on one trade." % v
+        elif a == "close_all":
+            check_pw(body.get("password"))
+            n = 0
+            for p in list(d["positions"]):
+                try:
+                    px, _ = _price(p["symbol"])
+                except Exception:  # noqa: BLE001
+                    px = None
+                _close(d, p, px or p.get("last") or p["entry"], "closed by you")
+                n += 1
+            msg = "Closed %d position(s) at the latest price." % n
+        elif a == "reset":
+            check_pw(body.get("password"))
+            cap = float(body.get("capital") or START_CAPITAL)
+            if not 10000 <= cap <= 10000000:
+                raise S.ApiError(400, "Capital between ₹10,000 and ₹1 crore.")
+            d = _fresh(cap)
+            _say(d, "Robot reset by you: fresh paper account ₹%s." % _n(cap))
+            msg = "Reset: fresh paper account with ₹%s. The robot keeps running." % _n(cap)
+        elif a == "train":
+            m = train(d)
+            msg = "Model: " + m["why"]
+        else:
+            raise S.ApiError(400, "Unknown action.")
+        save(d)
+    out = status()
+    out["message"] = msg
+    return out

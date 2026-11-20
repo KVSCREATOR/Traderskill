@@ -1690,6 +1690,10 @@ def api(method, path, q, body):
     if path == "/api/kite/holdings":
         ledger.require(q.get("_pin"))
         return kite.holdings(mode)
+    if path == "/api/robot" and robot:
+        if method == "GET":
+            return robot.status()
+        return robot.act(body or {}, telegram._check_pw)
     if path == "/api/kite/holdmode" and method == "POST":
         ledger.require(q.get("_pin"))
         return kite.set_mode(body)
@@ -1781,6 +1785,11 @@ ai.S = sys.modules[__name__]
 import bot  # noqa: E402  (chat with the Telegram bot: answers from the portal's data, only your chat)
 bot.S, bot.L, bot.T, bot.LG, bot.C, bot.R, bot.AI = sys.modules[__name__], longterm, telegram, ledger, custom, reports, ai
 bot.ML, bot.G, bot.D, bot.H = mylist, gtt, daily, history
+try:   # AI Robot (paper, self-running, removable: delete robot.py + static/robot.js and these lines)
+    import robot  # noqa: E402
+    robot.S, robot.L, robot.T, robot.AI = sys.modules[__name__], longterm, telegram, ai
+except Exception:  # noqa: BLE001
+    robot = None
 
 # ----------------------------------------------------------------- self-restart (edit files on the NAS, no rebuild)
 _reload = {"error": None, "checked": None}
@@ -2038,6 +2047,8 @@ if __name__ == "__main__":
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     telegram.start()   # background watcher: alerts, GTTs, paper exits, after-close messages
     bot.start()        # reads your Telegram messages (only when "Answer my messages" is on)
+    if robot:
+        robot.start()  # AI Robot: paper trades by itself whenever the portal runs; resumes after a restart
     _STARTED = market_clock()["ist"]
     if not os.environ.get("TS_RELOADED"):   # a real start (NAS power-on / Docker start): greet on Telegram
         threading.Thread(target=daily.on_start, name="start-greeting", daemon=True).start()
