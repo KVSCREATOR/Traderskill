@@ -552,3 +552,5 @@ dialog#cnDlg { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 4
 .tgsub h4 { margin: 0 0 10px; font-size: 14.5px; }
 .tgfoot { margin: 10px 0 0; }
 @media (max-width: 600px) { .tgsec { padding: 14px 12px; } }
+
+.hmode { font: 600 12px var(--sans); padding: 3px 6px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); color: var(--text); margin: 0 4px 4px 0; }

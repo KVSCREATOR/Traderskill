@@ -352,3 +352,8 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
   (reports.delete_log, ids = reports._mid sha1(ts|kind|text)[:14], POST /api/notify_log/delete {ids | all}).
   Own notifications: Delete via the shared confirm box askConfirm() in app.js (page-built dialog, not window.confirm).
 - All items from the 20 Nov plan are built. Ideas left: alerts on daily close for held positions; real results calendar.
+
+## Holdings rules per stock (owner's choice, 20 Nov 2026)
+- Each real holding is tagged Investing (default) or Trading (`state.hold_mode`, set from the Live holdings table via /api/kite/holdmode); its verdict uses that mode's rules. Scalping never judges delivery holdings.
+- ETFs / gold / silver / anything outside the stock list (`kite.is_other`) are 'Other assets': outside stock count, per-stock and sector limits; sold only when the trailing stop breaks.
+- The plan never trims winners for the per-stock limit: the limit only blocks new buys. A stock appears at most once in the sell list.

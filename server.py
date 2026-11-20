@@ -1688,6 +1688,9 @@ def api(method, path, q, body):
     if path == "/api/kite/holdings":
         ledger.require(q.get("_pin"))
         return kite.holdings(mode)
+    if path == "/api/kite/holdmode" and method == "POST":
+        ledger.require(q.get("_pin"))
+        return kite.set_mode(body)
     if path == "/api/kite/held":
         return kite.held()
     if path == "/api/kite/extras":

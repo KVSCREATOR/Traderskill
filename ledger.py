@@ -236,7 +236,7 @@ def snapshot(reason="page"):
             "total_value": h.get("total_value"), "total_cost": h.get("total_cost"),
             "holdings": [{k: r.get(k) for k in ("symbol", "exchange", "qty", "avg", "ltp", "value", "cost", "pnl", "pnl_pct",
                                                  "day_pct", "day_pnl", "sector", "trend", "verdict", "why", "rule_stop", "flags",
-                                                 "verdict_t", "why_t", "trail_stop", "floor200")}
+                                                 "verdict_t", "why_t", "trail_stop", "floor200", "asset", "hmode", "verdict_i")}
                          for r in h["rows"]],
             "fit": {"buys": (h.get("fit") or {}).get("buys") or [], "regime": (h.get("fit") or {}).get("regime")},
             "fit_t": {"buys": (h.get("fit_t") or {}).get("buys") or [], "regime": (h.get("fit_t") or {}).get("regime")}}
@@ -1294,6 +1294,8 @@ def _plan(snap, cfg, core=(), core_v=None):
     act = {r["symbol"]: dict(r) for r in snap["holdings"] if (r.get("value") or 0) > 0}   # Investing verdicts (owner's choice, 20 Nov 2026)
     core_held = sorted(s for s in act if s in core)
     core_value = sum(act.pop(s)["value"] for s in core_held)
+    others = [act.pop(s) for s in [s for s, r in act.items() if r.get("asset") == "other"]]   # ETFs / gold / silver
+    other_value = sum(r["value"] for r in others)   # counted in the total, never in the stock limits
     before = {"holdings": len(act), "value": sum(r["value"] for r in act.values()), "max": maxn,
               "core": core_held, "core_value": core_value}
     sells = []
@@ -1302,7 +1304,7 @@ def _plan(snap, cfg, core=(), core_v=None):
         return r.get("sector") or "Other"
 
     def total():
-        return core_value + sum(r["value"] for r in act.values()) or 1
+        return core_value + other_value + sum(r["value"] for r in act.values()) or 1
 
     def weakest(rs):   # weak trend first, then the biggest loss first (keep the winners)
         return sorted(rs, key=lambda r: (0 if r.get("verdict") == "weak" else 1, r.get("pnl_pct") or 0))
@@ -1312,20 +1314,18 @@ def _plan(snap, cfg, core=(), core_v=None):
                       "pnl_pct": r.get("pnl_pct"), "verdict": r.get("verdict"), "reason": reason, "all": True})
         act.pop(r["symbol"], None)
 
+    def rlab(r):
+        return "Trading" if r.get("hmode") == "swing" else "Investing"
+
+    for r in others:
+        if r.get("verdict") == "exit":
+            sells.append({"symbol": r["symbol"], "sector": "Other asset", "qty": r.get("qty") or 0, "value": r["value"],
+                          "pnl_pct": r.get("pnl_pct"), "verdict": "exit", "reason": "ETF / other asset: trailing stop broken", "all": True})
+            other_value -= r["value"]
     for r in list(act.values()):
         if r.get("verdict") == "exit":
-            sell_all(r, "rule exit fired")
-    for r in list(act.values()):
-        if r["value"] > cap and r.get("ltp"):
-            q = math.ceil((r["value"] - cap) / r["ltp"])
-            why = "over your ₹%s per-stock limit" % format(int(cap), ",")
-            if q >= (r.get("qty") or 0):
-                sell_all(r, why)
-            else:
-                sells.append({"symbol": r["symbol"], "sector": sec(r), "qty": q, "value": q * r["ltp"], "pnl_pct": r.get("pnl_pct"),
-                              "verdict": r.get("verdict"), "reason": why, "all": False})
-                r["value"] -= q * r["ltp"]
-                r["qty"] = (r.get("qty") or 0) - q
+            sell_all(r, "%s rules: exit fired (%s)" % (rlab(r), r.get("why") or "stop broken"))
+    big = [r["symbol"] for r in act.values() if r["value"] > cap]   # winners are kept: the limit only blocks new buys
     while True:   # sector over its stock count or 25% of the value: sell its weakest, one at a time
         T, by = total(), {}
         for r in act.values():
@@ -1335,7 +1335,8 @@ def _plan(snap, cfg, core=(), core_v=None):
                     if len(rs) > maxs or sum(x["value"] for x in rs) / T * 100 > 25), None)
         if not bad:
             break
-        sell_all(weakest(bad[1])[0], "%s is over its sector limit" % bad[0])
+        w = weakest(bad[1])[0]
+        sell_all(w, "%s is over its sector limit (its weakest: %s)" % (bad[0], w.get("verdict") or "–"))
     while len(act) > maxn:   # more stocks than your limit
         sell_all(weakest(list(act.values()))[0], "over your %d-stock limit" % maxn)
 
@@ -1402,6 +1403,11 @@ def _plan(snap, cfg, core=(), core_v=None):
     if free > len(buys):
         notes.append("%d free slot%s not filled: no Best-odds buy fits the sector and cash limits." % (
             free - len(buys), "" if free - len(buys) == 1 else "s"))
+    big = [x for x in big if x in act]
+    if big:
+        notes.append("Over your %s per-stock limit, kept (winners are not trimmed), no more buys: %s." % (_rs(cap), ", ".join(big)))
+    if others:
+        notes.append("Other assets (ETFs, gold, silver: %s) are outside the stock limits; sold only when their trailing stop breaks." % ", ".join(r["symbol"] for r in others))
     if core_held:
         notes.append("Index funds (%s, %s) are your core: not counted in the %d-stock or per-stock limits and not sold by this plan." % (
             ", ".join(core_held), _rs(core_value), maxn))
@@ -1412,7 +1418,8 @@ def _plan(snap, cfg, core=(), core_v=None):
                                       for r in act.values()],
             "buys": buys, "free_slots": free, "after": {"holdings": len(act) + len(buys), "max": maxn},
             "waiting": waiting, "cash": cash, "cash_after": cash_after, "per_stock": cap, "core_buy": core_buy, "notes": notes + [
-                "Built from the Investing rules (holds 6–12 months), backtested Dec 2017–Nov 2026 (~10.7%/yr, 38% of trades won, worst fall −34%, losing years too). "
+                "Each stock is judged by its own tag (Investing by default, or Trading); limits from your Investing settings. "
+                "Investing rules (holds 6–12 months), backtested Dec 2017–Nov 2026 (~10.7%/yr, 38% of trades won, worst fall −34%, losing years too). "
                 "Not a promise of profit and not personal advice."]}
 
 

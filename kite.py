@@ -311,6 +311,28 @@ def _verdict(ind, mkt, mode="invest"):
     return dict(out, verdict="hold", why="Uptrend intact, above the rule stop")
 
 
+def is_other(sym):
+    """ETFs, gold/silver and anything outside the stock list: kept out of the stock limits and sector rules."""
+    return sym not in S.UNIVERSE or bool(re.search(r"(BEES|ETF)$", sym))
+
+
+def set_mode(body):
+    """Tag one holding: judged by the Trading or the Investing rules."""
+    sym = str(body.get("symbol") or "").upper().strip()
+    mode = body.get("mode")
+    if not re.fullmatch(r"[A-Z0-9&_.-]{1,30}", sym) or mode not in ("invest", "swing"):
+        raise S.ApiError(400, "Pick a stock and Trading or Investing.")
+    with S._state_lock:
+        st = S.load_state()
+        t = st.setdefault("hold_mode", {})
+        if mode == "swing":
+            t[sym] = "swing"
+        else:
+            t.pop(sym, None)
+        S.save_state(st)
+    return {"ok": True, "message": "%s is now judged by the %s rules." % (sym, "Trading" if mode == "swing" else "Investing")}
+
+
 def _num(x):
     try:
         return float(x)
@@ -341,7 +363,8 @@ def holdings(mode="invest"):
         rows = rows.get("data") or rows.get("holdings") or []
     if not isinstance(rows, list):
         return {"connected": True, "error": (r.get("error") or r.get("text") or "Unexpected answer")[:300]}
-    rmode = "invest"   # your real stocks are always judged by the Investing rules (owner's choice, 20 Nov 2026)
+    rmode = "invest"   # default for your real stocks; each can be tagged Trading instead (owner's choice, 20 Nov 2026)
+    tags = st.get("hold_mode") or {}
     cfg = L.settings_for(rmode, st)
     try:   # index funds you count as core (NIFTYBEES etc.) are outside the stock limits
         import ledger
@@ -361,6 +384,8 @@ def holdings(mode="invest"):
                "day_pct": (ltp / close - 1) * 100 if ltp and close else _num(h.get("day_change_percentage")),
                "day_pnl": (ltp - close) * qty if ltp and close else None,
                "sector": S.UNIVERSE.get(sym, {}).get("industry", ""), "flags": [],
+               "asset": "core" if sym in core else "other" if is_other(sym) else "stock",
+               "hmode": "swing" if tags.get(sym) == "swing" else "invest",
                "detail": {"exchange": h.get("exchange"), "isin": h.get("isin"), "product": h.get("product"),
                           "settled_qty": _num(h.get("quantity")), "t1_qty": _num(h.get("t1_quantity")),
                           "realised_qty": _num(h.get("realised_quantity")), "opening_qty": _num(h.get("opening_quantity")),
@@ -379,13 +404,21 @@ def holdings(mode="invest"):
                             else "Below 200-day" if s200 else "–")
             row["from_high"] = (c / hh - 1) * 100
             row["vs_50"] = (c / s50 - 1) * 100 if s50 else None
-            row.update(_verdict(ind, mkt, rmode))
-            tv_ = _verdict(ind, mkt, "swing")   # the Trading rules too: used by the 3-6 month plan
+            iv_ = _verdict(ind, mkt, "invest")
+            tv_ = _verdict(ind, mkt, "swing")
+            row.update(tv_ if row["hmode"] == "swing" else iv_)
+            row["verdict_i"], row["why_i"] = iv_["verdict"], iv_["why"]
+            if row["asset"] == "other":   # ETFs / commodities: only the trailing stop counts, no stock rules
+                if iv_.get("trail_stop") and c < iv_["trail_stop"]:
+                    row.update(verdict="exit", why="Below the trailing stop (60-day high close minus 5 ATR)")
+                else:
+                    row.update(verdict="hold", why="Other asset: only the trailing stop applies", rule_stop=iv_.get("trail_stop"),
+                               to_stop=(c / iv_["trail_stop"] - 1) * 100 if iv_.get("trail_stop") else None)
             row["verdict_t"], row["why_t"] = tv_["verdict"], tv_["why"]
         except Exception:  # noqa: BLE001
             row["trend"] = "–"
-        if value > cfg["max_per_stock"] and sym not in core:
-            row["flags"].append("Over your ₹%s per-stock cap" % format(int(cfg["max_per_stock"]), ","))
+        if value > cfg["max_per_stock"] and row["asset"] == "stock":
+            row["flags"].append("Over your ₹%s per-stock cap: no more buys" % format(int(cfg["max_per_stock"]), ","))
         out.append(row)
     out.sort(key=lambda x: -x["value"])
     tv, tc = sum(x["value"] for x in out), sum(x["cost"] for x in out)
@@ -393,7 +426,7 @@ def holdings(mode="invest"):
     for x in out:
         secs[x["sector"] or "Other"] = secs.get(x["sector"] or "Other", 0) + x["value"]
     warn = []
-    n_stocks = sum(1 for x in out if x["symbol"] not in core)   # index funds are not stocks
+    n_stocks = sum(1 for x in out if x["asset"] == "stock")   # index funds and ETFs are not stocks
     if n_stocks > cfg["max_positions"]:
         warn.append("%d stocks held vs your limit of %d" % (n_stocks, cfg["max_positions"]))
     try:
