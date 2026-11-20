@@ -415,6 +415,11 @@ def whatnext():
         msg.append("\n🔴 Sell:")
         msg += ["  %s %s · %s%s" % ("Sell all" if s["all"] else "Sell %d" % s["qty"], s["symbol"], s["reason"],
                                      " (%+.1f%%)" % s["pnl_pct"] if s.get("pnl_pct") is not None else "") for s in p["sells"]]
+    cb = p.get("core_buy")
+    if cb and cb.get("amount"):
+        msg.append("\n🔵 Nifty core first: buy about %s of %s (core %s → about %s of your %d%% target)" % (
+            rs(cb["amount"]), cb["fund"], "%.0f%%" % cb["pct_now"] if cb.get("pct_now") is not None else "?",
+            "%.0f%%" % cb["pct_after"] if cb.get("pct_after") is not None else "?", cb["target"]))
     if p["buys"]:
         msg.append("\n🟢 Buy:")
         msg += ["  Buy %d %s · %s · %s at %s · about %s" % (x["qty"], x["symbol"], x["sector"], x.get("setup") or "", rs(x["price"], 2),

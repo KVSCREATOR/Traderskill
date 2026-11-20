@@ -273,6 +273,10 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
   {sym: high, kite, kite_qty, kite_at}); limit 2% under trigger; ask to raise only when 2%+ above the GTT set.
   Status hit/new/raise/qty/ok; core index funds skipped; sold stocks forgotten. Today 'act' item + 15:35 Telegram lines.
   The 200-day close rule is NOT a GTT (close-based) - it stays an exit verdict in Today. Not yet viewed in a browser (PIN).
+- BUILT 20 Nov 2026: plan fills the Nifty core first. report() computes core_v = _core_view(...) once and passes it to
+  _plan(snap, cfg, core, core_v): sell proceeds + free cash buy a Nifty 50 fund (held core ETF or NIFTYBEES) up to
+  core_v['move']; only the rest buys stocks. plan['core_buy'] = amount, need, short, fund, target, pct_now, pct_after
+  (after every sell/trim/buy). Shown first in the What next Buy column and the 12:00 whatnext message. 20 Nov: 0% -> 49%.
 - Next to build (ask owner first):
-  then build: plan fills the Nifty core from sells, real XIRR vs Nifty, weekly-check backtest,
+  then build: real XIRR vs Nifty, weekly-check backtest,
   March tax-harvest reminder.

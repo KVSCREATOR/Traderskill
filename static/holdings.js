@@ -19,7 +19,9 @@ function planBlock(p) {
     <p class="note" style="margin-top:0">As of ${esc(p.as_of || '')} · stocks ${p.before.holdings} now${p.before.core && p.before.core.length ? ` (+ ${p.before.core.length} index fund${p.before.core.length > 1 ? 's' : ''}, outside the stock limits)` : ''} → ${p.after.max - p.free_slots} after the sells → ${p.after.holdings} with the buys (limit ${p.after.max}) · cash ${p.cash != null ? inr(p.cash, 0) : 'unknown'}${p.cash_after != null ? ` → ${inr(p.cash_after, 0)} after the sells` : ''}${p.per_stock ? ` · your limit ${inr(p.per_stock, 0)} per stock (Limits › Investing)` : ''}</p>
     <div class="grid2">
       <div><h2 class="plan-sell-h">Sell</h2>${sells}</div>
-      <div><h2 class="plan-buy-h">Buy</h2>${buys}</div>
+      <div><h2 class="plan-buy-h">Buy</h2>${p.core_buy && p.core_buy.amount ? `<div class="core-buy"><b>1 · Nifty core first:</b> buy about <b>${inr(p.core_buy.amount, 0)}</b> of <b>${esc(p.core_buy.fund)}</b> (or any Nifty 50 index fund)
+          <small class="muted" style="display:block">Core ${p.core_buy.pct_now != null ? p.core_buy.pct_now.toFixed(0) + '%' : '–'} → about ${p.core_buy.pct_after != null ? p.core_buy.pct_after.toFixed(0) + '%' : '–'} of your ${p.core_buy.target}% target${p.core_buy.short > 1000 ? ` · still ${inr(p.core_buy.short, 0)} short` : ' · target reached'}</small></div>
+          ${p.buys.length ? '<p class="note" style="margin:8px 0 4px"><b>2 · Then new stocks</b> with what is left:</p>' : ''}` : ''}${buys}</div>
     </div>
     <h2 style="margin-top:14px">Keep</h2>${keeps}
     <ul class="nlist">${p.notes.map(n => `<li class="muted">${esc(n)}</li>`).join('')}</ul>

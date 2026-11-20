@@ -1098,7 +1098,8 @@ def report(fy=None, d_from=None, d_to=None):
         nxt["cash"] = (snap.get("funds") or {}).get("net")
     nxt["slots"] = max(0, cfg["max_positions"] - n_held)
     nxt["per_stock"] = cfg["max_per_stock"]
-    nxt["plan"] = _plan(snap, cfg, core_syms)   # your Investing limits, Investing verdicts and buys
+    core_v = _core_view(d, snap, holdings, today)
+    nxt["plan"] = _plan(snap, cfg, core_syms, core_v)   # your Investing limits, Investing verdicts and buys; sells fill the Nifty core first
     funds_hist = [{"date": k, "at": v["at"], **(v.get("funds") or {}), "value": v.get("total_value"), "cost": v.get("total_cost")}
                   for k, v in sorted(snaps.items())]
     fys = sorted({fy_of(t["date"]) for t in trades} | {fy_of(k) for k in snaps} | {fy_of(today)}, reverse=True)
@@ -1120,7 +1121,7 @@ def report(fy=None, d_from=None, d_to=None):
                               and abs(p["z_realised"] - p["realised"]) > max(50, abs(p["z_realised"]) * 0.02)]
     return {"fy": fy, "fys": fys, "fy_from": f0.isoformat(), "fy_to": f1.isoformat(), "connected": connected, "totals": totals, "pnl": pnl_info,
             "range": {"from": f0.isoformat(), "to": f1.isoformat(), "custom": custom},
-            "core": _core_view(d, snap, holdings, today),
+            "core": core_v,
             "snapshot_at": snap["at"] if snap else None, "funds": (snap or {}).get("funds"),
             "holdings": holdings, "per_stock": sorted(per.values(), key=lambda p: -(p["buy_value"] + p["sell_value"])),
             "trades": [dict(t, value=t["qty"] * t["price"]) for t in reversed(fy_trades)],
@@ -1135,7 +1136,7 @@ def report(fy=None, d_from=None, d_to=None):
 PLAN_HORIZON = "6–12 months"
 
 
-def _plan(snap, cfg, core=()):
+def _plan(snap, cfg, core=(), core_v=None):
     """One rebalance plan from your last snapshot: what to sell and what to buy, sector by sector.
 
     Sells, in order: rule exit fired; over the per-stock limit (trim the excess); sector over its
@@ -1145,6 +1146,8 @@ def _plan(snap, cfg, core=()):
     one per free slot, sized to the per-stock limit and your cash. Mechanical rule results, not advice.
     Index funds in your core list are left alone: not sold, not counted as stocks; their value still
     counts in the total that sector shares are measured against.
+    Nifty core first: money from the sells (and your free cash) goes into a Nifty 50 index fund until the
+    core reaches your target share (core_v from _core_view); only what is left buys new stocks.
     """
     if not snap or not snap.get("holdings"):
         return None
@@ -1216,8 +1219,23 @@ def _plan(snap, cfg, core=()):
     for r in act.values():
         sec_n[sec(r)] = sec_n.get(sec(r), 0) + 1
         sec_v[sec(r)] = sec_v.get(sec(r), 0) + r["value"]
-    cash_after = None if cash is None else cash + sum(s["value"] for s in sells)   # cash plus what the sells bring in
+    proceeds = sum(s["value"] for s in sells)
+    cash_after = None if cash is None else cash + proceeds   # cash plus what the sells bring in
     buys, notes = [], []
+    core_buy = None
+    if core_v and core_v.get("total") and (core_v.get("move") or 0) > 0:   # fill the Nifty core first
+        need = core_v["move"]
+        avail = cash_after if cash_after is not None else proceeds
+        amt = max(0.0, min(need, avail or 0))
+        held = [s for s in (core_v.get("symbols") or []) if s in core_held] or ["NIFTYBEES"]
+        cv_after = core_v["core_value"] + amt
+        core_buy = {"amount": amt, "need": need, "short": need - amt, "fund": held[0], "target": core_v["target"],
+                    "pct_now": core_v.get("actual"), "core_after": cv_after, "pct_after": None}
+        if cash_after is not None:
+            cash_after -= amt
+        if amt and core_buy["short"] > 1000:
+            notes.append("The Nifty core is still %s short of your %d%% target after this: later sells and new cash go there first." % (
+                _rs(core_buy["short"]), core_v["target"]))
     if not regime:
         notes.append("Market filter is off: the Investing rules hold off new buys.")
     for b in (fit.get("buys") or []) if regime else []:
@@ -1237,6 +1255,10 @@ def _plan(snap, cfg, core=()):
         sec_n[s] = sec_n.get(s, 0) + 1
         sec_v[s] = sec_v.get(s, 0) + qty * price
         T += qty * price
+    if core_buy:   # core share once every sell, trim and buy is done
+        sat_after = sum(r["value"] for r in act.values()) + sum(b["amount"] for b in buys)
+        tot_after = core_buy["core_after"] + sat_after
+        core_buy["pct_after"] = core_buy["core_after"] / tot_after * 100 if tot_after else None
     bought = {b["symbol"] for b in buys}
     waiting = [{"symbol": b["symbol"], "sector": b.get("sector") or "Other", "setup": b.get("setup"), "rs6": b.get("rs6"),
                 "price": b.get("price")} for b in cands if b["symbol"] not in bought][:6]
@@ -1254,7 +1276,7 @@ def _plan(snap, cfg, core=()):
             "sells": sells, "keeps": [{"symbol": r["symbol"], "verdict": r.get("verdict"), "pnl_pct": r.get("pnl_pct"), "sector": sec(r)}
                                       for r in act.values()],
             "buys": buys, "free_slots": free, "after": {"holdings": len(act) + len(buys), "max": maxn},
-            "waiting": waiting, "cash": cash, "cash_after": cash_after, "per_stock": cap, "notes": notes + [
+            "waiting": waiting, "cash": cash, "cash_after": cash_after, "per_stock": cap, "core_buy": core_buy, "notes": notes + [
                 "Built from the Investing rules (holds 6–12 months), backtested Dec 2017–Nov 2026 (~10.7%/yr, 38% of trades won, worst fall −34%, losing years too). "
                 "Not a promise of profit and not personal advice."]}
 
