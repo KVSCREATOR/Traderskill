@@ -558,3 +558,15 @@ dialog#cnDlg { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 4
 .aipair { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
 .aislot { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
 .aislot.main { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+
+/* Section headings: centred, capitals, large, on a tinted band so they stand out while scrolling */
+.card h2 { display: block; text-align: center; font-size: 17px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--accent); background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
+.card .row > h2 { flex: 1; }
+.tgsec-t { text-align: center; }
+.tgsec-t h3 { font-size: 17px; text-transform: uppercase; letter-spacing: .09em; }
+.tgsec-h { background: color-mix(in srgb, var(--c, var(--accent)) 8%, transparent); border-radius: 10px; padding: 10px 12px; border-bottom: 0; }
+.tgsub h4 { text-align: center; text-transform: uppercase; letter-spacing: .08em; font-size: 14.5px; color: var(--accent);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
+@media (max-width: 600px) { .card h2, .tgsec-t h3 { font-size: 15px; } }
