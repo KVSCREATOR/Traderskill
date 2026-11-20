@@ -393,3 +393,8 @@ diary per strategy kept 5 years, deletable by hand). Owner chose: add only strat
   API: POST /api/robot {action:'diary', strat, kind, from, to, q, limit} and {action:'diary_delete', ids:[...]} or same filters.
   migrate() (v1->v2, at start) moved the old log into the file and switched both scalps off. Page: filters, per-entry ✕, 'Delete shown'.
 - NOT yet verified in the browser (Chrome extension was not connected); offline test on a temp copy of data/ passed.
+- Auto on/off (owner later the same evening: "decide off and on at your level, best profit only"): OFF strategies trade as SHADOWS
+  (_open/_close shadow=True -> d.shadow_pos / d.shadow_trades, no cash, diary kind 'shadow'); auto_decide() after the close:
+  OFF->ON at >=20 shadow trades since off_since[k], last 30 avg >= +0.10R; ON->OFF at >=15 live trades since since[k], last 20 avg < -0.10R.
+  Manual switch still works (sets since/off_since); robot reviews it after the next close. Page cards show the rule + shadow results.
+- Page tweaks: diary filter row on one line, strategy cards 3 per row, robot title centred, no strategy tag on diary lines.

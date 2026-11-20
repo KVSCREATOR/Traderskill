@@ -12,6 +12,8 @@ What it does (never a real order, Zerodha is never touched):
                backtested positive after charges in 2017-22 AND 2022-26; completed-day signals any time
                while the price is within 3% of the signal close, today's forming signal from 15:10
   scalps       ORB and afternoon momentum: OFF by default (lost after charges in the 60-day tests)
+  auto on/off  owner: robot decides. OFF strategies trade as SHADOWS (no money); after each close a shadow with
+               >=20 trades at >=+0.10R goes ON, a live one with >=15 trades since ON below -0.10R goes OFF
   15:35        diary: per-strategy notes + scorecard (best performer, what suits the doubling goal)
   alert time   day report + AI review on Telegram (numbers checked)
 Diary: data/robot_diary.jsonl, kept 5 years, deletable by hand on the page.
@@ -67,6 +69,10 @@ STRATS = {
            "why": "14:30 stocks at the day's high on strong volume. Tested 20 Nov on 60 days: -0.14R / -0.10R per trade after charges, so it is OFF."},
 }
 NEW_DAILY = ("high52", "dip", "candle")   # order tried per stock (one signal per stock per day)
+# Owner 20 Nov 2026: "decide off and on at your level, best profit only". A strategy that is OFF keeps trading as a
+# SHADOW (same signals, pretend positions, no money, full charges). After each close the robot switches:
+AUTO_ON_N, AUTO_ON_R = 20, 0.10     # OFF -> ON: >= 20 shadow trades, last 30 average >= +0.10R after charges
+AUTO_OFF_N, AUTO_OFF_R = 15, -0.10  # ON -> OFF: >= 15 trades since it was switched on, last 20 average < -0.10R
 _lock = threading.Lock()
 _mem = {"last_scan": 0, "busy": False}
 
@@ -80,7 +86,7 @@ def _fresh(capital=START_CAPITAL):
     return {"on": True, "capital": capital, "cash": capital, "started": None, "positions": [], "trades": [],
             "equity": [], "peak": capital, "pause_until": None, "day": {}, "samples": [], "log": [],
             "strat_on": {k: not v.get("default_off") for k, v in STRATS.items()}, "risk_cap": 2.0, "model": None, "sent": {},
-            "version": 2, "alert_at": "15:32"}   # owner: robot trading alert after the close (time editable on the page)
+            "version": 2, "alert_at": "15:32", "shadow_pos": [], "shadow_trades": [], "since": {}, "off_since": {}}   # owner: robot trading alert after the close (time editable on the page)
 
 
 def load():
@@ -119,6 +125,7 @@ def migrate():
 def save(d):
     d["log"] = []   # the diary lives in robot_diary.jsonl (5 years)
     d["samples"] = d["samples"][-4000:]
+    d["shadow_trades"] = d["shadow_trades"][-2000:]
     d["sent"] = dict(list(d["sent"].items())[-60:])
     os.makedirs(S.DATA, exist_ok=True)
     tmp = _path() + ".tmp"
@@ -438,7 +445,7 @@ def _can_enter(d, today):
     return True, ""
 
 
-def _open(d, strat, sym, price, stop, target, feats, why, sector=""):
+def _open(d, strat, sym, price, stop, target, feats, why, sector="", shadow=False):
     k = STRATS[strat]["kind"]
     fill = price * (1 + SLIP)
     rp, notes = risk_pct(d, strat, feats.get("vix"))
@@ -452,7 +459,7 @@ def _open(d, strat, sym, price, stop, target, feats, why, sector=""):
     if k == "delivery":
         qty = min(qty, int((eq * SWING_CAP) // fill))  # one swing <= 20% of the money
         need = fill * qty
-    if need > d["cash"]:
+    if need > d["cash"] and not shadow:   # a shadow trade uses no money, so cash never limits it
         qty = int(d["cash"] // (fill * (MIS_MARGIN if k == "intraday" else 1)))
         need = fill * qty * (MIS_MARGIN if k == "intraday" else 1)
     if k == "intraday":
@@ -465,6 +472,12 @@ def _open(d, strat, sym, price, stop, target, feats, why, sector=""):
            "target": round(target, 2) if target else None, "opened": S.now_ist().strftime("%Y-%m-%d %H:%M"),
            "margin": round(need, 2), "risk_pct": round(rp, 2), "why": why, "size_why": notes, "feats": feats,
            "last": fill, "maxc": fill, "bars": 0}
+    if shadow:
+        pos["shadow"] = True
+        pos["id"] = "sh-" + pos["id"]
+        d["shadow_pos"].append(pos)
+        _say(d, "SHADOW buy (no money, strategy is off) %d %s @ ₹%.2f · %s · stop ₹%.2f" % (qty, sym, fill, STRATS[strat]["label"], stop), "shadow", strat)
+        return pos
     d["cash"] -= need
     d["positions"].append(pos)
     _say(d, "BUY %d %s @ ₹%.2f · %s · stop ₹%.2f%s · risk %.2f%% (%s)" % (
@@ -478,11 +491,22 @@ def _close(d, p, price, reason):
     ch = charges(p["kind"], bv, sv)
     gross = sv - bv
     net = gross - ch["total"]
+    r = net / (p["R"] * p["qty"]) if p["R"] else 0
+    if p.get("shadow"):
+        d["shadow_trades"].append({"id": p["id"], "strat": p["strat"], "kind": p["kind"], "symbol": p["symbol"], "qty": p["qty"],
+                                   "entry": p["entry"], "exit": round(fill, 2), "opened": p["opened"], "closed": S.now_ist().strftime("%Y-%m-%d %H:%M"),
+                                   "reason": reason, "net": round(net, 2), "charges": ch["total"], "r": round(r, 3)})
+        d["shadow_pos"] = [x for x in d["shadow_pos"] if x["id"] != p["id"]]
+        for s_ in d["samples"]:
+            if s_.get("pid") == p["id"]:
+                s_["y"], s_["r"] = (1 if net > 0 else 0), round(r, 3)
+        _say(d, "SHADOW sell %s · %s · would have made %s₹%.0f after ₹%.0f charges · %+.2fR" % (
+            p["symbol"], reason, "+" if net >= 0 else "−", abs(net), ch["total"], r), "shadow", p["strat"])
+        return None
     if p["kind"] == "intraday":
         d["cash"] += p["margin"] + gross - ch["total"]
     else:
         d["cash"] += sv - ch["total"]
-    r = net / (p["R"] * p["qty"]) if p["R"] else 0
     t = {"id": p["id"], "strat": p["strat"], "kind": p["kind"], "symbol": p["symbol"], "qty": p["qty"], "entry": p["entry"],
          "exit": round(fill, 2), "opened": p["opened"], "closed": S.now_ist().strftime("%Y-%m-%d %H:%M"), "reason": reason,
          "gross": round(gross, 2), "charges": ch, "net": round(net, 2), "r": round(r, 3), "why": p["why"], "risk_pct": p["risk_pct"]}
@@ -517,7 +541,7 @@ def _price(sym):
 def manage(d, clk):
     """Stops, targets, the 15:00 close for scalps; intraday stop check for swings."""
     m = clk["minute"]
-    for p in list(d["positions"]):
+    for p in list(d["positions"]) + list(d["shadow_pos"]):
         try:
             px, bars = _price(p["symbol"])
         except Exception:  # noqa: BLE001
@@ -545,18 +569,17 @@ def _atr_daily(sym):
 
 
 def orb_entries(d, clk, md):
-    if not d["strat_on"].get("orb"):
-        return
+    sh = not d["strat_on"].get("orb")   # off -> shadow
     day = _day(d, clk["date"])
     rows = S.scan()["rows"]
     for r in rows:
-        if day["scalps"] >= MAX_SCALPS_DAY:
+        if not sh and day["scalps"] >= MAX_SCALPS_DAY:
             break
         o = r.get("orb") or {}
         sym = r["symbol"]
         if o.get("state") != "confirmed" or o.get("outcome") != "open" or sym in day["orb_done"] or not r.get("live"):
             continue
-        if any(p["symbol"] == sym for p in d["positions"]):
+        if any(p["symbol"] == sym for p in d["positions"] + d["shadow_pos"]):
             continue
         day["orb_done"].append(sym)
         f = {"strat": "orb", "symbol": sym, "minute": clk["minute"], "gap": None, "rvol": r.get("rvol"), "or_atr": o.get("or_atr"),
@@ -580,7 +603,7 @@ def orb_entries(d, clk, md):
         if skip:
             _sample(d, f, skip=skip)
             continue
-        ok, why = _can_enter(d, clk["date"])
+        ok, why = (True, "") if sh else _can_enter(d, clk["date"])
         if not ok:
             _sample(d, f, skip=why)
             continue
@@ -592,24 +615,23 @@ def orb_entries(d, clk, md):
             continue
         stop = price - 1.0 * a
         pos = _open(d, "orb", sym, price, stop, price + 2 * (price - stop), f,
-                    "ORB breakout at %s, range %.2f x ATR" % (o.get("time") or "", o["or_atr"]), r.get("industry", ""))
+                    "ORB breakout at %s, range %.2f x ATR" % (o.get("time") or "", o["or_atr"]), r.get("industry", ""), shadow=sh)
         _sample(d, f, pid=pos["id"] if pos else None, taken=bool(pos), skip=None if pos else "no money for even 1 share")
-        if pos:
+        if pos and not sh:
             day["scalps"] += 1
 
 
 def pm_entries(d, clk, md):
-    if not d["strat_on"].get("pm"):
-        return
+    sh = not d["strat_on"].get("pm")   # off -> shadow
     day = _day(d, clk["date"])
     day["pm_done"] = True
     rows = [r for r in S.scan()["rows"] if r.get("live")]
     picks = 0
     for r in rows:
-        if picks >= 2 or day["scalps"] >= MAX_SCALPS_DAY:
+        if picks >= 2 or (not sh and day["scalps"] >= MAX_SCALPS_DAY):
             break
         sym = r["symbol"]
-        if any(p["symbol"] == sym for p in d["positions"]):
+        if any(p["symbol"] == sym for p in d["positions"] + d["shadow_pos"]):
             continue
         try:
             px, bars = _price(sym)
@@ -625,7 +647,7 @@ def pm_entries(d, clk, md):
              "vix": md["vix"], "chg": r.get("change_pct"), "news": news_score(sym)}
         p = model_p(d, f)
         f["p"] = round(p, 3) if p is not None else None
-        ok, why = _can_enter(d, clk["date"])
+        ok, why = (True, "") if sh else _can_enter(d, clk["date"])
         if not ok or f["news"] <= -2:
             _sample(d, f, skip=why or "negative news today")
             continue
@@ -636,16 +658,15 @@ def pm_entries(d, clk, md):
         if not a:
             continue
         stop = px - 0.5 * a
-        pos = _open(d, "pm", sym, px, stop, px + 1.5 * (px - stop), f, "At the day's high at %s on %.1fx volume" % (S.hm(clk["minute"]), r.get("rvol") or 0), r.get("industry", ""))
+        pos = _open(d, "pm", sym, px, stop, px + 1.5 * (px - stop), f, "At the day's high at %s on %.1fx volume" % (S.hm(clk["minute"]), r.get("rvol") or 0), r.get("industry", ""), shadow=sh)
         _sample(d, f, pid=pos["id"] if pos else None, taken=bool(pos))
         if pos:
-            day["scalps"] += 1
+            day["scalps"] += 0 if sh else 1
             picks += 1
 
 
 def swing_entries(d, clk, md):
-    if not d["strat_on"].get("swing"):
-        return
+    sh = not d["strat_on"].get("swing")   # off -> shadow
     day = _day(d, clk["date"])
     data = L.scan_long("swing")
     if not data.get("regime"):
@@ -653,13 +674,13 @@ def swing_entries(d, clk, md):
             day["regime"] = False
             _say(d, "Market filter is off (Nifty below its 50/200-day averages), so no new swing buys today (all daily strategies wait).")
         return
-    held = [p for p in d["positions"] if p["kind"] == "delivery"]
+    held = [p for p in (d["shadow_pos"] if sh else d["positions"]) if p["kind"] == "delivery"]
     ok_status = ("confirmed", "recent") + (("provisional",) if clk["minute"] >= FORMING_M else ())   # forming signal only near the close
     for r in data["rows"]:
         if len(held) >= MAX_SWING:
             break
         sym = r["symbol"]
-        if r.get("status") not in ok_status or sym in day["swing_done"] or any(p["symbol"] == sym for p in d["positions"]):
+        if r.get("status") not in ok_status or sym in day["swing_done"] or any(p["symbol"] == sym for p in d["positions"] + d["shadow_pos"]):
             continue
         if _recent_exit(d, sym):
             continue
@@ -674,7 +695,7 @@ def swing_entries(d, clk, md):
         if f["news"] <= -2:
             _sample(d, f, skip="negative news today")
             continue
-        ok, why = _can_enter(d, clk["date"])
+        ok, why = (True, "") if sh else _can_enter(d, clk["date"])
         if not ok:
             _sample(d, f, skip=why)
             continue
@@ -688,7 +709,7 @@ def swing_entries(d, clk, md):
         if not px:
             continue
         stop = L.stop_for("swing", px, a)
-        pos = _open(d, "swing", sym, px, stop, None, f, "%s (%s)" % (r.get("setup") or "Trading signal", r.get("setup_day") or ""), sec)
+        pos = _open(d, "swing", sym, px, stop, None, f, "%s (%s)" % (r.get("setup") or "Trading signal", r.get("setup_day") or ""), sec, shadow=sh)
         _sample(d, f, pid=pos["id"] if pos else None, taken=bool(pos))
         if pos:
             held.append(pos)
@@ -792,9 +813,9 @@ def scan_daily(clk):
 
 
 def daily_entries(d, clk, md):
-    on = [k for k in NEW_DAILY if d["strat_on"].get(k)]
+    on = [k for k in NEW_DAILY if d["strat_on"].get(k)]   # the others run as shadow
     c = _mem.get("daily") or {}
-    if not on or c.get("date") != clk["date"]:
+    if c.get("date") != clk["date"]:
         return
     day = _day(d, clk["date"])
     day.setdefault("daily_done", [])
@@ -805,12 +826,13 @@ def daily_entries(d, clk, md):
             _say(d, "Market filter is off (Nifty below its 50/200-day averages), so no new swing buys today (all daily strategies wait).")
         return
     held = [p for p in d["positions"] if p["kind"] == "delivery"]
+    held_sh = [p for p in d["shadow_pos"] if p["kind"] == "delivery"]
     cands = (c.get("done") or []) + (c.get("forming") or [] if clk["minute"] >= FORMING_M else [])
     for r in cands:
-        if len(held) >= MAX_SWING:
-            break
         k, sym = r["strat"], r["symbol"]
-        if k not in on or sym in day["daily_done"] or any(p["symbol"] == sym for p in d["positions"]) or _recent_exit(d, sym):
+        sh = k not in on
+        book = held_sh if sh else held
+        if len(book) >= MAX_SWING or sym in day["daily_done"] or any(p["symbol"] == sym for p in d["positions"] + d["shadow_pos"]) or _recent_exit(d, sym):
             continue
         try:
             px, _ = _price(sym)
@@ -832,18 +854,18 @@ def daily_entries(d, clk, md):
             skip = "price already below the stop"
         elif f["news"] <= -2:
             skip = "negative news today"
-        elif sec and sum(1 for p in held if p.get("sector") == sec) >= MAX_PER_SECTOR:
+        elif sec and sum(1 for p in book if p.get("sector") == sec) >= MAX_PER_SECTOR:
             skip = "already 2 swings in %s" % sec
-        else:
+        elif not sh:
             ok, why = _can_enter(d, clk["date"])
             skip = None if ok else why
         if skip:
             _sample(d, f, skip=skip)
             continue
-        pos = _open(d, k, sym, px, stop, None, f, "%s (%s%s)" % (r["why"], r["day"], ", forming" if r["forming"] else ""), sec)
+        pos = _open(d, k, sym, px, stop, None, f, "%s (%s%s)" % (r["why"], r["day"], ", forming" if r["forming"] else ""), sec, shadow=sh)
         _sample(d, f, pid=pos["id"] if pos else None, taken=bool(pos), skip=None if pos else "no money for even 1 share")
         if pos:
-            held.append(pos)
+            book.append(pos)
 
 
 # ----------------------------------------------------------------- diary: daily strategy notes + scorecard
@@ -858,7 +880,7 @@ def skip_notes(d, today):
         for x in ss:
             if not x.get("taken"):
                 why[x.get("skip") or "not bought"] = why.get(x.get("skip") or "not bought", 0) + 1
-        _say(d, "%s today: %d signal(s), bought %d%s" % (STRATS[k]["label"], len(ss), taken,
+        _say(d, "%s today: %d signal(s), %s %d%s" % (STRATS[k]["label"], len(ss), "bought" if d["strat_on"].get(k) else "shadow-bought (no money)", taken,
              (" · skipped: " + ", ".join("%s ×%d" % (w, n) for w, n in sorted(why.items(), key=lambda z: -z[1]))) if why else ""), "skip", k)
 
 
@@ -872,7 +894,7 @@ def scorecard(d):
         net = sum(t["net"] for t in tr)
         days = [max(1, (datetime.strptime(t["closed"][:10], "%Y-%m-%d") - datetime.strptime(t["opened"][:10], "%Y-%m-%d")).days) for t in tr]
         if not n:
-            verdict = "no trades yet" + ("" if d["strat_on"].get(k) else " (switched off)")
+            verdict = "no trades yet" + ("" if d["strat_on"].get(k) else " (off: trading as a shadow)")
         elif n < 15:
             verdict = "too early to judge (%d of 15 trades)" % n
         elif avg >= max(0.2, v["expect"] * 0.6):
@@ -897,6 +919,41 @@ def scorecard(d):
     return {"rows": rows, "best": best["id"] if best else None, "summary": summary}
 
 
+def _live_since(d, k):
+    since = (d.get("since") or {}).get(k, "")
+    return [t for t in d["trades"] if t["strat"] == k and t["opened"] >= since]
+
+
+def auto_stats(d, k):
+    live = _live_since(d, k)[-20:]
+    off = (d.get("off_since") or {}).get(k, "")   # shadow results count only from when it was last switched off
+    shd = [t for t in d["shadow_trades"] if t["strat"] == k and t["opened"] >= off]
+    last = shd[-30:]
+    return {"live_n": len(_live_since(d, k)), "live_r": round(sum(t["r"] for t in live) / len(live), 3) if live else None,
+            "sh_n": len(shd), "sh_r": round(sum(t["r"] for t in last) / len(last), 3) if last else None,
+            "sh_net": round(sum(t["net"] for t in shd), 2), "sh_open": sum(1 for p in d["shadow_pos"] if p["strat"] == k)}
+
+
+def auto_decide(d):
+    """Owner: the robot switches strategies on/off itself, for the best profit after charges."""
+    now = S.now_ist().strftime("%Y-%m-%d %H:%M")
+    d.setdefault("since", {})
+    for k, v in STRATS.items():
+        a = auto_stats(d, k)
+        if d["strat_on"].get(k):
+            if a["live_n"] >= AUTO_OFF_N and a["live_r"] is not None and a["live_r"] < AUTO_OFF_R:
+                d["strat_on"][k] = False
+                d.setdefault("off_since", {})[k] = now
+                _say(d, "🔴 AUTO OFF: %s lost %+.2fR per trade after charges over its last %d trades (limit %+.2fR). "
+                        "It keeps trading as a shadow (no money) and comes back on when the shadow earns again."
+                     % (v["label"], a["live_r"], min(a["live_n"], 20), AUTO_OFF_R), "info", k)
+        elif a["sh_n"] >= AUTO_ON_N and a["sh_r"] is not None and a["sh_r"] >= AUTO_ON_R:
+            d["strat_on"][k] = True
+            d["since"][k] = now
+            _say(d, "🟢 AUTO ON: %s earned %+.2fR per trade after charges over its last %d shadow trades (needs %+.2fR). "
+                    "It now trades with money, sized by its own results." % (v["label"], a["sh_r"], min(a["sh_n"], 30), AUTO_ON_R), "info", k)
+
+
 def score_note(d):
     sc = scorecard(d)
     parts = ["%s: %d trades, won %s, net %s₹%s, %s · %s" % (
@@ -908,7 +965,7 @@ def score_note(d):
 def swing_update(d, clk):
     """Trading v2 rules on every completed daily bar since the last one seen (catches up after a NAS restart)."""
     why = {"stop": "stop hit", "trail": "trailing stop", "time": "time limit", "target": "target"}
-    for p in [x for x in d["positions"] if x["kind"] == "delivery"]:
+    for p in [x for x in d["positions"] + d["shadow_pos"] if x["kind"] == "delivery"]:
         try:
             ind = L.indicators(L.history(p["symbol"])["bars"])
         except Exception:  # noqa: BLE001
@@ -934,7 +991,7 @@ def swing_update(d, clk):
 
 def scalp_catch_up(d, clk):
     """Scalps never stay overnight: if the robot was not running at 15:00 (NAS off), square off at the 15:20 price, like Zerodha."""
-    for p in [x for x in d["positions"] if x["kind"] == "intraday"]:
+    for p in [x for x in d["positions"] + d["shadow_pos"] if x["kind"] == "intraday"]:
         day = p["opened"][:10]
         if day == clk["date"] and clk["minute"] < 930:
             continue
@@ -1075,9 +1132,8 @@ def tick():
         return
     m = clk["minute"]
     if clk["open"] and DAY_FROM_M <= m <= DAY_TO_M and time.time() - _mem["last_scan"] > 170:
-        son = load()["strat_on"]
         try:
-            if (575 <= m <= 630 and son.get("orb")) or (870 <= m <= 885 and son.get("pm")):
+            if 575 <= m <= 630 or 870 <= m <= 885:   # ORB / afternoon windows (live or shadow)
                 S.scan()
             L.scan_long("swing")
             scan_daily(clk)                           # new daily strategies, warmed outside the lock
@@ -1089,7 +1145,7 @@ def tick():
             return
         day = _day(d, clk["date"])
         changed = False
-        if any(p["kind"] == "intraday" and (p["opened"][:10] < clk["date"] or m >= 930) for p in d["positions"]):
+        if any(p["kind"] == "intraday" and (p["opened"][:10] < clk["date"] or m >= 930) for p in d["positions"] + d["shadow_pos"]):
             scalp_catch_up(d, clk)
             changed = True
         if not day.get("swing_am") and m >= 556:
@@ -1097,7 +1153,7 @@ def tick():
             swing_update(d, clk)                     # days missed while the NAS was off
             changed = True
         if clk["open"]:
-            if d["positions"]:
+            if d["positions"] or d["shadow_pos"]:
                 manage(d, clk)
                 changed = True
             md = None
@@ -1139,6 +1195,7 @@ def tick():
             d["equity"] = [e for e in d["equity"] if e["date"] != clk["date"]] + [{"date": clk["date"], "equity": round(eq, 2)}]
             train(d)
             skip_notes(d, clk["date"])                # diary: per-strategy notes + scorecard, kept DIARY_YEARS
+            auto_decide(d)                            # owner: robot switches strategies on/off by results
             score_note(d)
             diary_prune()
             changed = True
@@ -1204,7 +1261,8 @@ def status():
             "positions": d["positions"], "trades": tr[-200:][::-1], "curve": d["equity"], "diary": diary({"limit": 150}),
             "scorecard": scorecard(d), "limits": {"max_swing": MAX_SWING, "swing_cap": SWING_CAP * 100, "base_risk": BASE_RISK, "diary_years": DIARY_YEARS},
             "strategies": [dict(id=k, label=v["label"], why=v["why"], kind=v["kind"], on=d["strat_on"].get(k, True),
-                                factor=strat_factor(d, k)[0], factor_why=strat_factor(d, k)[1], **_strat_stats(d, k)) for k, v in STRATS.items()],
+                                factor=strat_factor(d, k)[0], factor_why=strat_factor(d, k)[1], auto=auto_stats(d, k), **_strat_stats(d, k)) for k, v in STRATS.items()],
+            "auto_rule": {"on_n": AUTO_ON_N, "on_r": AUTO_ON_R, "off_n": AUTO_OFF_N, "off_r": AUTO_OFF_R},
             "charges": ch_tot, "tax_est": tax, "pace": pace, "risk_cap": d.get("risk_cap"), "alert_at": d.get("alert_at") or "15:32",
             "model": {k: v for k, v in (d.get("model") or {"ready": False, "n": 0, "why": "not trained yet"}).items() if k != "w"},
             "samples": len(d["samples"]), "clock": S.market_clock(), "ai": bool(AI and AI.configured())}
@@ -1235,6 +1293,7 @@ def act(body, check_pw):
             if k not in STRATS:
                 raise S.ApiError(400, "Unknown strategy.")
             d["strat_on"][k] = bool(body.get("on"))
+            d.setdefault("since" if d["strat_on"][k] else "off_since", {})[k] = S.now_ist().strftime("%Y-%m-%d %H:%M")
             _say(d, "%s switched %s by you." % (STRATS[k]["label"], "on" if d["strat_on"][k] else "off"), "info", k)
             msg = "%s %s." % (STRATS[k]["label"], "on" if d["strat_on"][k] else "off")
         elif a == "risk_cap":

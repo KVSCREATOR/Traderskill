@@ -6,7 +6,7 @@
     nav.insertAdjacentHTML('afterend', '<a href="#/robot" data-view="robot"><i>🤖</i><span>AI Robot<small>paper · runs by itself</small></span></a>');
   }
   const SL = { orb: '🌅', swing: '📈', pm: '🧪', dip: '🪂', candle: '🕯️', high52: '🏔️' };
-  const KL = { buy: 'Buy', sell: 'Sell (profit)', loss: 'Sell (loss)', skip: 'Daily notes', score: 'Scorecard', info: 'Info', ai: 'AI review', error: 'Error' };
+  const KL = { buy: 'Buy', sell: 'Sell (profit)', loss: 'Sell (loss)', skip: 'Daily notes', shadow: 'Shadow (no money)', score: 'Scorecard', info: 'Info', ai: 'AI review', error: 'Error' };
   const dflt = { strat: '', kind: '', from: '', to: '', q: '' };   // diary filter, kept while the page refreshes
   const money = v => (v < 0 ? '−' : '+') + inr(Math.abs(v), 0);
 
@@ -50,6 +50,7 @@
 
     <div class="card"><h2>How the robot decides</h2>
       <p class="note" style="margin-top:0">Every strategy is checked about every 3 minutes from 09:15 to 15:28. Daily-chart signals are bought any time the price is still within 3% of the signal close, and a signal forming today counts from 15:10. Each strategy starts at a size that matches how well it was tested, then <b>earns or loses its share by its own results after all charges</b> (last 20 trades). Base risk ${d.limits.base_risk}% per trade, up to ${d.limits.max_swing} swings at ${d.limits.swing_cap}% of the money each. It trades smaller when below the peak or when India VIX is above 22, stops for the day after −3%, pauses a week after −15%. Never more than your cap per trade.</p>
+      <p class="note"><b>The robot switches strategies on and off by itself.</b> A strategy that is off keeps trading as a <b>shadow</b> (same signals, no money, full charges). It is switched on after ${d.auto_rule.on_n} shadow trades averaging at least +${d.auto_rule.on_r.toFixed(2)}R, and off again if its trades since then (at least ${d.auto_rule.off_n}) average below ${d.auto_rule.off_r.toFixed(2)}R. You can still flip a switch yourself; the robot reviews it after the next close.</p>
       <p class="rb-verdict">📊 ${esc(d.scorecard.summary)}</p>
       <div class="rb-strats">${d.strategies.map(s => `<div class="rb-strat ${s.on ? '' : 'off'}">
         <div class="row" style="justify-content:space-between"><b>${SL[s.id] || ''} ${esc(s.label)}</b><span class="switch"><input type="checkbox" data-rbs="${s.id}" ${s.on ? 'checked' : ''}><span></span></span></div>
@@ -57,6 +58,9 @@
         <div class="rb-nums"><span>Size <b>${s.factor}×</b></span><span>Trades <b>${s.n}</b></span><span>Won <b>${s.n ? Math.round(s.won / s.n * 100) + '%' : '–'}</b></span>
           <span>Net <b class="${cls(s.net)}">${money(s.net)}</b></span><span>Charges <b>${inr(s.charges, 0)}</b></span></div>
         <p class="note" style="margin:6px 0 0">${esc(s.factor_why)}</p>
+        <p class="note rb-auto" style="margin:4px 0 0">${s.on
+          ? `🟢 On · auto-off if ${d.auto_rule.off_n}+ trades average below ${d.auto_rule.off_r.toFixed(2)}R${s.auto.live_n ? ` (now ${s.auto.live_r >= 0 ? '+' : ''}${s.auto.live_r.toFixed(2)}R over ${s.auto.live_n})` : ''}`
+          : `⚪ Off · shadow: ${s.auto.sh_n} trade${s.auto.sh_n === 1 ? '' : 's'}${s.auto.sh_n ? `, ${s.auto.sh_r >= 0 ? '+' : ''}${s.auto.sh_r.toFixed(2)}R avg, would have made ${money(s.auto.sh_net)}` : ''}${s.auto.sh_open ? ` · ${s.auto.sh_open} open` : ''} · auto-on at ${d.auto_rule.on_n} trades ≥ +${d.auto_rule.on_r.toFixed(2)}R`}</p>
         ${(v => v ? `<p class="rb-v ${/GOOD/.test(v.verdict) ? 'good' : /COSTING/.test(v.verdict) ? 'bad' : ''}">${d.scorecard.best === s.id ? '🏆 Best so far · ' : ''}${esc(v.verdict)}${v.avg_r != null ? ` · ${v.avg_r >= 0 ? '+' : ''}${v.avg_r.toFixed(2)}R per trade (tested ${v.expect >= 0 ? '+' : ''}${v.expect.toFixed(2)}R)` : ''}</p>` : '')(d.scorecard.rows.find(r => r.id === s.id))}</div>`).join('')}</div>
       <div class="row" style="gap:10px;margin-top:12px;align-items:center"><span class="note" style="margin:0">Most it may risk on one trade:</span>
         <select id="rbCap" class="sel">${[0.5, 1, 1.5, 2, 2.5, 3].map(v => `<option value="${v}" ${+d.risk_cap === v ? 'selected' : ''}>${v}% of its money</option>`).join('')}</select></div>
@@ -99,10 +103,11 @@
         <div class="row" style="gap:8px;justify-content:flex-end"><button class="btn" type="button" id="rbAlertSave">Save alert time</button><button class="btn" type="button" id="rbAlertTest">Send test alert now</button></div>
         <div class="row" style="gap:8px;justify-content:flex-end"><button class="btn" type="button" id="rbClose">Close all positions now</button><button class="btn danger" type="button" id="rbReset">Reset the robot</button></div></form>
       <p class="note">The robot keeps working whatever else the portal does, and after a NAS restart it carries on: scalps left open are squared off at the 15:20 price, swings catch up on missed days. Telegram: “🤖 ROBOT TRADING ALERT” after the close (time above), plus 09:35 buys and 15:00 scalps closed; switch it off in the Telegram table on the Limits page. Paper only; no strategy is promised to make money.</p></div>`;
+    const hd = view.querySelector('.head'); if (hd) hd.classList.add('rb-head');   // title centred, Running switch stays right
     if (keep) { if (keep.pw && $('#rbPw')) $('#rbPw').value = keep.pw; if (keep.cap && $('#rbCapital')) $('#rbCapital').value = keep.cap; if (keep.at && $('#rbAlertAt')) $('#rbAlertAt').value = keep.at; window.scrollTo(0, keep.y); }
     const dlist = dd => {
       $('#dfCount').textContent = dd.total ? `Showing ${dd.items.length} of ${dd.total} matching entr${dd.total === 1 ? 'y' : 'ies'}.` : '';
-      $('#dfList').innerHTML = dd.items.length ? dd.items.map(l => `<li class="${esc(l.kind)}"><button class="rb-x" data-did="${esc(l.id || '')}" title="Delete this entry" aria-label="Delete this entry">✕</button><span class="mono">${esc(l.at)}</span> ${l.strat ? `<span class="pill">${SL[l.strat] || ''} ${esc((d.strategies.find(s => s.id === l.strat) || {}).label || l.strat)}</span> ` : ''}${esc(l.text)}</li>`).join('') : '<li>No entries match.</li>';
+      $('#dfList').innerHTML = dd.items.length ? dd.items.map(l => `<li class="${esc(l.kind)}"><button class="rb-x" data-did="${esc(l.id || '')}" title="Delete this entry" aria-label="Delete this entry">✕</button><span class="mono">${esc(l.at)}</span> ${esc(l.text)}</li>`).join('') : '<li>No entries match.</li>';
       $('#dfList').querySelectorAll('[data-did]').forEach(b => b.onclick = async () => {
         if (!b.dataset.did || !await askConfirm('Delete this diary entry?', 'It is removed from the record for good.', 'Delete')) return;
         try { const r = await api('/api/robot', Object.assign({ action: 'diary_delete', ids: [b.dataset.did] }, dflt)); toast(r.message); dlist(r.diary); } catch (e) { toast(e.message, 'bad'); }

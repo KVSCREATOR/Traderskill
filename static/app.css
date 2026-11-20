@@ -591,8 +591,16 @@ html.slocked #slock { display: grid; }
 .rb-bar { height: 12px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; margin-top: 14px; }
 .rb-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--pass)); }
 .rb-curve { width: 100%; height: 140px; margin-top: 12px; }
-.rb-strats { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-.rb-strat { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--surface-2); }
+.rb-strats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1000px) { .rb-strats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .rb-strats { grid-template-columns: 1fr; } }
+.rb-strat { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--surface-2); display: flex; flex-direction: column; }
+.rb-strat > .row { flex-wrap: nowrap; align-items: flex-start; gap: 10px; min-height: 26px; }
+.rb-strat > .row > b { flex: 1; min-width: 0; line-height: 1.35; }
+.rb-strat > .row > .switch { flex-shrink: 0; margin-top: 1px; }
+.rb-strat > p.note:first-of-type { flex: 1; margin: 6px 0 8px; }
+.rb-strat .rb-nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.rb-strat .rb-nums span { white-space: nowrap; }
 .rb-strat.off { opacity: .55; }
 .rb-nums { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); }
 .rb-nums b { color: var(--text); }
@@ -604,8 +612,20 @@ html.slocked #slock { display: grid; }
 .rb-verdict { margin: 4px 0 10px; font-weight: 600; }
 .rb-v { margin: 6px 0 0; font-size: 13px; font-weight: 600; } .rb-v.good { color: var(--pass); } .rb-v.bad { color: var(--fail, #dc2626); }
 .rb-dfilter { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
-.rb-dfilter label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
-.rb-dfilter input { min-width: 0; }
+.rb-dfilter > * { height: 38px; box-sizing: border-box; margin: 0; }
+.rb-dfilter label { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+.rb-dfilter label input { width: auto; height: 38px; box-sizing: border-box; }
+.rb-dfilter select, .rb-dfilter input { padding-top: 0; padding-bottom: 0; }
+#dfStrat { width: 220px; } #dfKind { width: 140px; } #dfQ { width: 190px; }
+.rb-dfilter .btn { display: inline-flex; align-items: center; }
+@media (max-width: 700px) { #dfStrat, #dfKind, #dfQ { width: 100%; } }
 .rb-log li.score { font-weight: 600; } .rb-log li.skip { color: var(--muted, #6b7280); }
 .rb-x { float: right; border: 0; background: none; color: var(--muted, #6b7280); cursor: pointer; padding: 0 4px; font-size: 13px; }
 .rb-x:hover { color: var(--fail, #dc2626); }
+
+.head.rb-head { display: grid; grid-template-columns: 1fr auto 1fr; }
+.head.rb-head > div:first-child { grid-column: 2; text-align: center; }
+.head.rb-head > .row { grid-column: 3; justify-self: end; }
+@media (max-width: 640px) { .head.rb-head { grid-template-columns: 1fr; } .head.rb-head > div:first-child, .head.rb-head > .row { grid-column: 1; justify-self: center; } }
+.rb-log li.shadow { color: var(--muted, #6b7280); font-style: italic; }
+.rb-auto { font-weight: 600; }
