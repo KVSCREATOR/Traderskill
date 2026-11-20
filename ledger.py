@@ -455,7 +455,7 @@ def import_pnl(body):
 
 CORE_DEFAULT = ["NIFTYBEES", "SETFNIF50", "NIFTYIETF", "UTINIFTETF", "HDFCNIFTY", "BSLNIFTY", "AXISNIFTY",
                 "NIFTY1", "LICNETFN50", "MOM50", "NIFTYETF"]
-INDEX_MF = re.compile(r"nifty ?50|nifty index|sensex|index fund", re.I)
+INDEX_MF = re.compile(r"nifty ?50\b|sensex", re.I)   # core = Nifty 50 / Sensex index funds only (not midcap, Next 50, sector or consumption index funds)
 
 
 def _core_cfg(d):
