@@ -20,11 +20,14 @@
       <p class="note" style="margin:4px 0 0">${esc(pts[0].date)} → ${esc(pts[pts.length - 1].date)} · dashed line = starting money</p>`;
   }
 
-  async function robotPage() {
+  // quiet = background refresh: keep the current page on screen, fetch, then swap everything in at once
+  async function robotPage(quiet) {
     const my = S.nav;
-    view.innerHTML = head('🤖 AI Robot', 'Paper money only · decides and trades by itself · you stay in control') + loading(2);
-    let d; try { d = await api('/api/robot'); } catch (e) { view.innerHTML = head('🤖 AI Robot', 'Not available') + failBox(e); return; }
+    quiet = quiet === true && !!view.querySelector('#rbOn');
+    if (!quiet) view.innerHTML = head('🤖 AI Robot', 'Paper money only · decides and trades by itself · you stay in control') + loading(2);
+    let d; try { d = await api('/api/robot'); } catch (e) { if (!quiet) view.innerHTML = head('🤖 AI Robot', 'Not available') + failBox(e); return; }
     if (my !== S.nav) return;
+    const keep = quiet ? { y: window.scrollY, pw: ($('#rbPw') || {}).value, cap: ($('#rbCapital') || {}).value, at: ($('#rbAlertAt') || {}).value } : null;
     const prog = Math.max(0, Math.min(100, (d.equity - d.capital) / (d.goal - d.capital) * 100));
     const dd = (1 - d.equity / (d.peak || d.equity)) * 100;
     const ch = d.charges || {};
@@ -82,7 +85,8 @@
         <div class="row" style="gap:8px;justify-content:flex-end"><button class="btn" type="button" id="rbAlertSave">Save alert time</button><button class="btn" type="button" id="rbAlertTest">Send test alert now</button></div>
         <div class="row" style="gap:8px;justify-content:flex-end"><button class="btn" type="button" id="rbClose">Close all positions now</button><button class="btn danger" type="button" id="rbReset">Reset the robot</button></div></form>
       <p class="note">The robot keeps working whatever else the portal does, and after a NAS restart it carries on: scalps left open are squared off at the 15:20 price, swings catch up on missed days. Telegram: “🤖 ROBOT TRADING ALERT” after the close (time above), plus 09:35 buys and 15:00 scalps closed; switch it off in the Telegram table on the Limits page. Paper only; no strategy is promised to make money.</p></div>`;
-    const go = async body => { try { const r = await api('/api/robot', body); toast(r.message); robotPage(); } catch (e) { toast(e.message, 'bad'); } };
+    if (keep) { if (keep.pw && $('#rbPw')) $('#rbPw').value = keep.pw; if (keep.cap && $('#rbCapital')) $('#rbCapital').value = keep.cap; if (keep.at && $('#rbAlertAt')) $('#rbAlertAt').value = keep.at; window.scrollTo(0, keep.y); }
+    const go = async body => { try { const r = await api('/api/robot', body); toast(r.message); robotPage(true); } catch (e) { toast(e.message, 'bad'); } };
     $('#rbOn').onchange = e => go({ action: e.target.checked ? 'on' : 'off' });
     view.querySelectorAll('[data-rbs]').forEach(x => x.onchange = () => go({ action: 'strat', id: x.dataset.rbs, on: x.checked }));
     $('#rbCap').onchange = e => go({ action: 'risk_cap', value: +e.target.value });
@@ -90,7 +94,7 @@
     $('#rbAlertTest').onclick = () => go({ action: 'alert_test' });
     $('#rbClose').onclick = async () => { if (await askConfirm('Close every robot position?', 'All open paper positions are sold at the latest price.', 'Close all')) go({ action: 'close_all', password: $('#rbPw').value }); };
     $('#rbReset').onclick = async () => { if (await askConfirm('Reset the robot?', 'All its trades, history and learning are wiped and it starts again with the money you entered.', 'Reset')) go({ action: 'reset', password: $('#rbPw').value, capital: +$('#rbCapital').value }); };
-    clearInterval(S.timer); S.timer = setInterval(() => { if (location.hash.startsWith('#/robot') && !document.querySelector('#rbPw:focus, #rbCapital:focus, #rbAlertAt:focus')) robotPage(); }, 60000);
+    clearInterval(S.timer); S.timer = setInterval(() => { if (location.hash.startsWith('#/robot') && !document.querySelector('#rbPw:focus, #rbCapital:focus, #rbAlertAt:focus')) robotPage(true); }, 60000);
   }
 
   VIEWS.robot = robotPage;
