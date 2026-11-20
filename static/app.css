@@ -538,3 +538,17 @@ dialog#cnDlg { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 4
 .cnpickgrid label, .cndays label { flex-direction: row; }
 .cnpickgrid input, .cndays input { width: auto; flex: none; margin: 0; }
 .cnpickgrid { overflow-x: hidden; }
+
+/* Telegram page: each feature in its own block */
+.tgsec { border: 1px solid var(--border); border-top: 4px solid var(--c, var(--accent)); border-radius: 14px; background: var(--surface); padding: 16px 18px; margin: 16px 0; box-shadow: 0 1px 3px rgba(20,30,60,.06); }
+.tgsec[hidden] { display: none; }
+.tgsec .tablewrap { margin: 0; border: 1px solid var(--border); border-radius: 10px; max-height: none; }
+.tgsec-h { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.tgsec-ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; font-size: 19px; background: color-mix(in srgb, var(--c, var(--accent)) 14%, transparent); flex: none; }
+.tgsec-t { flex: 1; min-width: 180px; }
+.tgsec-t h3 { margin: 0; font-size: 16px; color: var(--c, var(--accent)); }
+.tgsec-t small { color: var(--muted); font-size: 12.5px; }
+.tgsub { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin: 12px 0 0; }
+.tgsub h4 { margin: 0 0 10px; font-size: 14.5px; }
+.tgfoot { margin: 10px 0 0; }
+@media (max-width: 600px) { .tgsec { padding: 14px 12px; } }

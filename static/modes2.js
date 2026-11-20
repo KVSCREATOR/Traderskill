@@ -790,7 +790,8 @@ async function tgCard(box) {
   if (!d.token_set) body = `<p class="note">No bot token found yet. Quickest: <button class="btn sm primary" data-tgbot>Set up a bot here…</button></p>${steps}`;
   else if (!d.connected) body = `<p class="note">Bot token found. Press <b>Start</b> on your bot in Telegram, then:</p>
       <div class="row" style="margin-top:10px"><button class="btn primary" id="tgConn">Connect</button></div>`;
-  else body = `<div class="row" style="margin-bottom:12px"><span class="pill pass">Connected to ${esc(d.name || 'you')}</span>
+  else body = `<section class="tgsec" style="--c:#2563eb"><div class="tgsec-h"><span class="tgsec-ic">🔔</span><div class="tgsec-t"><h3>Alert bot</h3><small>Sends your alerts and daily messages · send only</small></div></div>
+      <div class="row" style="margin-bottom:12px"><span class="pill pass">Connected to ${esc(d.name || 'you')}</span>
       ${d.bot ? `<span class="note" style="margin:0">bot @${esc(d.bot)}</span>` : ''}${d.token_tail ? `<span class="note" style="margin:0" title="Where the token comes from">token …${esc(d.token_tail)} · ${d.token_source === 'page' ? 'set on this page' : 'from tradeskill.env'}</span>` : ''}
       <button class="btn sm" id="tgTest">Send test message</button><button class="btn sm" data-tgbot>Change bot…</button><button class="btn sm" id="tgOff">Disconnect</button>
       ${d.last_sent ? `<span class="note">Last message ${esc(d.last_sent.slice(5, 16))}</span>` : ''}</div>
@@ -802,12 +803,12 @@ async function tgCard(box) {
         <td class="num"><label class="switch" title="${d.on[k] ? 'On' : 'Off'}"><input type="checkbox" data-tg="${k}" ${d.on[k] ? 'checked' : ''}><span></span></label></td>
         <td><button class="btn sm danger" data-tgdel="${k}" title="Delete this message for good">Delete</button></td></tr>`; }).join('')}
       </tbody></table></div>
-      ${removed.length ? `<details class="tgdeleted"><summary>Deleted messages (${removed.length})</summary><ul class="nlist">${removed.map(([k, l]) => `<li><span>${esc(l.replace(/^\d\d:\d\d\s*/, ''))}</span> <button class="btn sm" data-tgrestore="${k}">Restore</button></li>`).join('')}</ul></details>` : ''}
-      <div id="cnBox"></div>`;
+      ${removed.length ? `<details class="tgdeleted"><summary>Deleted messages (${removed.length})</summary><ul class="nlist">${removed.map(([k, l]) => `<li><span>${esc(l.replace(/^\d\d:\d\d\s*/, ''))}</span> <button class="btn sm" data-tgrestore="${k}">Restore</button></li>`).join('')}</ul></details>` : ''}</section>
+      <section class="tgsec" id="cnBox" style="--c:#7c3aed"></section>`;
   box.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="margin:0">Telegram notifications</h2>
       <button class="btn sm" data-collapse="tg">${tgCollapsed() ? 'Expand ▼' : 'Collapse ▲'}</button></div><div class="cbody" ${tgCollapsed() ? 'hidden' : ''}>${body}
     ${d.last_error ? `<p class="note down" style="margin-top:8px">Last send failed: ${esc(d.last_error)}</p>` : ''}
-    <div id="botBox"></div>
+    <section class="tgsec" id="botBox" style="--c:#059669" ${d.connected ? '' : 'hidden'}></section>
     <p class="note" style="margin-top:10px">The bot can never buy or sell. Alerts, GTTs and paper exits are checked every 30 seconds in market hours even with no page open.</p></div>`;
   const act = async (path, body, msg) => { try { await api(path, body || {}); if (msg) toast(msg); tgCard(box); } catch (e) { toast(e.message, 'bad'); } };
   const cb = box.querySelector('[data-collapse]'); if (cb) cb.onclick = () => { try { localStorage.setItem('ts.tgCollapsed', tgCollapsed() ? '0' : '1'); } catch (e) { /* ignore */ } tgCard(box); };
@@ -834,13 +835,12 @@ async function botCard(host) {
   let b; try { b = await api('/api/bot'); } catch (e) { host.innerHTML = '<h2>Chat with the bot</h2>' + failBox(e); return; }
   const a = b.ai, P = a.providers;
   const ppl = b.people || [];
-  host.innerHTML = `<div class="row" style="justify-content:space-between;margin:20px 0 8px"><h2 style="margin:0">Chat bot <span class="note" style="font-weight:400">· a second bot, separate from the alert bot${b.bot ? ` · @${esc(b.bot)}` : ''}</span></h2>
-      ${b.token_set ? `<label class="row" style="gap:8px;margin:0"><span class="note" style="margin:0">Answer messages</span><span class="switch"><input type="checkbox" id="botOn" ${b.on ? 'checked' : ''}><span></span></span></label>` : ''}</div>
+  host.innerHTML = `<div class="tgsec-h"><span class="tgsec-ic">💬</span><div class="tgsec-t"><h3>Chat bot</h3><small>A second bot, separate from the alert bot${b.bot ? ` · @${esc(b.bot)}` : ''}</small></div>${b.token_set ? `<label class="row" style="gap:8px;margin:0"><span class="note" style="margin:0">Answer messages</span><span class="switch"><input type="checkbox" id="botOn" ${b.on ? 'checked' : ''}><span></span></span></label>` : ''}</div>
     <p class="note" style="margin-top:0">${b.alert_bot ? `Alerts keep coming from @${esc(b.alert_bot)}. ` : ''}The chat bot gives the menu, answers questions and controls the portal (never real orders), only for the people below. Runs inside this portal: no NAS change, almost no CPU, a few MB of memory.</p>
     <div class="row" style="gap:8px;margin-bottom:10px">${b.token_set ? `<span class="pill pass">Chat bot set · token …${esc(b.token_tail || '')}</span>` : '<span class="pill warn">No chat bot yet</span>'}
       <button class="btn sm ${b.token_set ? '' : 'primary'}" id="cbSet">${b.token_set ? 'Change chat bot…' : 'Set up chat bot…'}</button></div>
     ${b.on ? `<p class="note">Status: ${b.last_in ? 'last message ' + esc(b.last_in) : 'waiting for a message'}${b.ignored ? ` · ${b.ignored} message(s) from other chats ignored` : ''}${b.last_error ? ` · <span class="down">last problem: ${esc(b.last_error)}</span>` : ''}</p>` : ''}
-    <div class="card" style="margin:0 0 12px;background:var(--surface-2)"><h3 style="margin:0 0 6px">People who can use the chat bot</h3>
+    <div class="tgsub"><h4>👥 People who can use the chat bot</h4>
       <div class="tablewrap"><table class="tgtable"><thead><tr><th>Name</th><th>Chat ID</th><th>Access</th><th></th></tr></thead><tbody>
       ${ppl.map(x => `<tr><td>${esc(x.name)}${x.owner ? ' <span class="pill pass">you</span>' : ''}</td><td class="mono">${x.id}</td>
         <td>${x.owner ? 'Full control' : `<select data-prole="${x.id}"><option value="full" ${x.role === 'full' ? 'selected' : ''}>Full control</option><option value="view" ${x.role === 'view' ? 'selected' : ''}>View only</option></select>`}</td>
@@ -853,11 +853,11 @@ async function botCard(host) {
         <label>Portal password<input id="pPw" type="password" autocomplete="current-password"></label></div>
         ${(b.seen || []).length ? `<p class="note" style="margin:0">People who messaged the bot recently: ${(b.seen || []).map(x => `<a href="#" data-pseen="${x.id}" data-pname="${esc(x.name)}">${esc(x.name)} (${x.id})</a>`).join(' · ')}</p>` : ''}
         <div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="pAdd">Add person</button></div></form></div>
-    <div class="row" style="gap:10px;align-items:center;margin-bottom:10px"><span class="note" style="margin:0">Answer language</span>
+    <div class="tgsub"><h4>🌐 Answer language</h4><div class="row" style="gap:10px;align-items:center">
       <select id="botLang" class="sel"><option value="hi" ${b.lang === 'hi' ? 'selected' : ''}>Hindi (AI translates the answer)</option><option value="en" ${b.lang === 'en' ? 'selected' : ''}>English</option></select>
       <span class="note" style="margin:0">In the chat: /lang hi or /lang en</span></div>
-    ${b.lang === 'hi' ? '<p class="note">Hindi: the finished answer, including your numbers, is sent to the AI service to translate. If any number changes in the translation, the English answer is sent instead.' + (a.configured ? '' : ' <b class="down">No AI service yet, so answers stay English.</b>') + '</p>' : ''}
-    <div class="card" style="margin:0;background:var(--surface-2)"><h3 style="margin:0 0 6px">AI service <span class="note" style="font-weight:400">${a.configured ? `· ${esc(P[a.provider].label)} · ${esc(a.model)} · key …${esc(a.key_tail || '')}${a.last_ok ? ' · last OK ' + esc(a.last_ok) : ''}` : '· not set (messages are understood by keywords only)'}</span></h3>
+    ${b.lang === 'hi' ? '<p class="note" style="margin-bottom:0">Hindi: the finished answer, including your numbers, is sent to the AI service to translate. If any number changes in the translation, the English answer is sent instead.' + (a.configured ? '' : ' <b class="down">No AI service yet, so answers stay English.</b>') + '</p>' : ''}</div>
+    <div class="tgsub"><h4>🤖 AI service <span class="note" style="font-weight:400">${a.configured ? `· ${esc(P[a.provider].label)} · ${esc(a.model)} · key …${esc(a.key_tail || '')}${a.last_ok ? ' · last OK ' + esc(a.last_ok) : ''}` : '· not set (messages are understood by keywords only)'}</span></h4>
       <p class="note" style="margin-top:0">Used only to understand questions that keywords miss (just your question is sent) and for Hindi answers. Any free or paid key works: pick the provider, paste key and model. Falls back to keywords when the key fails or runs out.</p>
       <form class="cnform" autocomplete="off" onsubmit="return false">
         <div class="cngrid">
@@ -978,11 +978,11 @@ async function cnCard(host) {
       <td class="mono">${r.rang ? esc(r.rang.slice(5)) : '<span class="muted">not yet</span>'}</td>
       <td class="num"><label class="switch" title="${r.on ? 'On' : 'Off'}"><input type="checkbox" data-cnon="${r.id}" ${r.on ? 'checked' : ''}><span></span></label></td>
       <td><div class="row" style="gap:4px;flex-wrap:nowrap"><button class="btn sm" data-cnedit="${r.id}">Edit</button><button class="btn sm" data-cntest="${r.id}">Test</button><button class="btn sm danger" data-cndel="${r.id}">Delete</button></div></td></tr>`; }).join('');
-  host.innerHTML = `<div class="row" style="justify-content:space-between;margin:20px 0 8px"><h2 style="margin:0">Your own notifications</h2><button class="btn primary sm" id="cnNew">+ New notification</button></div>
+  host.innerHTML = `<div class="tgsec-h"><span class="tgsec-ic">✨</span><div class="tgsec-t"><h3>Your own notifications</h3><small>Built from ready-made blocks: what to watch, which stocks, when</small></div><button class="btn primary sm" id="cnNew">+ New notification</button></div>
     ${d.master_on === false ? '<p class="note down">The switch “Your own notifications” in the table above is off, so none of these will send.</p>' : ''}
     ${d.rules.length ? `<div class="tablewrap"><table class="tgtable"><thead><tr><th class="num">#</th><th>Notification</th><th>Stocks</th><th>When</th><th>How often</th><th>Last sent</th><th class="num">On / off</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
       : '<p class="note">None yet. Click <b>+ New notification</b>, pick what to watch, which stocks and when. <b>Test</b> shows what it would send right now.</p>'}
-    <p class="note">Built from ready-made checks, so a setting can't break the portal. Need a check that isn't in the list? Ask Claude to add it as a new block. Facts and rule results, not personal advice.</p>`;
+    <p class="note tgfoot">Built from ready-made checks, so a setting can't break the portal. Need a check that isn't in the list? Ask Claude to add it as a new block. Facts and rule results, not personal advice.</p>`;
   const act = async (path, body) => { try { const r = await api(path, body); toast(r.message || 'Saved.'); cnCard(host); return r; } catch (e) { toast(e.message, 'bad'); } };
   $('#cnNew', host).onclick = () => cnForm(null, host);
   host.querySelectorAll('[data-cnedit]').forEach(b => b.onclick = () => cnForm(d.rules.find(r => r.id === b.dataset.cnedit), host));
