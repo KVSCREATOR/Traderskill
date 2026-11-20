@@ -1,16 +1,44 @@
 # Tradeskill Portal
 
-A local web portal that scores NSE (India) stocks 0-100 as rule-based purchase setups.
-It runs on your own PC, uses free data, and needs only Python 3.9+ (no packages to install).
+A private web portal for the Indian stock market (NSE). It screens stocks with tested rules, reads your
+Zerodha holdings (read-only), runs a self-learning **paper** trading robot, and keeps you informed through a
+Telegram bot. It runs 24×7 on a Synology NAS and needs only Python 3.9+ (no packages to install).
 
 > Rule-based screening on free, possibly delayed data. Not investment advice.
-> The broker is a paper (simulated) account. No real orders are ever sent.
+> No real orders are ever sent: the broker and the robot are paper (simulated), and Zerodha access is read-only.
+
+## Documentation
+
+| Document | For |
+|---|---|
+| [docs/FEATURES.md](docs/FEATURES.md) | Every feature in detail: modes, screens, My holdings, robot, Telegram, research results |
+| [docs/MANUAL.md](docs/MANUAL.md) | How to use it: daily routine, Zerodha login, robot, Telegram commands, troubleshooting, glossary |
+| [NAS.md](NAS.md) | Installing and updating on the Synology NAS (Container Manager, HTTPS, Tailscale) |
+| [CLAUDE.md](CLAUDE.md) | Developer notes: design decisions, studies and status |
+
+## At a glance
+
+- **Three modes:** Scalping (same day), Trading (up to 2–3 months) and Investing (6–12 months). Each has its own rules, limits and paper account.
+- **Screens:** Predictor (0–100 score), Scanner (Nifty LargeMidcap 250), ORB scanner, My scanner (your lists), Entry, Exit, Budget, Risk, News, Earnings, Big deals, Alerts, Paper broker, History.
+- **My holdings (Zerodha, read-only, PIN):**
+  - Today checklist, Kite stop GTTs, live holdings, year record.
+  - Tax with tax harvesting, sectors, the What next plan, You vs Nifty, Core + satellite, funds, and tradebook import.
+- **Research:** Time machine (9-year portfolio backtest after costs, against the Nifty, a SIP and core + satellite mixes) and the Forward test journal.
+- **AI Robot (paper):**
+  - 4 tested swing strategies, checked all session.
+  - It earns its size from its own results after charges, switches strategies on and off itself (off ones keep trading as a shadow), and has safety stops.
+  - Its diary and strategy scorecard are kept 5 years.
+- **Telegram:**
+  - Scheduled reports, live alerts and instant robot trades.
+  - A chat bot with a full menu (including 🤖 Robot), typed commands and Hindi/English answers.
+  - Every message has neat phone-width tables.
+- **Your own notifications:** 32 building blocks, with no code to write.
 
 ## Run it
 
-Windows: double-click `start.bat`.
+On the NAS: see [NAS.md](NAS.md). Code changes in the NAS folder go live by themselves: pages on refresh, and Python after an automatic, compile-checked restart.
 
-Any OS:
+On a PC (Windows: double-click `start.bat`):
 
 ```bash
 python server.py
@@ -18,49 +46,13 @@ python server.py
 
 Then open http://127.0.0.1:8765
 
-## Three modes
-
-The portal asks which one you want each time it opens; switch any time at the top right.
-
-| Mode | Holding | How it picks stocks |
-|---|---|---|
-| Scalping | Same day | 15-minute opening-range breakout, 2R target, sold by 15:15 |
-| Trading | Up to 2–3 months | Base breakouts and pullbacks in uptrends, beating the Nifty over 3 months |
-| Investing | 6–12 months | Leaders above a rising 200-day average with growing earnings |
-
-Trading and Investing use daily prices (about 10 years), size each buy by risk per trade and a
-per-stock cap, trail the stop after +1R, and include a portfolio backtest on all 250 stocks.
-Each mode has its own limits and its own paper account.
-
-## Screens
-
-| Screen | What it does |
-|---|---|
-| Predictor | One 0-100 score per stock with a pass/fail line from every check |
-| Scanner | Nifty LargeMidcap 250 ranked by daily chart setups |
-| ORB scanner | 15-minute opening-range breakouts across the same 250 stocks |
-| Entry / Exit / Time machine / Budget / Risk | One page per step of the trade plan |
-| News | Watchlist headlines with the move from yesterday's close |
-| Earnings | Latest reported quarters |
-| Big deals | NSE bulk and block deals |
-| Alerts | Price, percent-move and market-clock alerts that ring once |
-| Paper broker | Simulated account with stop, target and 15:15 square-off |
-| Limits | Your capital, max loss, daily loss, trade count and entry window |
-
 ## Data sources
 
-Prices are tried in this order; the portal shows an alert when it switches:
+| Data | Source |
+|---|---|
+| Prices | Yahoo Finance (delayed) → NSE end-of-day file → BSE end-of-day file (a pop-up says when it switches) |
+| News | Google News / Bing News RSS |
+| Deals, index lists, holidays | NSE public files |
+| Your account | Zerodha Kite MCP (free, read-only) |
 
-1. Yahoo Finance (delayed quotes, daily and 5-minute bars)
-2. NSE end-of-day file (daily bars only)
-3. BSE end-of-day file (daily bars only)
-
-Headlines come from Google News / Bing News RSS. Bulk and block deals and the index
-constituent lists come from NSE's public files.
-
-## Files
-
-- `server.py` - the server and all scoring logic
-- `static/` - the web pages (`index.html`, `app.css`, `app.js`)
-- `nifty250.json`, `nifty50.json` - stock lists; edit these when the indices change
-- `data/` - created at runtime (your limits, alerts, paper trades, cached files); not in git
+`data/` is created at runtime (settings, accounts, caches, tokens) and is never uploaded to git.
