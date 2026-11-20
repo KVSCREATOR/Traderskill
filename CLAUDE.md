@@ -367,6 +367,6 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
 - Charges: real Zerodha intraday/delivery formulas (robot.charges) + 0.03% slippage per side. Tax shown as estimate (intraday 30% slab assumed, swing STCG 20%).
 - Restart-proof: scalps left open after 15:30 / from an earlier day are squared off at the 15:20 bar close; swings replay L.step on every completed day after p['seen'].
 - Learning model: logistic regression (pure Python) on samples of every candidate (taken or skipped; skipped ORBs labelled from the scanner's own simulation). Walk-forward 70/30 by date; may filter (p<0.35) only when AUC >= 0.56 on >=25 unseen samples. Retrains daily after the close.
-- Telegram kind 'robot': 09:35 buys, 15:00 scalps closed, 15:45 day summary + AI review (ai.ask with check: every number must appear in the facts).
+- Telegram kind "robot": "ROBOT TRADING ALERT" at d.alert_at (default 15:32, owner: after the market close; editable on the page; test button) = wealth, earned/lost today + since start, bought today, closed today, open now, capital used per scrip; + AI review (numbers checked). Also 09:35 buys, 15:00 scalps closed.
 - Tested offline (scratchpad t_rb.py: charges vs Zerodha calculator, open/close money, catch-up, factor, model). First live run 20 Nov 2026 13:4x: bought 5 swings at 1% risk.
 - NEXT (not done): watch the first ORB morning (Mon) in the diary; check the 15:45 report arrives; consider a per-strategy equity split view.

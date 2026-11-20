@@ -38,7 +38,7 @@ KINDS = [("hello", "Greeting when the NAS / portal starts"), ("morning", "Mornin
          ("loss10", "A holding is down 10% or more from your buy price"),
          ("trend", "Trend change on a holding (e.g. Uptrend → Weak → Sell), market hours"),
          ("lossnews", "A holding down 5%+ with mostly negative news"),
-         ("robot", "AI Robot (paper): 09:35 buys, 15:00 scalps closed, 15:45 day report + AI review"),
+         ("robot", "Robot trading alert (paper): 09:35 buys, 15:00 scalps closed, after-close summary (default 15:32)"),
          ("custom", "Your own notifications (master switch for all of them)")]
 R = None   # reports module (scheduled messages + history log)
 C = None   # custom module (your own notifications)

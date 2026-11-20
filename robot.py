@@ -62,7 +62,8 @@ def _path():
 def _fresh(capital=START_CAPITAL):
     return {"on": True, "capital": capital, "cash": capital, "started": None, "positions": [], "trades": [],
             "equity": [], "peak": capital, "pause_until": None, "day": {}, "samples": [], "log": [],
-            "strat_on": {k: True for k in STRATS}, "risk_cap": 2.0, "model": None, "sent": {}, "version": 1}
+            "strat_on": {k: True for k in STRATS}, "risk_cap": 2.0, "model": None, "sent": {}, "version": 1,
+            "alert_at": "15:32"}   # owner: robot trading alert after the close (time editable on the page)
 
 
 def load():
@@ -625,8 +626,54 @@ def day_summary(d, today):
     return "\n".join(lines), tr
 
 
+def alert_text(d, today, test=False):
+    """Robot trading alert: today's buys, closed trades, open trades, money made or lost, wealth now."""
+    eq = equity(d)
+    day = d["day"] if d["day"].get("date") == today else {"start_eq": eq}
+    opened = [p for p in d["positions"] if p["opened"].startswith(today)] + [t for t in d["trades"] if t["opened"].startswith(today)]
+    closed = [t for t in d["trades"] if t["closed"].startswith(today)]
+    booked = sum(t["net"] for t in closed)
+    unreal = sum(((p.get("last") or p["entry"]) - p["entry"]) * p["qty"] for p in d["positions"])
+    dchg, tot = eq - day["start_eq"], eq - d["capital"]
+    sg = lambda v: ("+" if v >= 0 else "−") + "₹" + _n(abs(v))
+    typ = lambda x: "scalp" if x["kind"] == "intraday" else "swing"
+    out = ["🤖 ROBOT TRADING ALERT%s · %s" % (" (test)" if test else "", S.now_ist().strftime("%a %d %b %H:%M")),
+           "Paper money only, no real orders.", "",
+           "💰 Wealth now: ₹%s (start ₹%s · goal ₹%s)" % (_n(eq), _n(d["capital"]), _n(d["capital"] * TARGET_X)),
+           "%s today: %s (%+.2f%%) · since start: %s (%+.2f%%)" % ("📈 Earned" if dchg >= 0 else "📉 Lost", sg(dchg),
+                                                                  dchg / max(day["start_eq"], 1) * 100, sg(tot), tot / d["capital"] * 100),
+           "Booked today %s · open trades %s" % (sg(booked), sg(unreal)), "",
+           "🛒 Bought today: %d" % len(opened)]
+    out += ["  %s %d @ ₹%.2f · capital ₹%s · %s" % (x["symbol"], x["qty"], x["entry"], _n(x["entry"] * x["qty"]), typ(x)) for x in opened]
+    out += ["", "✅ Closed today: %d (won %d, lost %d) · charges ₹%s" % (
+        len(closed), sum(1 for t in closed if t["net"] > 0), sum(1 for t in closed if t["net"] <= 0), _n(sum(t["charges"]["total"] for t in closed)))]
+    out += ["  %s %s %d · capital ₹%s · ₹%.2f → ₹%.2f · %s · %s" % ("✅" if t["net"] > 0 else "❌", t["symbol"], t["qty"], _n(t["entry"] * t["qty"]), t["entry"], t["exit"], sg(t["net"]), t["reason"])
+            for t in closed]
+    out += ["", "📂 Open now: %d · capital in use ₹%s · free cash ₹%s" % (
+        len(d["positions"]), _n(sum(p["entry"] * p["qty"] for p in d["positions"])), _n(d["cash"]))]
+    for p in d["positions"]:
+        last = p.get("last") or p["entry"]
+        pl = (last - p["entry"]) * p["qty"]
+        out.append("  %s %d · capital ₹%s · ₹%.2f → ₹%.2f · %s (%+.1f%%) · stop ₹%.2f · %s" % (
+            p["symbol"], p["qty"], _n(p["entry"] * p["qty"]), p["entry"], last, sg(pl), (last / p["entry"] - 1) * 100, p["stop"], typ(p)))
+    return "\n".join(out)
+
+
+def _alert_m(d):
+    try:
+        h, mm = (d.get("alert_at") or "15:32").split(":")
+        return int(h) * 60 + int(mm)
+    except ValueError:
+        return 932
+
+
 def _n(v):
-    return format(int(round(v)), ",")
+    """Indian grouping: 150915 -> 1,50,915."""
+    n = int(round(v))
+    t = str(abs(n))
+    if len(t) > 3:
+        t = re.sub(r"(\d)(?=(\d\d)+$)", r"\1,", t[:-3]) + "," + t[-3:]
+    return ("-" if n < 0 else "") + t
 
 
 def _numbers(t):
@@ -704,7 +751,7 @@ def tick():
                 changed = True
                 if 575 <= m <= 600 and not d["sent"].get(clk["date"] + "a") and day["scalps"]:
                     d["sent"][clk["date"] + "a"] = 1
-                    _send("🤖 AI Robot 09:35 · bought (paper):\n" + "\n".join(
+                    _send("🤖 Robot trading alert · 09:35 · bought (paper):\n" + "\n".join(
                         "  %s %d @ ₹%.2f · stop ₹%.2f · %s" % (p["symbol"], p["qty"], p["entry"], p["stop"], STRATS[p["strat"]]["label"])
                         for p in d["positions"] if p["opened"].startswith(clk["date"])))
             if m >= SCALP_EXIT_M and not day["closed15"]:
@@ -712,7 +759,7 @@ def tick():
                 manage(d, clk)
                 closed = [t for t in d["trades"] if t["closed"].startswith(clk["date"]) and t["kind"] == "intraday"]
                 if closed:
-                    _send("🤖 AI Robot 15:00 · scalps closed: " + ", ".join(
+                    _send("🤖 Robot trading alert · 15:00 · scalps closed: " + ", ".join(
                         "%s %s₹%s" % (t["symbol"], "+" if t["net"] >= 0 else "−", _n(abs(t["net"]))) for t in closed))
                 changed = True
         if m >= 935 and not day["after"]:            # 15:35
@@ -730,9 +777,10 @@ def tick():
             d["equity"] = [e for e in d["equity"] if e["date"] != clk["date"]] + [{"date": clk["date"], "equity": round(eq, 2)}]
             train(d)
             changed = True
-        if m >= 945 and not day["report"]:           # 15:45
+        if m >= _alert_m(d) and not day["report"]:   # robot trading alert (default 15:32, after the close)
             day["report"] = True
-            text, tr = day_summary(d, clk["date"])
+            text = alert_text(d, clk["date"])
+            tr = [t for t in d["trades"] if t["closed"].startswith(clk["date"])]
             review = ai_review(d, text) if tr else None
             _send(text + ("\n\n🧠 AI review:\n" + review if review else ""))
             if review:
@@ -787,7 +835,7 @@ def status():
             "positions": d["positions"], "trades": tr[-200:][::-1], "curve": d["equity"], "log": d["log"][-80:][::-1],
             "strategies": [dict(id=k, label=v["label"], why=v["why"], kind=v["kind"], on=d["strat_on"].get(k, True),
                                 factor=strat_factor(d, k)[0], factor_why=strat_factor(d, k)[1], **_strat_stats(d, k)) for k, v in STRATS.items()],
-            "charges": ch_tot, "tax_est": tax, "pace": pace, "risk_cap": d.get("risk_cap"),
+            "charges": ch_tot, "tax_est": tax, "pace": pace, "risk_cap": d.get("risk_cap"), "alert_at": d.get("alert_at") or "15:32",
             "model": {k: v for k, v in (d.get("model") or {"ready": False, "n": 0, "why": "not trained yet"}).items() if k != "w"},
             "samples": len(d["samples"]), "clock": S.market_clock(), "ai": bool(AI and AI.configured())}
 
@@ -837,6 +885,15 @@ def act(body, check_pw):
             d = _fresh(cap)
             _say(d, "Robot reset by you: fresh paper account ₹%s." % _n(cap))
             msg = "Reset: fresh paper account with ₹%s. The robot keeps running." % _n(cap)
+        elif a == "alert_at":
+            v = str(body.get("value") or "").strip()
+            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", v):
+                raise S.ApiError(400, "Enter the time as HH:MM, e.g. 15:32.")
+            d["alert_at"] = v
+            msg = "Robot trading alert will come at %s on trading days." % v
+        elif a == "alert_test":
+            _send(alert_text(d, S.now_ist().strftime("%Y-%m-%d"), test=True))
+            msg = "Test robot trading alert sent to Telegram."
         elif a == "train":
             m = train(d)
             msg = "Model: " + m["why"]
