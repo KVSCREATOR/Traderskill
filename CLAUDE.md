@@ -297,4 +297,14 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
   share first, partial lots; saved = used x LTCG rate x 1.04; charges both sides + DP. Undated lots (before the tradebook)
   listed as 'maybe'. Tax tab card + Today item in Feb (watch) / Mar (act) when >= Rs 5,000 can be booked. Sell, buy back
   NEXT trading day (same day = intraday). Note: records start 28 Apr 2026, so dated lots turn long-term from Apr 2027.
+- BUILT 20 Nov 2026: your own notifications (custom.py). Limits -> Telegram -> 'Your own notifications' table +
+  '+ New notification' form (modes2.cnCard / cnForm). Owner chose BUILDING BLOCKS (no self-modifying code): CATALOG of
+  23 tested checks (holdings profit/loss %/Rs, flip, day move %/Rs, near stop, long-term soon, results soon; all-holdings
+  day P&L, drawdown from peak, over per-stock cap, sector over limit; price above/below, day %; cross 50/200-day, 52-week
+  high/low, volume x normal, RSI; Investing verdict change; scheduled summary (holdings / stocks / Nifty); news keyword).
+  Scope: holdings / stock:SYM / list:ID / all. When: market (every 5 min) / close (15:40) / time HH:MM + days.
+  Repeat: daily per stock / once then off / every (30 min gap). State in state.json custom_notes {rules, mem}.
+  telegram.watcher calls custom.tick() (background thread); sends as kind 'custom' (master switch in KINDS).
+  API GET/POST /api/notify/custom, POST /api/notify/custom/test. To add a new check: add a CATALOG entry + a branch
+  in evaluate(). Tested offline on every block (scratchpad test_custom.py pattern).
 - All items from the 20 Nov plan are built. Ideas left: alerts on daily close for held positions; real results calendar.

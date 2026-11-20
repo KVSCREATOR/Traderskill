@@ -773,7 +773,7 @@ const TG_WHEN = {
   login: ['From 07:00, every 30 min', 'Zerodha'], signin: ['First login of the day', 'Zerodha'], plan: ['09:32', 'Market'],
   stopalert: ['Market hours', 'Alerts'], move: ['Market hours', 'Alerts'], alert: ['When it rings', 'Alerts'],
   zerodha: ['Within ~2 min', 'Zerodha'], paper: ['When it happens', 'Paper'], close: ['15:32', 'Market'], eod: ['15:35', 'Market'],
-  weekly: ['Sunday 10:00', 'Weekly'], gtt: ['When you save a GTT', 'Paper'],
+  weekly: ['Sunday 10:00', 'Weekly'], gtt: ['When you save a GTT', 'Paper'], custom: ['Your settings below', 'Custom'],
 };
 function tgCollapsed() { try { return localStorage.getItem('ts.tgCollapsed') === '1'; } catch (e) { return false; } }
 async function tgCard(box) {
@@ -798,7 +798,7 @@ async function tgCard(box) {
       ${d.kinds.map(([k, l], i) => { const w = TG_WHEN[k] || ['', 'Other']; const what = l.replace(/^\d\d:\d\d\s*/, '');
         return `<tr><td class="num muted">${i + 1}</td><td>${esc(what)}</td><td class="mono">${esc(w[0])}</td><td><span class="pill">${esc(w[1])}</span></td>
         <td class="num"><label class="switch" title="${d.on[k] ? 'On' : 'Off'}"><input type="checkbox" data-tg="${k}" ${d.on[k] ? 'checked' : ''}><span></span></label></td></tr>`; }).join('')}
-      </tbody></table></div>`;
+      </tbody></table></div><div id="cnBox"></div>`;
   box.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="margin:0">Telegram notifications</h2>
       <button class="btn sm" data-collapse="tg">${tgCollapsed() ? 'Expand ▼' : 'Collapse ▲'}</button></div><div class="cbody" ${tgCollapsed() ? 'hidden' : ''}>${body}
     ${d.last_error ? `<p class="note down" style="margin-top:8px">Last send failed: ${esc(d.last_error)}</p>` : ''}
@@ -808,12 +808,124 @@ async function tgCard(box) {
   box.querySelectorAll('[data-tgall]').forEach(b => b.onclick = () => act('/api/telegram/settings', { on: Object.fromEntries(d.kinds.map(([k]) => [k, b.dataset.tgall === '1'])) },
     b.dataset.tgall === '1' ? 'All Telegram messages switched on.' : 'All Telegram messages switched off.'));
   holidayBox(box);
+  const cnb = $('#cnBox', box); if (cnb) cnCard(cnb);
   const c = $('#tgConn'); if (c) c.onclick = () => act('/api/telegram/connect', {}, 'Telegram connected. Check your phone for the test message.');
   const tt = $('#tgTest'); if (tt) tt.onclick = () => act('/api/telegram/test', {}, 'Test message sent.');
   const off = $('#tgOff'); if (off) off.onclick = () => act('/api/telegram/disconnect', {}, 'Telegram disconnected.');
   box.querySelectorAll('[data-tg]').forEach(x => x.onchange = () => act('/api/telegram/settings', { on: { [x.dataset.tg]: x.checked } }));
 }
 
+
+/* ---------------------------------------------------------------- Your own notifications (built from ready-made blocks) */
+const CN_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const cnDaysTxt = ds => (ds || []).length === 7 ? 'every day' : JSON.stringify(ds) === '[0,1,2,3,4]' ? 'weekdays' : (ds || []).map(i => CN_DAYS[i]).join(', ');
+async function cnCard(host) {
+  let d; try { d = await api('/api/notify/custom'); } catch (e) { host.innerHTML = '<h2>Your own notifications</h2>' + failBox(e); return; }
+  S.cn = d;
+  const C = d.catalog, blk = Object.fromEntries(C.blocks.map(b => [b.id, b]));
+  const scopeTxt = r => { const b = blk[r.what] || {}; const s = r.scope;
+    if (b.scope === 'portfolio') return 'All my holdings together';
+    return s === 'holdings' ? 'My holdings' : s === 'all' ? 'All 250 stocks' : s.startsWith('list:') ? 'List · ' + ((d.lists.find(l => 'list:' + l.id === s) || {}).name || 'deleted list') : s.slice(6); };
+  const whenTxt = r => r.when === 'time' ? `${r.time} · ${cnDaysTxt(r.days)}` : C.when[r.when];
+  const parTxt = r => (blk[r.what] ? blk[r.what].params : []).map(p => { const v = r.params[p.k];
+    if (p.type === 'sel') return (p.options.find(o => o[0] === v) || [v, v])[1];
+    if (p.type === 'num') return p.unit === '₹' ? inr(v, v % 1 ? 2 : 0) : v + (p.unit === '×' ? '×' : p.unit ? ' ' + p.unit : '');
+    return v ? `“${esc(v)}”` : 'any headline'; }).join(' · ');
+  const rows = d.rules.map((r, i) => { const b = blk[r.what] || { label: r.what, group: '' };
+    return `<tr><td class="num muted">${i + 1}</td>
+      <td><b>${esc(r.name)}</b><small class="muted" style="display:block">${esc(b.label)}${parTxt(r) ? ' · ' + parTxt(r) : ''}</small>${r.note ? `<small style="display:block">📝 ${esc(r.note)}</small>` : ''}${r.error ? `<small class="down" style="display:block">Last check failed: ${esc(r.error)}</small>` : ''}</td>
+      <td>${esc(scopeTxt(r))}</td><td class="mono">${esc(whenTxt(r))}</td><td>${esc(C.repeat[r.repeat])}</td>
+      <td class="mono">${r.rang ? esc(r.rang.slice(5)) : '<span class="muted">not yet</span>'}</td>
+      <td class="num"><label class="switch" title="${r.on ? 'On' : 'Off'}"><input type="checkbox" data-cnon="${r.id}" ${r.on ? 'checked' : ''}><span></span></label></td>
+      <td><div class="row" style="gap:4px;flex-wrap:nowrap"><button class="btn sm" data-cnedit="${r.id}">Edit</button><button class="btn sm" data-cntest="${r.id}">Test</button><button class="btn sm danger" data-cndel="${r.id}">Delete</button></div></td></tr>`; }).join('');
+  host.innerHTML = `<div class="row" style="justify-content:space-between;margin:20px 0 8px"><h2 style="margin:0">Your own notifications</h2><button class="btn primary sm" id="cnNew">+ New notification</button></div>
+    ${d.master_on === false ? '<p class="note down">The switch “Your own notifications” in the table above is off, so none of these will send.</p>' : ''}
+    ${d.rules.length ? `<div class="tablewrap"><table class="tgtable"><thead><tr><th class="num">#</th><th>Notification</th><th>Stocks</th><th>When</th><th>How often</th><th>Last sent</th><th class="num">On / off</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<p class="note">None yet. Click <b>+ New notification</b>, pick what to watch, which stocks and when. <b>Test</b> shows what it would send right now.</p>'}
+    <p class="note">Built from ready-made checks, so a setting can't break the portal. Need a check that isn't in the list? Ask Claude to add it as a new block. Facts and rule results, not personal advice.</p>`;
+  const act = async (path, body) => { try { const r = await api(path, body); toast(r.message || 'Saved.'); cnCard(host); return r; } catch (e) { toast(e.message, 'bad'); } };
+  $('#cnNew', host).onclick = () => cnForm(null, host);
+  host.querySelectorAll('[data-cnedit]').forEach(b => b.onclick = () => cnForm(d.rules.find(r => r.id === b.dataset.cnedit), host));
+  host.querySelectorAll('[data-cnon]').forEach(x => x.onchange = () => act('/api/notify/custom', { action: 'toggle', id: x.dataset.cnon, on: x.checked }));
+  host.querySelectorAll('[data-cntest]').forEach(b => b.onclick = async () => { b.disabled = true; b.textContent = 'Testing…';
+    try { const r = await api('/api/notify/custom/test', { rule: d.rules.find(x => x.id === b.dataset.cntest) }); toast(r.message); } catch (e) { toast(e.message, 'bad'); }
+    b.disabled = false; b.textContent = 'Test'; });
+  host.querySelectorAll('[data-cndel]').forEach(b => b.onclick = () => {
+    if (b.dataset.sure) return act('/api/notify/custom', { action: 'delete', id: b.dataset.cndel });
+    b.dataset.sure = '1'; b.textContent = 'Sure? Delete'; setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = 'Delete'; } }, 4000); });
+}
+function cnForm(rule, host) {
+  const d = S.cn, C = d.catalog, blk = Object.fromEntries(C.blocks.map(b => [b.id, b]));
+  let dlg = $('#cnDlg');
+  if (!dlg) { dlg = document.createElement('dialog'); dlg.id = 'cnDlg'; document.body.appendChild(dlg); }
+  const r = rule || { what: 'h_loss_pct', params: {}, scope: 'holdings', repeat: 'daily', time: '16:00', days: [0, 1, 2, 3, 4], note: '', name: '' };
+  const groups = [...new Set(C.blocks.map(b => b.group))];
+  dlg.innerHTML = `<form method="dialog" class="cnform">
+    <h3>${rule ? 'Edit notification' : 'New notification'}</h3>
+    <label>What to watch<select id="cnWhat">${groups.map(g => `<optgroup label="${esc(g)}">${C.blocks.filter(b => b.group === g).map(b => `<option value="${b.id}" ${b.id === r.what ? 'selected' : ''}>${esc(b.label)}</option>`).join('')}</optgroup>`).join('')}</select></label>
+    <p class="note" id="cnHelp"></p>
+    <div id="cnParams" class="cngrid"></div>
+    <div id="cnScopeRow" class="cngrid">
+      <label>Which stocks<select id="cnScope"></select></label>
+      <label id="cnSymL">NSE symbol<input id="cnSym" placeholder="e.g. HAL" autocomplete="off" spellcheck="false"></label>
+      <label id="cnListL">List<select id="cnList">${d.lists.map(l => `<option value="${esc(l.id)}">${esc(l.name)} (${l.n})</option>`).join('')}</select></label>
+    </div>
+    <div class="cngrid">
+      <label>When to check<select id="cnWhen">${Object.entries(C.when).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select></label>
+      <label id="cnTimeL">Time (IST)<input id="cnTime" type="time" value="${esc(r.time || '16:00')}"></label>
+      <label>How often<select id="cnRepeat">${Object.entries(C.repeat).map(([k, v]) => `<option value="${k}" ${k === r.repeat ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
+    </div>
+    <div id="cnDaysRow" class="cndays">${CN_DAYS.map((n, i) => `<label><input type="checkbox" value="${i}" ${(r.days || []).includes(i) ? 'checked' : ''}> ${n}</label>`).join('')}</div>
+    <label>Name<input id="cnName" maxlength="60" value="${esc(r.name || '')}" placeholder="Shown in bold at the top of the message"></label>
+    <label>Your note (optional)<input id="cnNote" maxlength="200" value="${esc(r.note || '')}" placeholder="Added under the message, e.g. what you plan to do"></label>
+    <div id="cnOut" class="note"></div>
+    <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" value="cancel">Cancel</button><button class="btn" id="cnTest" type="button">Test now</button><button class="btn primary" id="cnSave" type="button">${rule ? 'Save' : 'Add notification'}</button></div>
+  </form>`;
+  const $f = s => dlg.querySelector(s);
+  const paint = keep => {
+    const b = blk[$f('#cnWhat').value];
+    $f('#cnHelp').textContent = b.help;
+    $f('#cnParams').innerHTML = b.params.map(p => { const v = keep && r.what === b.id && r.params[p.k] != null ? r.params[p.k] : p.default;
+      if (p.type === 'sel') return `<label>${esc(p.label)}<select data-p="${p.k}">${p.options.map(o => `<option value="${esc(o[0])}" ${String(o[0]) === String(v) ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select></label>`;
+      if (p.type === 'num') return `<label>${esc(p.label)}${p.unit ? ` (${esc(p.unit)})` : ''}<input data-p="${p.k}" type="number" step="any" min="0" value="${v != null ? v : ''}" required></label>`;
+      return `<label>${esc(p.label)}<input data-p="${p.k}" maxlength="40" value="${esc(v || '')}" placeholder="empty = any new headline"></label>`; }).join('');
+    const opts = b.scope === 'portfolio' ? [['holdings', 'All my holdings together']] : b.scope === 'holdings' ? [['holdings', 'My holdings'], ['stock', 'One stock I hold']]
+      : [['holdings', 'My holdings'], ['stock', 'One stock'], ...(d.lists.length ? [['list', 'A My scanner list']] : []), ['all', 'All 250 stocks']];
+    const cur = keep ? (r.scope.startsWith('stock:') ? 'stock' : r.scope.startsWith('list:') ? 'list' : r.scope) : $f('#cnScope').value;
+    $f('#cnScope').innerHTML = opts.map(([k, l]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${l}</option>`).join('');
+    if (keep && r.scope.startsWith('stock:')) $f('#cnSym').value = r.scope.slice(6);
+    if (keep && r.scope.startsWith('list:')) $f('#cnList').value = r.scope.slice(5);
+    $f('#cnWhen').value = keep && rule ? r.when : b.when;
+    $f('#cnWhen').disabled = b.id === 'summary';
+    if (b.id === 'summary') $f('#cnWhen').value = 'time';
+    const nm = $f('#cnName');
+    if (keep) nm.value = r.name || b.label;
+    else if (!nm.value || C.blocks.some(x => x.label === nm.value)) nm.value = b.label;   // keep a name you typed yourself
+    vis();
+  };
+  const vis = () => {
+    const sc = $f('#cnScope').value, w = $f('#cnWhen').value;
+    $f('#cnSymL').hidden = sc !== 'stock'; $f('#cnListL').hidden = sc !== 'list';
+    $f('#cnTimeL').hidden = w !== 'time'; $f('#cnDaysRow').hidden = w !== 'time';
+  };
+  const collect = () => {
+    const params = {}; dlg.querySelectorAll('[data-p]').forEach(x => { params[x.dataset.p] = x.value; });
+    const sc = $f('#cnScope').value;
+    return { what: $f('#cnWhat').value, params, scope: sc === 'stock' ? 'stock:' + $f('#cnSym').value.trim().toUpperCase() : sc === 'list' ? 'list:' + $f('#cnList').value : sc,
+      when: $f('#cnWhen').value, time: $f('#cnTime').value, days: [...dlg.querySelectorAll('#cnDaysRow input:checked')].map(x => +x.value),
+      repeat: $f('#cnRepeat').value, name: $f('#cnName').value, note: $f('#cnNote').value, on: rule ? rule.on : true };
+  };
+  $f('#cnWhat').onchange = () => paint(false);
+  $f('#cnScope').onchange = vis; $f('#cnWhen').onchange = vis;
+  $f('#cnTest').onclick = async () => { const o = $f('#cnOut'); o.textContent = 'Checking…';
+    try { const t = await api('/api/notify/custom/test', { rule: collect() }); o.innerHTML = `<b>${esc(t.message)}</b>${t.lines.length ? '<ul class="steps" style="margin-top:6px">' + t.lines.map(l => `<li>${esc(l)}</li>`).join('') + '</ul>' : ''}`; }
+    catch (e) { o.innerHTML = `<span class="down">${esc(e.message)}</span>`; } };
+  $f('#cnSave').onclick = async () => {
+    try { const t = await api('/api/notify/custom', { action: 'save', id: rule ? rule.id : null, rule: collect() }); dlg.close(); toast(t.message); cnCard(host); }
+    catch (e) { $f('#cnOut').innerHTML = `<span class="down">${esc(e.message)}</span>`; } };
+  paint(true);
+  dlg.showModal();
+}
 
 /* ---------------------------------------------------------------- Notifications: schedule, run now, full history */
 // every message type, in the order of the day (matches the Telegram settings table)

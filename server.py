@@ -1551,6 +1551,12 @@ def api(method, path, q, body):
         return telegram.test()
     if path == "/api/telegram/settings" and method == "POST":
         return telegram.set_on(body.get("on") or {})
+    if path == "/api/notify/custom" and method == "GET":
+        return custom.listing()
+    if path == "/api/notify/custom" and method == "POST":
+        return custom.save(body or {})
+    if path == "/api/notify/custom/test" and method == "POST":
+        return custom.test(body or {})
     if path == "/api/telegram/disconnect" and method == "POST":
         return telegram.disconnect()
     if path == "/api/quote":
@@ -1737,6 +1743,9 @@ mylist.S, mylist.L, mylist.K = sys.modules[__name__], longterm, kite
 import ledger  # noqa: E402  (My holdings: yearly Zerodha record, tax estimate, PIN)
 ledger.S, ledger.L, ledger.K = sys.modules[__name__], longterm, kite
 reports.LG = ledger
+import custom  # noqa: E402  (your own Telegram notifications, built from ready-made blocks)
+custom.S, custom.L, custom.K, custom.T, custom.LG, custom.ML, custom.R = sys.modules[__name__], longterm, kite, telegram, ledger, mylist, reports
+telegram.C = custom
 
 # ----------------------------------------------------------------- self-restart (edit files on the NAS, no rebuild)
 _reload = {"error": None, "checked": None}

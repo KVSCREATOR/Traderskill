@@ -35,8 +35,10 @@ KINDS = [("hello", "Greeting when the NAS / portal starts"), ("morning", "Mornin
          ("roombuys", "13:00 Rule buy signals you have room for (trading days, only when there is one)"),
          ("loss10", "A holding is down 10% or more from your buy price"),
          ("trend", "Trend change on a holding (e.g. Uptrend → Weak → Sell), market hours"),
-         ("lossnews", "A holding down 5%+ with mostly negative news")]
+         ("lossnews", "A holding down 5%+ with mostly negative news"),
+         ("custom", "Your own notifications (master switch for all of them)")]
 R = None   # reports module (scheduled messages + history log)
+C = None   # custom module (your own notifications)
 _send_lock = threading.Lock()
 
 
@@ -345,6 +347,11 @@ def watcher():
                 pass
             try:
                 R.due()                                             # 08:45 / 09:32 / 15:32 / 15:35 reports
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                if C:
+                    C.tick()                                        # your own notifications (runs in the background)
             except Exception:  # noqa: BLE001
                 pass
         except Exception:  # noqa: BLE001
