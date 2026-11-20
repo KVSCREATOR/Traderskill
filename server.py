@@ -1551,6 +1551,18 @@ def api(method, path, q, body):
         return telegram.connect()
     if path == "/api/telegram/test" and method == "POST":
         return telegram.test()
+    if path == "/api/bot" and method == "GET":
+        return bot.status()
+    if path == "/api/bot/settings" and method == "POST":
+        return bot.set_settings(body or {})
+    if path == "/api/ai/save" and method == "POST":
+        return ai.save(body or {}, telegram._check_pw)
+    if path == "/api/ai/test" and method == "POST":
+        return ai.test(body or {})
+    if path == "/api/ai/models" and method == "POST":
+        return ai.models(body or {})
+    if path == "/api/ai/forget" and method == "POST":
+        return ai.forget(telegram._check_pw, (body or {}).get("password"))
     if path == "/api/telegram/bot/find" and method == "POST":
         return telegram.find_chat(body or {})
     if path == "/api/telegram/bot/change" and method == "POST":
@@ -1754,6 +1766,10 @@ reports.LG = ledger
 import custom  # noqa: E402  (your own Telegram notifications, built from ready-made blocks)
 custom.S, custom.L, custom.K, custom.T, custom.LG, custom.ML, custom.R = sys.modules[__name__], longterm, kite, telegram, ledger, mylist, reports
 telegram.C = custom
+import ai  # noqa: E402  (connector to the AI service you choose: Gemini / OpenAI / Claude / any OpenAI-compatible)
+ai.S = sys.modules[__name__]
+import bot  # noqa: E402  (chat with the Telegram bot: answers from the portal's data, only your chat)
+bot.S, bot.L, bot.T, bot.LG, bot.C, bot.R, bot.AI = sys.modules[__name__], longterm, telegram, ledger, custom, reports, ai
 
 # ----------------------------------------------------------------- self-restart (edit files on the NAS, no rebuild)
 _reload = {"error": None, "checked": None}
@@ -2010,6 +2026,7 @@ if __name__ == "__main__":
         sys.exit("Refusing to start: HOST=%s lets other devices in, so set PORTAL_PASSWORD (8+ characters)." % HOST)
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     telegram.start()   # background watcher: alerts, GTTs, paper exits, after-close messages
+    bot.start()        # reads your Telegram messages (only when "Answer my messages" is on)
     _STARTED = market_clock()["ist"]
     if not os.environ.get("TS_RELOADED"):   # a real start (NAS power-on / Docker start): greet on Telegram
         threading.Thread(target=daily.on_start, name="start-greeting", daemon=True).start()

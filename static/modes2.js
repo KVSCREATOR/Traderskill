@@ -807,7 +807,8 @@ async function tgCard(box) {
   box.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="margin:0">Telegram notifications</h2>
       <button class="btn sm" data-collapse="tg">${tgCollapsed() ? 'Expand ▼' : 'Collapse ▲'}</button></div><div class="cbody" ${tgCollapsed() ? 'hidden' : ''}>${body}
     ${d.last_error ? `<p class="note down" style="margin-top:8px">Last send failed: ${esc(d.last_error)}</p>` : ''}
-    <p class="note" style="margin-top:10px">Send-only: the bot messages you but cannot read commands, buy or sell. Alerts, GTTs and paper exits are checked every 30 seconds in market hours even with no page open.</p></div>`;
+    <div id="botBox"></div>
+    <p class="note" style="margin-top:10px">The bot can never buy or sell. Alerts, GTTs and paper exits are checked every 30 seconds in market hours even with no page open.</p></div>`;
   const act = async (path, body, msg) => { try { await api(path, body || {}); if (msg) toast(msg); tgCard(box); } catch (e) { toast(e.message, 'bad'); } };
   const cb = box.querySelector('[data-collapse]'); if (cb) cb.onclick = () => { try { localStorage.setItem('ts.tgCollapsed', tgCollapsed() ? '0' : '1'); } catch (e) { /* ignore */ } tgCard(box); };
   box.querySelectorAll('[data-tgdel]').forEach(b => b.onclick = async () => {
@@ -819,6 +820,7 @@ async function tgCard(box) {
     b.dataset.tgall === '1' ? 'All Telegram messages switched on.' : 'All Telegram messages switched off.'));
   holidayBox(box);
   const cnb = $('#cnBox', box); if (cnb) cnCard(cnb);
+  const bb = $('#botBox', box); if (bb && d.connected) botCard(bb);
   const c = $('#tgConn'); if (c) c.onclick = () => act('/api/telegram/connect', {}, 'Telegram connected. Check your phone for the test message.');
   const tt = $('#tgTest'); if (tt) tt.onclick = () => act('/api/telegram/test', {}, 'Test message sent.');
   box.querySelectorAll('[data-tgbot]').forEach(b => b.onclick = () => tgBotForm(d, () => tgCard(box)));
@@ -826,6 +828,50 @@ async function tgCard(box) {
   box.querySelectorAll('[data-tg]').forEach(x => x.onchange = () => act('/api/telegram/settings', { on: { [x.dataset.tg]: x.checked } }));
 }
 
+
+/* Chat with the bot: answer my messages, language, and the AI service used to understand questions / translate to Hindi */
+async function botCard(host) {
+  let b; try { b = await api('/api/bot'); } catch (e) { host.innerHTML = '<h2>Chat with the bot</h2>' + failBox(e); return; }
+  const a = b.ai, P = a.providers;
+  host.innerHTML = `<div class="row" style="justify-content:space-between;margin:20px 0 8px"><h2 style="margin:0">Chat with the bot</h2>
+      <label class="row" style="gap:8px;margin:0"><span class="note" style="margin:0">Answer my messages</span><span class="switch"><input type="checkbox" id="botOn" ${b.on ? 'checked' : ''}><span></span></span></label></div>
+    <p class="note" style="margin-top:0">Ask in Telegram, e.g. <b>/today</b>, <b>/stock HAL</b>, “how are my holdings?”, “aaj kya karna hai”. Answers come from this portal with exact numbers, only to ${esc(b.chat || 'your chat')}; everyone else is ignored. Buttons can mark stops done, tick Today items and switch notifications. It never buys or sells.
+      ${b.on ? `<br>Status: ${b.last_in ? 'last message ' + esc(b.last_in) : 'waiting for your first message'}${b.ignored ? ` · ${b.ignored} message(s) from other chats ignored` : ''}${b.last_error ? ` · <span class="down">last problem: ${esc(b.last_error)}</span>` : ''}` : ''}</p>
+    <div class="row" style="gap:10px;align-items:center;margin-bottom:10px"><span class="note" style="margin:0">Answer language</span>
+      <select id="botLang" class="sel"><option value="hi" ${b.lang === 'hi' ? 'selected' : ''}>Hindi (AI translates the answer)</option><option value="en" ${b.lang === 'en' ? 'selected' : ''}>English</option></select>
+      <span class="note" style="margin:0">In the chat: /lang hi or /lang en</span></div>
+    ${b.lang === 'hi' ? '<p class="note">Hindi: the finished answer, including your numbers, is sent to the AI service to translate. If any number changes in the translation, the English answer is sent instead.' + (a.configured ? '' : ' <b class="down">No AI service yet, so answers stay English.</b>') + '</p>' : ''}
+    <div class="card" style="margin:0;background:var(--surface-2)"><h3 style="margin:0 0 6px">AI service <span class="note" style="font-weight:400">${a.configured ? `· ${esc(P[a.provider].label)} · ${esc(a.model)} · key …${esc(a.key_tail || '')}${a.last_ok ? ' · last OK ' + esc(a.last_ok) : ''}` : '· not set (messages are understood by keywords only)'}</span></h3>
+      <p class="note" style="margin-top:0">Used only to understand questions that keywords miss (just your question is sent) and for Hindi answers. Any free or paid key works: pick the provider, paste key and model. Falls back to keywords when the key fails or runs out.</p>
+      <form class="cnform" autocomplete="off" onsubmit="return false">
+        <div class="cngrid">
+          <label>Provider<select id="aiProv">${Object.entries(P).map(([k, v]) => `<option value="${k}" ${k === a.provider ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select></label>
+          <label>Model<input id="aiModel" value="${esc(a.model || '')}" list="aiModels" spellcheck="false"><datalist id="aiModels"></datalist></label>
+        </div>
+        <label id="aiBaseL">API address (OpenAI-compatible)<input id="aiBase" value="${esc(a.base_url || '')}" placeholder="https://api.groq.com/openai/v1" spellcheck="false">
+          <small class="muted">Examples: ${Object.entries(a.example_bases).map(([n, u]) => `<a href="#" data-base="${esc(u)}">${esc(n)}</a>`).join(' · ')}</small></label>
+        <label>API key ${a.key_tail ? `<small class="muted">(saved …${esc(a.key_tail)}; leave empty to keep it)</small>` : ''}<input id="aiKey" type="password" autocomplete="off" spellcheck="false" placeholder="Paste the key"></label>
+        <label>Portal password <small class="muted">(needed to save)</small><input id="aiPw" type="password" autocomplete="current-password"></label>
+        <div id="aiOut" class="note"></div>
+        <div class="row" style="gap:8px;justify-content:flex-end">${a.key_tail ? '<button class="btn danger" type="button" id="aiForget">Remove key</button>' : ''}<button class="btn" type="button" id="aiModelsBtn">Load models</button><button class="btn" type="button" id="aiTest">Test</button><button class="btn primary" type="button" id="aiSave">Save</button></div>
+      </form></div>`;
+  const $h = s => host.querySelector(s), out = (t, bad) => { $h('#aiOut').innerHTML = `<span class="${bad ? 'down' : ''}">${esc(t)}</span>`; };
+  const form = () => ({ provider: $h('#aiProv').value, model: $h('#aiModel').value.trim(), base_url: $h('#aiBase').value.trim(), key: $h('#aiKey').value.trim(), password: $h('#aiPw').value });
+  const vis = () => { $h('#aiBaseL').hidden = $h('#aiProv').value !== 'compatible'; $h('#aiModel').placeholder = P[$h('#aiProv').value].model_hint; };
+  vis(); $h('#aiProv').onchange = vis;
+  host.querySelectorAll('[data-base]').forEach(x => x.onclick = e => { e.preventDefault(); $h('#aiBase').value = x.dataset.base; });
+  $h('#botOn').onchange = async e => { try { const r = await api('/api/bot/settings', { on: e.target.checked }); toast(r.message); botCard(host); } catch (er) { toast(er.message, 'bad'); } };
+  $h('#botLang').onchange = async e => { try { const r = await api('/api/bot/settings', { lang: e.target.value }); toast(r.message); botCard(host); } catch (er) { toast(er.message, 'bad'); } };
+  $h('#aiModelsBtn').onclick = async () => { out('Asking the provider for its models…');
+    try { const r = await api('/api/ai/models', form()); $h('#aiModels').innerHTML = r.models.map(m => `<option value="${esc(m)}">`).join(''); out(`${r.models.length} models found: click the Model box to pick one.`); } catch (e) { out(e.message, true); } };
+  $h('#aiTest').onclick = async () => { out('Testing…'); try { const r = await api('/api/ai/test', form()); out(r.message); } catch (e) { out(e.message, true); } };
+  $h('#aiSave').onclick = async () => { out('Testing and saving…');
+    try { const r = await api('/api/ai/save', form()); toast(r.message); botCard(host); } catch (e) { out(e.message + ' Nothing was saved.', true); } };
+  const fg = $h('#aiForget'); if (fg) fg.onclick = async () => {
+    if (!$h('#aiPw').value) { out('Enter the portal password first.', true); return; }
+    if (!await askConfirm('Remove the AI key?', 'The bot will understand messages by keywords only, and Hindi answers will stay English until you add a key again.', 'Remove')) return;
+    try { const r = await api('/api/ai/forget', { password: $h('#aiPw').value }); toast(r.message); botCard(host); } catch (e) { out(e.message, true); } };
+}
 
 /* Change the Telegram bot: new token + chat ID, checked with Telegram (test message) before switching. Portal password required. */
 function tgBotForm(d, done) {

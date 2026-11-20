@@ -151,7 +151,7 @@ reachable from the LAN (owner asked to close it); 8766 HTTPS is the only way in.
 PUBLIC_URL can also come from data/public_url.txt. The PC copy is stopped: run ONE copy only.
 To update the NAS: copy changed files into the share, then Project -> Build. See NAS.md.
 
-Telegram notifications (added 18 Nov 2026, `telegram.py`, Limits → Telegram, `/api/telegram*`): SEND-ONLY
+Telegram notifications (added 18 Nov 2026, `telegram.py`, Limits → Telegram, `/api/telegram*`): (was SEND-ONLY; chat bot added 20 Nov, see bot.py)
 bot; token from TELEGRAM_BOT_TOKEN (tradeskill.env) or data/telegram_token.txt, never sent to the browser.
 Connect finds the chat that pressed Start via getUpdates. Kinds (each on/off): alert, signals, holdings, paper,
 summary. A background watcher thread (started in server main) runs check_alerts + GTT checks every 30 s from
@@ -315,6 +315,17 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
   data/telegram_token.txt chmod 600 + chat_id/name/bot in state). Both need the portal password again (_check_pw, 5
   wrong = 15 min lock). token(): page file wins over TELEGRAM_BOT_TOKEN in tradeskill.env (delete the file to go back).
   The token/password are never logged (history.log_post logs only 'bot changed to @name'). Status shows token tail + source.
+- BUILT 20 Nov 2026: CHAT BOT (bot.py) - the bot is no longer send-only. Limits -> Telegram -> 'Chat with the bot'
+  (modes2.botCard): switch 'Answer my messages' (state telegram.bot_on, default off), language hi/en (telegram.bot_lang,
+  default hi; /lang in chat). bot.start() from server main: long-polls getUpdates (offset in telegram.bot_offset),
+  answers ONLY telegram.chat_id (others ignored + counted), no PIN (owner's choice). Commands: help today holdings stock
+  stops plan nifty vsnifty alerts messages lang; plain words EN/HI/Hinglish via WORDS regex + _symbol_in (holdings any
+  case, other symbols only in CAPITALS, unique company first words); else AI intent. Answers built by portal code.
+  Buttons: cmd:, t:N (tick Today), sd:SYM|* (stops done), cn:ID:0/1, tg:KIND:0/1. Never trades. Replies logged kind 'bot'.
+  AI (ai.py): provider gemini | openai | anthropic | compatible(+https base_url), model, key in data/ai_key.txt (600),
+  save needs portal password and a passing test; Load models / Test / Remove key. Keys only in headers. Hindi = AI
+  translates the finished answer (owner accepted that numbers go to the AI); refused if the set of numbers changes.
+  API: GET /api/bot, POST /api/bot/settings, /api/ai/save|test|models|forget. Tested with fakes (44 checks).
 - BUILT 20 Nov 2026: permanent deletes. Built-in Telegram messages: Delete -> state telegram.removed (never sends, logs
   'not sent: deleted', hidden from the table) with a 'Deleted messages' list + Restore (POST /api/telegram/remove
   {kind, restore}). Sent-message history: Delete per message row + 'Delete all message records' on History > Messages
