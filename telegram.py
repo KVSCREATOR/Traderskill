@@ -88,7 +88,8 @@ def _call(method, params=None, timeout=20):
 def status():
     c = _cfg(S.load_state())
     return {"token_set": bool(token()), "connected": bool(c.get("chat_id")), "name": c.get("name"),
-            "on": c["on"], "kinds": KINDS, "last_error": c.get("last_error"), "last_sent": c.get("last_sent")}
+            "on": c["on"], "kinds": KINDS, "last_error": c.get("last_error"), "last_sent": c.get("last_sent"),
+            "removed": c.get("removed") or []}
 
 
 def connect():
@@ -134,6 +135,25 @@ def set_on(on):
     return status()
 
 
+def remove(kind, restore=False):
+    """Delete a built-in message for good (it never sends and leaves the table), or bring it back."""
+    if kind not in dict(KINDS):
+        raise S.ApiError(400, "Unknown message.")
+    with S._state_lock:
+        st = S.load_state()
+        c = _cfg(st)
+        rm = [k for k in (c.get("removed") or []) if k != kind]
+        if not restore:
+            rm.append(kind)
+        c["removed"] = rm
+        c["on"][kind] = bool(restore)
+        st["telegram"] = c
+        S.save_state(st)
+    out = status()
+    out["message"] = ("Restored and switched on: %s." if restore else "Deleted: %s. It will not send again; restore it from the Deleted list.") % dict(KINDS)[kind]
+    return out
+
+
 def test():
     c = _cfg(S.load_state())
     if not c.get("chat_id"):
@@ -162,6 +182,8 @@ def notify(kind, text):
         c = _cfg(S.load_state())
         if not c.get("chat_id"):
             return log("not sent: Telegram not connected")
+        if kind in (c.get("removed") or []):
+            return log("not sent: deleted")
         if not c["on"].get(kind, True):
             return log("not sent: switched off")
     except Exception:  # noqa: BLE001

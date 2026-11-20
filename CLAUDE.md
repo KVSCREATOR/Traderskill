@@ -307,4 +307,9 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
   telegram.watcher calls custom.tick() (background thread); sends as kind 'custom' (master switch in KINDS).
   API GET/POST /api/notify/custom, POST /api/notify/custom/test. To add a new check: add a CATALOG entry + a branch
   in evaluate(). Tested offline on every block (scratchpad test_custom.py pattern).
+- BUILT 20 Nov 2026: permanent deletes. Built-in Telegram messages: Delete -> state telegram.removed (never sends, logs
+  'not sent: deleted', hidden from the table) with a 'Deleted messages' list + Restore (POST /api/telegram/remove
+  {kind, restore}). Sent-message history: Delete per message row + 'Delete all message records' on History > Messages
+  (reports.delete_log, ids = reports._mid sha1(ts|kind|text)[:14], POST /api/notify_log/delete {ids | all}).
+  Own notifications: Delete via the shared confirm box askConfirm() in app.js (page-built dialog, not window.confirm).
 - All items from the 20 Nov plan are built. Ideas left: alerts on daily close for held positions; real results calendar.

@@ -701,3 +701,18 @@ async function settings() {
   await loadHeld();
   route(); pollAlerts();
 })();
+
+/* A confirm box built into the page: await askConfirm('Delete X?', 'It cannot be undone.') -> true / false */
+function askConfirm(title, text, okLabel = 'Delete') {
+  return new Promise(resolve => {
+    let d = document.getElementById('askDlg');
+    if (!d) { d = document.createElement('dialog'); d.id = 'askDlg'; document.body.appendChild(d); }
+    d.innerHTML = `<h3>${esc(title)}</h3><p class="note">${esc(text)}</p>
+      <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn" data-ask="0">Cancel</button><button class="btn primary danger-fill" data-ask="1">${esc(okLabel)}</button></div>`;
+    const done = v => { d.close(); resolve(v); };
+    d.querySelectorAll('[data-ask]').forEach(b => b.onclick = () => done(b.dataset.ask === '1'));
+    d.oncancel = e => { e.preventDefault(); done(false); };
+    d.showModal();
+    d.querySelector('[data-ask="0"]').focus();
+  });
+}

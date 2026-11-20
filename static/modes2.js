@@ -785,6 +785,7 @@ async function tgCard(box) {
       <li>Put the token BotFather gave you in <code>tradeskill.env</code> on the NAS as <code>TELEGRAM_BOT_TOKEN=...</code>, then Stop → Build → Start the project.
         (On a PC copy: save it alone in <code>data/telegram_token.txt</code> and restart.)</li>
       <li>Come back here and click <b>Connect</b>.</li></ol>`;
+  const gone = new Set(d.removed || []), kinds = d.kinds.filter(([k]) => !gone.has(k)), removed = d.kinds.filter(([k]) => gone.has(k));
   let body;
   if (!d.token_set) body = `<p class="note">No bot token found yet.</p>${steps}`;
   else if (!d.connected) body = `<p class="note">Bot token found. Press <b>Start</b> on your bot in Telegram, then:</p>
@@ -792,20 +793,28 @@ async function tgCard(box) {
   else body = `<div class="row" style="margin-bottom:12px"><span class="pill pass">Connected to ${esc(d.name || 'you')}</span>
       <button class="btn sm" id="tgTest">Send test message</button><button class="btn sm" id="tgOff">Disconnect</button>
       ${d.last_sent ? `<span class="note">Last message ${esc(d.last_sent.slice(5, 16))}</span>` : ''}</div>
-      <div class="row tablebar" style="margin:0 0 10px"><span class="note" style="margin:0">${d.kinds.filter(([k]) => d.on[k]).length} of ${d.kinds.length} switched on</span>
+      <div class="row tablebar" style="margin:0 0 10px"><span class="note" style="margin:0">${kinds.filter(([k]) => d.on[k]).length} of ${kinds.length} switched on</span>
         <button class="btn sm" data-tgall="1">All on</button><button class="btn sm" data-tgall="0">All off</button></div>
-      <div class="tablewrap"><table class="tgtable"><thead><tr><th class="num">#</th><th>Message</th><th>When</th><th>Group</th><th class="num">On / off</th></tr></thead><tbody>
-      ${d.kinds.map(([k, l], i) => { const w = TG_WHEN[k] || ['', 'Other']; const what = l.replace(/^\d\d:\d\d\s*/, '');
+      <div class="tablewrap"><table class="tgtable"><thead><tr><th class="num">#</th><th>Message</th><th>When</th><th>Group</th><th class="num">On / off</th><th></th></tr></thead><tbody>
+      ${kinds.map(([k, l], i) => { const w = TG_WHEN[k] || ['', 'Other']; const what = l.replace(/^\d\d:\d\d\s*/, '');
         return `<tr><td class="num muted">${i + 1}</td><td>${esc(what)}</td><td class="mono">${esc(w[0])}</td><td><span class="pill">${esc(w[1])}</span></td>
-        <td class="num"><label class="switch" title="${d.on[k] ? 'On' : 'Off'}"><input type="checkbox" data-tg="${k}" ${d.on[k] ? 'checked' : ''}><span></span></label></td></tr>`; }).join('')}
-      </tbody></table></div><div id="cnBox"></div>`;
+        <td class="num"><label class="switch" title="${d.on[k] ? 'On' : 'Off'}"><input type="checkbox" data-tg="${k}" ${d.on[k] ? 'checked' : ''}><span></span></label></td>
+        <td><button class="btn sm danger" data-tgdel="${k}" title="Delete this message for good">Delete</button></td></tr>`; }).join('')}
+      </tbody></table></div>
+      ${removed.length ? `<details class="tgdeleted"><summary>Deleted messages (${removed.length})</summary><ul class="nlist">${removed.map(([k, l]) => `<li><span>${esc(l.replace(/^\d\d:\d\d\s*/, ''))}</span> <button class="btn sm" data-tgrestore="${k}">Restore</button></li>`).join('')}</ul></details>` : ''}
+      <div id="cnBox"></div>`;
   box.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="margin:0">Telegram notifications</h2>
       <button class="btn sm" data-collapse="tg">${tgCollapsed() ? 'Expand ▼' : 'Collapse ▲'}</button></div><div class="cbody" ${tgCollapsed() ? 'hidden' : ''}>${body}
     ${d.last_error ? `<p class="note down" style="margin-top:8px">Last send failed: ${esc(d.last_error)}</p>` : ''}
     <p class="note" style="margin-top:10px">Send-only: the bot messages you but cannot read commands, buy or sell. Alerts, GTTs and paper exits are checked every 30 seconds in market hours even with no page open.</p></div>`;
   const act = async (path, body, msg) => { try { await api(path, body || {}); if (msg) toast(msg); tgCard(box); } catch (e) { toast(e.message, 'bad'); } };
   const cb = box.querySelector('[data-collapse]'); if (cb) cb.onclick = () => { try { localStorage.setItem('ts.tgCollapsed', tgCollapsed() ? '0' : '1'); } catch (e) { /* ignore */ } tgCard(box); };
-  box.querySelectorAll('[data-tgall]').forEach(b => b.onclick = () => act('/api/telegram/settings', { on: Object.fromEntries(d.kinds.map(([k]) => [k, b.dataset.tgall === '1'])) },
+  box.querySelectorAll('[data-tgdel]').forEach(b => b.onclick = async () => {
+    const l = (d.kinds.find(([k]) => k === b.dataset.tgdel) || [0, ''])[1].replace(/^\d\d:\d\d\s*/, '');
+    if (await askConfirm('Delete this message?', `“${l}” will never be sent again and leaves this table. You can bring it back from “Deleted messages” below the table.`))
+      act('/api/telegram/remove', { kind: b.dataset.tgdel }, 'Deleted. Restore it any time from “Deleted messages”.'); });
+  box.querySelectorAll('[data-tgrestore]').forEach(b => b.onclick = () => act('/api/telegram/remove', { kind: b.dataset.tgrestore, restore: true }, 'Restored and switched on.'));
+  box.querySelectorAll('[data-tgall]').forEach(b => b.onclick = () => act('/api/telegram/settings', { on: Object.fromEntries(kinds.map(([k]) => [k, b.dataset.tgall === '1'])) },
     b.dataset.tgall === '1' ? 'All Telegram messages switched on.' : 'All Telegram messages switched off.'));
   holidayBox(box);
   const cnb = $('#cnBox', box); if (cnb) cnCard(cnb);
@@ -850,9 +859,10 @@ async function cnCard(host) {
   host.querySelectorAll('[data-cntest]').forEach(b => b.onclick = async () => { b.disabled = true; b.textContent = 'Testing…';
     try { const r = await api('/api/notify/custom/test', { rule: d.rules.find(x => x.id === b.dataset.cntest) }); toast(r.message); } catch (e) { toast(e.message, 'bad'); }
     b.disabled = false; b.textContent = 'Test'; });
-  host.querySelectorAll('[data-cndel]').forEach(b => b.onclick = () => {
-    if (b.dataset.sure) return act('/api/notify/custom', { action: 'delete', id: b.dataset.cndel });
-    b.dataset.sure = '1'; b.textContent = 'Sure? Delete'; setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = 'Delete'; } }, 4000); });
+  host.querySelectorAll('[data-cndel]').forEach(b => b.onclick = async () => {
+    const r = d.rules.find(x => x.id === b.dataset.cndel);
+    if (await askConfirm('Delete this notification?', `“${r ? r.name : ''}” and its settings are deleted for good. This cannot be undone (switch it off instead if you may want it later).`))
+      act('/api/notify/custom', { action: 'delete', id: b.dataset.cndel }); });
 }
 function cnForm(rule, host) {
   const d = S.cn, C = d.catalog, blk = Object.fromEntries(C.blocks.map(b => [b.id, b]));
@@ -1008,6 +1018,8 @@ async function historyPage() {
     view.innerHTML = head('History', `${d.total} records · newest first · kept permanently on the NAS`,
       '<button class="btn" id="hCsv">Download CSV</button><a class="btn" href="#/settings">Telegram settings</a>') +
       `<div class="stack">
+      ${f === 'message' && (d.counts.message || 0) ? `<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Message records · ${d.counts.message}</h2><button class="btn danger" id="hDelAll">Delete all message records</button></div>
+        <p class="note" style="margin-top:6px">Deletes the log of Telegram messages (sent, failed and not sent) from the NAS. Orders, GTTs, alerts and your actions stay.</p></div>` : ''}
       ${f === 'message' ? `<div class="card"><h2>Run a report now</h2><div class="row" style="flex-wrap:wrap">${NRUN.map(k => `<button class="btn" data-run="${k}">${esc(NKIND[k])}</button>`).join('')}</div>
         <p class="note" style="margin-top:8px">Builds the message from live data right away, logs it here and sends it to Telegram if that kind is switched on.</p></div>` : ''}
       <div class="card"><div class="row tablebar"><input id="hSearch" type="search" placeholder="Search history" value="${esc(q)}" style="width:220px">
@@ -1019,7 +1031,7 @@ async function historyPage() {
           <td><span class="pill">${HICON[r.cat] || ''} ${esc((HCAT.find(c => c[0] === r.cat) || [0, r.cat])[1])}${r.kind ? ' · ' + esc(NKIND[r.kind] || r.kind) : ''}</span></td>
           <td>${esc(r.mode_label || '–')}</td>
           <td><b>${esc(r.title)}</b>${r.detail && r.detail !== r.title ? `<details><summary class="muted">details</summary><pre class="hpre">${esc(r.detail)}</pre></details>` : ''}</td>
-          <td><span class="pill ${statusCls(r.status)}">${esc(r.status || '')}</span>${r.error ? `<small class="down" style="display:block">${esc(r.error)}</small>` : ''}</td></tr>`).join('')}
+          <td><span class="pill ${statusCls(r.status)}">${esc(r.status || '')}</span>${r.error ? `<small class="down" style="display:block">${esc(r.error)}</small>` : ''}${r.cat === 'message' && r.mid ? ` <button class="btn sm danger" data-hdel="${esc(r.mid)}" title="Delete this message record for good">Delete</button>` : ''}</td></tr>`).join('')}
         </tbody></table></div>${rows.length > 1500 ? '<p class="note">Showing the newest 1,500. Search or filter to narrow down, or download the CSV for everything.</p>' : ''}`
         : '<div class="empty">Nothing here yet.</div>'}</div></div>`;
     view.querySelectorAll('[data-hc]').forEach(b => b.onclick = () => { f = S.histCat = b.dataset.hc; draw(); });
@@ -1030,6 +1042,12 @@ async function historyPage() {
       try { await api('/api/reports/run', { kind: b.dataset.run }); toast('Report built and logged.'); } catch (e) { toast(e.message, 'bad'); }
       historyPage();
     });
+    view.querySelectorAll('[data-hdel]').forEach(b => b.onclick = async () => {
+      if (!await askConfirm('Delete this message record?', 'It is removed from the history for good. This cannot be undone.')) return;
+      try { const r = await api('/api/notify_log/delete', { ids: [b.dataset.hdel] }); toast(r.message); historyPage(); } catch (e) { toast(e.message, 'bad'); } });
+    const da = $('#hDelAll'); if (da) da.onclick = async () => {
+      if (!await askConfirm(`Delete all ${d.counts.message} message records?`, 'The whole log of Telegram messages is removed from the NAS for good. Download the CSV first if you want a copy. This cannot be undone.', 'Delete all')) return;
+      try { const r = await api('/api/notify_log/delete', { all: true }); toast(r.message); historyPage(); } catch (e) { toast(e.message, 'bad'); } };
     $('#hCsv').onclick = () => {
       const cell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
       const csv = ['When,Type,Kind,Mode,What,Status,Details'].concat(d.rows.map(r => [r.ts, r.cat, r.kind || '', r.mode_label || '', r.title, r.status || '', r.detail || ''].map(cell).join(','))).join('\r\n');

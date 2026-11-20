@@ -526,3 +526,9 @@ dialog#cnDlg { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 4
 .cndays label { display: flex; align-items: center; gap: 5px; font-weight: 500; color: var(--text); }
 #cnHelp { margin: -4px 0 0; }
 .cnform [hidden] { display: none !important; }
+
+/* ---- delete buttons + confirm box (20 Nov 2026) ---- */
+.btn.danger-fill { background: var(--fail); border-color: var(--fail); color: #fff; }
+.tgdeleted { margin-top: 10px; }
+.tgdeleted summary { cursor: pointer; font-weight: 600; color: var(--muted); }
+.tgdeleted li { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

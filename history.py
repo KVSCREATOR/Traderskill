@@ -129,7 +129,7 @@ def _messages():
         rows = R.history(100000)["rows"]
     except Exception:  # noqa: BLE001
         rows = []
-    return [{"ts": r["ts"], "cat": "message", "kind": r["kind"], "status": r["status"],
+    return [{"ts": r["ts"], "cat": "message", "kind": r["kind"], "status": r["status"], "mid": r.get("mid"),
              "title": (r["text"].split("\n")[0])[:160], "detail": r["text"], "error": r.get("error")} for r in rows]
 
 

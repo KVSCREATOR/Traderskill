@@ -1517,6 +1517,8 @@ def api(method, path, q, body):
         return longterm.journal(mode)
     if path == "/api/history":
         return history.history()
+    if path == "/api/notify_log/delete" and method == "POST":
+        return reports.delete_log(body.get("ids") or [], bool(body.get("all")))
     if path == "/api/notify_log":
         return reports.history(int(q.get("limit") or 500), q.get("kind") or None)
     if path == "/api/reports/run" and method == "POST":
@@ -1549,6 +1551,8 @@ def api(method, path, q, body):
         return telegram.connect()
     if path == "/api/telegram/test" and method == "POST":
         return telegram.test()
+    if path == "/api/telegram/remove" and method == "POST":
+        return telegram.remove(body.get("kind"), bool(body.get("restore")))
     if path == "/api/telegram/settings" and method == "POST":
         return telegram.set_on(body.get("on") or {})
     if path == "/api/notify/custom" and method == "GET":
