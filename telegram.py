@@ -41,6 +41,7 @@ KINDS = [("hello", "Greeting when the NAS / portal starts"), ("morning", "Mornin
          ("custom", "Your own notifications (master switch for all of them)")]
 R = None   # reports module (scheduled messages + history log)
 C = None   # custom module (your own notifications)
+LG = None  # ledger module (your holdings, for the quiet rule)
 _send_lock = threading.Lock()
 
 
@@ -249,14 +250,75 @@ def test():
     return {"ok": True}
 
 
-def _post(chat_id, text):
+def _post(chat_id, text, markup=None):
     with _send_lock:   # Telegram allows about 1 message per second per chat
-        _call("sendMessage", {"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": "true"})
+        p = {"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": "true"}
+        if markup:
+            p["reply_markup"] = json.dumps(markup)
+        _call("sendMessage", p)
         time.sleep(1.05)
+
+
+# ----------------------------------------------------------------- "once, then quiet until you tap" (owner's choice, 20 Nov 2026)
+QUIET_KINDS = {"stopalert", "loss10", "trend", "lossnews", "move", "exits", "roombuys", "custom"}
+_SYM_RE = re.compile(r"\b[A-Z][A-Z0-9&-]{1,19}\b")
+
+
+def _norm(line):
+    """A line without numbers, times and signs: the same kind of message gives the same text every time."""
+    return re.sub(r"[\d.,:%₹+−-]+", "", line).strip()[:60]
+
+
+def _quiet(kind, text, st):
+    """Drop lines about stocks you were already told about (until you tap Allow again).
+    Returns (text to send or None, keys to mute after sending)."""
+    q = (st.get("telegram") or {}).get("quiet") or {}
+    names = set(S.NAMES)
+    try:   # your holdings too (some are outside the 250, e.g. ETFs)
+        with LG._lock:
+            snaps = LG._load().get("snapshots") or {}
+        names |= {r.get("symbol") for r in (snaps[sorted(snaps)[-1]].get("holdings") or [])} if snaps else set()
+    except Exception:  # noqa: BLE001
+        pass
+    lines = text.split("\n")
+    head = _norm(lines[0])
+    keep, keys, stock_lines = [], [], 0
+    for i, ln in enumerate(lines):
+        syms = [w for w in _SYM_RE.findall(ln) if w in names] if i else []
+        if syms:
+            stock_lines += 1
+            k = "%s|%s|%s" % (kind, head, syms[0])
+            if k in q:
+                continue
+            keys.append(k)
+        keep.append(ln)
+    if stock_lines == 0:   # a message about the market, not stocks: the whole message is one item
+        k = "%s|%s" % (kind, head)
+        return (None, []) if k in q else (text, [k])
+    if not keys:
+        return None, []
+    return "\n".join(keep), keys
+
+
+def unquiet(keys=None):
+    """Allow muted alerts again: the given keys, or all of them."""
+    with S._state_lock:
+        st = S.load_state()
+        c = _cfg(st)
+        q = c.get("quiet") or {}
+        n = 0
+        for k in (list(q) if keys is None else keys):
+            if q.pop(k, None) is not None:
+                n += 1
+        c["quiet"] = q
+        st["telegram"] = c
+        S.save_state(st)
+    return n
 
 
 def notify(kind, text):
     """Send a message in the background if Telegram is connected and this kind is switched on.
+    Alerts (QUIET_KINDS) say each thing once, then stay quiet until you tap "Allow again".
     Never raises and never slows the caller."""
     def log(status, err=None):
         try:
@@ -273,13 +335,37 @@ def notify(kind, text):
             return log("not sent: deleted")
         if not c["on"].get(kind, True):
             return log("not sent: switched off")
+        keys, markup = [], None
+        if kind in QUIET_KINDS and not text.startswith("🧪"):
+            body, keys = _quiet(kind, text, S.load_state())
+            if body is None:
+                return log("not sent: already told (quiet until you tap Allow again)")
+            gid = "%x" % (abs(hash((kind, tuple(keys), time.time()))) % (1 << 40))
+            body += "\n🔕 Won't repeat until you tap Allow again."
+            markup = {"inline_keyboard": [[{"text": "🔔 Allow again", "callback_data": "uq:" + gid}]]}
+            with S._state_lock:
+                st = S.load_state()
+                cc = _cfg(st)
+                q = cc.setdefault("quiet", {})
+                now = S.market_clock()["ist"]
+                for k in keys:
+                    q[k] = now
+                g = cc.setdefault("quiet_groups", {})
+                g[gid] = keys
+                for old in list(g)[:-300]:
+                    g.pop(old, None)
+                st["telegram"] = cc
+                S.save_state(st)
+            send_text = body
+        else:
+            send_text = text
     except Exception:  # noqa: BLE001
         return log("not sent: error")
 
     def run():
         err = None
         try:
-            _post(c["chat_id"], text)
+            _post(c["chat_id"], send_text, markup)
         except Exception as e:  # noqa: BLE001
             err = getattr(e, "msg", None) or str(e)[:150]
         log("failed" if err else "sent", err)

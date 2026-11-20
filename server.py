@@ -1766,10 +1766,12 @@ reports.LG = ledger
 import custom  # noqa: E402  (your own Telegram notifications, built from ready-made blocks)
 custom.S, custom.L, custom.K, custom.T, custom.LG, custom.ML, custom.R = sys.modules[__name__], longterm, kite, telegram, ledger, mylist, reports
 telegram.C = custom
+telegram.LG = ledger
 import ai  # noqa: E402  (connector to the AI service you choose: Gemini / OpenAI / Claude / any OpenAI-compatible)
 ai.S = sys.modules[__name__]
 import bot  # noqa: E402  (chat with the Telegram bot: answers from the portal's data, only your chat)
 bot.S, bot.L, bot.T, bot.LG, bot.C, bot.R, bot.AI = sys.modules[__name__], longterm, telegram, ledger, custom, reports, ai
+bot.ML, bot.G, bot.D, bot.H = mylist, gtt, daily, history
 
 # ----------------------------------------------------------------- self-restart (edit files on the NAS, no rebuild)
 _reload = {"error": None, "checked": None}

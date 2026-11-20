@@ -310,6 +310,19 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
 - 20 Nov 2026: custom notifications now 32 blocks (+ h_from_peak, h_weight, h_deal, from_dayhigh, gap_open, nifty_move,
   nifty_level, vix; market blocks use scope 'none' and R._quotes()). Scope 'pick:SYM,SYM' = some of my holdings, ticked
   in the form (listing() returns 'held' from the last snapshot).
+- 20 Nov 2026 (later): bot v2. Switching on stores telegram.bot_since + jumps bot_offset past waiting messages (getUpdates
+  offset=-1) so old messages are never answered. Permanent bottom menu (ReplyKeyboard, BOTTOM) + inline buttons that EDIT the
+  same message (editMessageText). Sections: Holdings & tax (holdings, stock, stops, plan, vsnifty, tax, core, sectors,
+  results, longterm, limits), Alerts (own notes toggle/delete, price alerts add/delete, built-in messages, muted list),
+  Lists & scanner (lists add/remove, signals, top), Paper (account, close, GTT cancel, paper buy), Reports (R.BUILDERS on
+  demand, sent only to the bot), Settings & portal (Zerodha login link, portal link, language, rules invest/swing, limits,
+  restart). Changes go through S.api() (same checks as the web) and history.add('From the bot: ...'); data-changing
+  actions ask ✅ Confirm (token valid 10 min). Typed: 'alert HAL below 4500', 'add HAL to <list>', 'remove HAL',
+  'paper buy HAL', 'limit max_per_stock 80000', 'core 40', 'news HAL'.
+  QUIET RULE (telegram.notify): kinds stopalert loss10 trend lossnews move exits roombuys custom say each thing once
+  (key kind|header-without-numbers|SYMBOL, or kind|header for market-only messages), then stay quiet until the owner
+  taps '🔔 Allow again' (uq:<group>) or uses /quiet (uk:N / Allow all). State telegram.quiet + quiet_groups.
+  Scheduled reports (eod, close, ...) are not muted. Tests: 100 checks with Telegram/AI/scans faked.
 - BUILT 20 Nov 2026: change the Telegram bot from Limits (Change bot… / Set up a bot here…; modes2.tgBotForm).
   telegram.find_chat (getMe + getUpdates, nothing saved) and change_bot (getMe, getChat, test sendMessage, THEN write
   data/telegram_token.txt chmod 600 + chat_id/name/bot in state). Both need the portal password again (_check_pw, 5
