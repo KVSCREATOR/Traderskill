@@ -1685,6 +1685,8 @@ def api(method, path, q, body):
             return ledger.today(mode)
         if path == "/api/ledger/today/done" and method == "POST":
             return ledger.today_done(body)
+        if path == "/api/ledger/vsnifty" and method == "GET":
+            return ledger.vs_nifty()
         if path == "/api/ledger/stops" and method == "GET":
             return ledger.stops()
         if path == "/api/ledger/stops/done" and method == "POST":

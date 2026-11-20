@@ -1,6 +1,6 @@
 'use strict';
 /* ---------------------------------------------------------------- My holdings: PIN gate + yearly Zerodha record */
-const HTABS = [['today', 'Today'], ['stops', 'Stops · Kite GTT'], ['live', 'Live holdings'], ['record', 'Year record'], ['tax', 'Tax'], ['sectors', 'Sectors'], ['next', 'What next'], ['core', 'Core + satellite'], ['funds', 'Funds'], ['import', 'Import & add']];
+const HTABS = [['today', 'Today'], ['stops', 'Stops · Kite GTT'], ['live', 'Live holdings'], ['record', 'Year record'], ['tax', 'Tax'], ['sectors', 'Sectors'], ['next', 'What next'], ['score', 'You vs Nifty'], ['core', 'Core + satellite'], ['funds', 'Funds'], ['import', 'Import & add']];
 
 /* One plan for the whole account, Investing rules, 6-12 months: what to sell and what to buy, sector by sector.
    Built in ledger._plan from the last snapshot. Mechanical rule results, not advice. */
@@ -179,9 +179,47 @@ async function stopsPage() {
   view.querySelectorAll('[data-sundo]').forEach(b => b.onclick = () => send({ symbols: [b.dataset.sundo], undo: true }));
 }
 
+/* ---- You vs Nifty: the same rupees on the same dates in the Nifty 50 */
+async function scorePage() {
+  const my = S.nav;
+  view.innerHTML = head('My holdings', 'Comparing your stocks with the Nifty 50…') + hTabs('score') + loading(3);
+  let r; try { r = await api('/api/ledger/vsnifty'); }
+  catch (e) { if (pinNeeded(e)) { S.pinTok = null; return pinGate(holdingsPage); } view.innerHTML = head('My holdings', 'Comparison could not load') + hTabs('score') + failBox(e); return; }
+  if (my !== S.nav) return;
+  if (!r.ok) { view.innerHTML = head('My holdings', 'You vs Nifty') + hTabs('score') + `<div class="card"><p class="note">${esc(r.message)}</p></div>`; return; }
+  const gap = r.xirr != null && r.nifty_xirr != null ? r.xirr - r.nifty_xirr : null;
+  const fmtD = s => new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const line = (label, you, nifty, money = true) => `<tr><td>${label}</td><td class="num"><b>${money ? inr(you, 0) : you}</b></td><td class="num">${money ? inr(nifty, 0) : nifty}</td></tr>`;
+  view.innerHTML = head('My holdings', `You vs Nifty · ${fmtD(r.from)} to ${fmtD(r.to)} (${r.days} days)`, '<button class="btn" id="vRefresh">Refresh</button>') + hTabs('score') +
+    `<div class="stack">${scHead('Your stocks vs the same money in the Nifty 50', gap != null ? `${gap >= 0 ? '+' : '−'}${Math.abs(gap).toFixed(1)}<span class="muted" style="font-size:16px"> points a year</span>` : '–', null,
+      gap == null ? '' : gap >= 0 ? 'Your stock picking is ahead of the index' : 'The index did better than your stock picking over this period')}
+    ${scTiles([['Your return a year', r.xirr != null ? pct(r.xirr, 1) : '–', r.xirr >= 0 ? 'up' : 'down'], ['Nifty 50 a year', r.nifty_xirr != null ? pct(r.nifty_xirr, 1) : '–', r.nifty_xirr >= 0 ? 'up' : 'down'],
+      ['Your profit', inr(r.profit, 0), r.profit >= 0 ? 'up' : 'down'], ['Nifty profit', inr(r.nifty_profit, 0), r.nifty_profit >= 0 ? 'up' : 'down']])}
+    <div class="grid2">
+      <div class="card"><h2>Same rupees, same dates</h2><div class="tablewrap"><table><thead><tr><th></th><th class="num">Your stocks</th><th class="num">Nifty 50</th></tr></thead><tbody>
+        ${line(`Already held on ${fmtD(r.from)} (${r.open_stocks} stocks)`, r.open_value, r.open_value)}
+        ${line('Put in since (buys)', r.put_in, r.put_in)}
+        ${line('Taken out since (sells)', r.taken_out, r.taken_out)}
+        ${line(`Value on ${fmtD(r.to)}`, r.value, r.nifty_value)}
+        ${line('Profit', r.profit, r.nifty_profit)}
+        ${line('Return a year (XIRR)', r.xirr != null ? pct(r.xirr, 1) : '–', r.nifty_xirr != null ? pct(r.nifty_xirr, 1) : '–', false)}
+      </tbody></table></div>
+      <p class="note">Nifty 50 went from ${r.nifty_from.toFixed(0)} to ${r.nifty_to.toFixed(0)} over the same days.</p></div>
+      <div class="card"><h2>How to read this</h2><ul class="steps">
+        <li>Every rupee you put into stocks or took out is copied into the Nifty 50 on the same day. Stocks you already held when your records start count as money put in that day.</li>
+        <li>If the Nifty keeps winning over a year or more, the simpler choice (more in the Nifty core) would have paid better. This is your monthly check.</li>
+        ${r.short ? `<li><b>Under a year of records (${r.days} days):</b> a yearly rate from a short period swings a lot. Judge it after 12 months.</li>` : ''}
+        <li>Dividends and charges are left out on both sides. Your records start with the tradebook you imported; import older tradebooks to look further back.</li>
+        ${r.excluded.length ? `<li>Left out (no price history): ${r.excluded.map(esc).join(', ')}.</li>` : ''}
+        ${r.nifty_units_negative ? '<li>Your sells were larger than the Nifty side could cover, so the Nifty figures are approximate.</li>' : ''}
+        <li>Past results, not a forecast and not personal advice.</li></ul></div></div></div>`;
+  $('#vRefresh').onclick = () => scorePage();
+}
+
 /* ---- yearly record tabs */
 async function ledgerPage(tab, fresh) {
   if (tab === 'today') return todayPage();
+  if (tab === 'score') return scorePage();
   if (tab === 'stops') return stopsPage();
   const my = S.nav;
   if (!S.ledger || fresh || (S.ledgerFy && S.ledger.fy !== S.ledgerFy)) {

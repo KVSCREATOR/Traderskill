@@ -277,6 +277,11 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
   _plan(snap, cfg, core, core_v): sell proceeds + free cash buy a Nifty 50 fund (held core ETF or NIFTYBEES) up to
   core_v['move']; only the rest buys stocks. plan['core_buy'] = amount, need, short, fund, target, pct_now, pct_after
   (after every sell/trim/buy). Shown first in the What next Buy column and the 12:00 whatnext message. 20 Nov: 0% -> 49%.
+- BUILT 20 Nov 2026: My holdings > 'You vs Nifty' tab (ledger.vs_nifty, GET /api/ledger/vsnifty). Start = day before the
+  first trade on record; shares held then count as money in at that close (qty = snapshot qty - net trades since);
+  every buy/sell copied into Nifty 50 (price index) at that day's close; end = last snapshot value. XIRR via
+  longterm._xirr. Dividends/charges out on both sides; stocks with no price history left out and listed. 20 Nov 2026
+  (206 days from 28 Apr): you +23k / 2.9%/yr vs Nifty +77k / 9.6%/yr (test run, no network: NSE/STLTECH/NIFTYBEES left out).
 - Next to build (ask owner first):
-  then build: real XIRR vs Nifty, weekly-check backtest,
+  then build: weekly-check backtest,
   March tax-harvest reminder.

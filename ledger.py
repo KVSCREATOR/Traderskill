@@ -662,6 +662,91 @@ def today_done(body):
     return {"ok": True}
 
 
+# ----------------------------------------------------------------- You vs the Nifty: the honest scoreboard
+def _close_on(sym, day):
+    """Closing price on or before a date, from the daily history (None if the stock has no history)."""
+    try:
+        bars = L.history(sym)["bars"]
+    except Exception:  # noqa: BLE001
+        return None
+    px = None
+    for b in bars:
+        if b[0] > day:
+            break
+        px = b[4]
+    return px
+
+
+def vs_nifty():
+    """Your stocks' real return compared with the same money in the Nifty 50 on the same days.
+
+    Start: the day before your records begin. The shares you already held then count as money put in
+    that day (valued at that day's close). After that every buy is money in and every sell money out,
+    the same rupees on the same dates for both. End: your holdings' value in the last snapshot.
+    The Nifty side buys and sells Nifty 50 at each day's close (price index). Dividends are left out on
+    both sides, and so are charges and stocks with no price history (listed)."""
+    with _lock:
+        d = _load()
+    trades, _, _ = compute(d)
+    snaps = d["snapshots"]
+    if not trades or not snaps:
+        return {"ok": False, "message": "Needs your Zerodha tradebook (Import & add) and one holdings snapshot (open Live holdings once)."}
+    snap_day = sorted(snaps)[-1]
+    snap = snaps[snap_day]
+    end = (snap.get("at") or snap_day)[:10]
+    start = trades[0]["date"]
+    t0 = (date.fromisoformat(start) - timedelta(days=1)).isoformat()
+    now_q = {r["symbol"]: r.get("qty") or 0 for r in snap.get("holdings") or []}
+    now_v = {r["symbol"]: r.get("value") or 0 for r in snap.get("holdings") or []}
+    net = {}
+    for t in trades:
+        net[t["symbol"]] = net.get(t["symbol"], 0) + (t["qty"] if t["side"] == "buy" else -t["qty"])
+    start_q = {s: now_q.get(s, 0) - net.get(s, 0) for s in set(now_q) | set(net)}
+    excluded, open_v, open_n = [], 0.0, 0
+    for s, q in start_q.items():
+        if q > 1e-6:
+            px = _close_on(s, t0)
+            if not px:
+                excluded.append(s)
+                continue
+            open_v += q * px
+            open_n += 1
+    bad = set(excluded)
+    flows = {}
+    if open_v:
+        flows[t0] = -open_v
+    put_in = taken_out = 0.0
+    for t in trades:
+        if t["symbol"] in bad:
+            continue
+        a = t["qty"] * t["price"] * (-1 if t["side"] == "buy" else 1)
+        flows[t["date"]] = flows.get(t["date"], 0.0) + a
+        if a < 0:
+            put_in -= a
+        else:
+            taken_out += a
+    value = sum(v for s, v in now_v.items() if s not in bad)
+    mkt = L.market()
+    nc = mkt.ind["c"]
+    units = 0.0
+    for day, a in sorted(flows.items()):
+        i = mkt.at(day)
+        units -= a / nc[i]
+    i_end = mkt.at(end)
+    nifty_value = units * nc[i_end]
+    fl = [(date.fromisoformat(k), v) for k, v in sorted(flows.items())]
+    e = date.fromisoformat(end)
+    days = (e - date.fromisoformat(t0)).days
+    you_x = L._xirr(fl + [(e, value)]) if fl and days > 0 else None
+    nif_x = L._xirr(fl + [(e, nifty_value)]) if fl and days > 0 and nifty_value > 0 else None
+    paid = -sum(fl_[1] for fl_ in fl)   # net money in (positive) or out
+    return {"ok": True, "from": t0, "to": end, "days": days, "open_value": open_v, "open_stocks": open_n,
+            "put_in": put_in, "taken_out": taken_out, "value": value, "nifty_value": nifty_value,
+            "profit": value - paid, "nifty_profit": nifty_value - paid, "xirr": you_x, "nifty_xirr": nif_x,
+            "nifty_from": nc[mkt.at(t0)], "nifty_to": nc[i_end], "excluded": sorted(excluded), "short": days < 365,
+            "nifty_units_negative": units < 0}
+
+
 # ----------------------------------------------------------------- Stops: one Kite stop-loss GTT per real holding
 STOP_STEP = 0.02    # ask you to raise a Kite GTT only when the rule stop is 2% or more above the one you set
 LIMIT_GAP = 0.02    # the GTT's sell limit sits 2% under the trigger, so a small gap down still fills
