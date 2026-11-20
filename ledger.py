@@ -514,7 +514,7 @@ def _core_view(d, snap, holdings, today):
 def today(mode=None):
     """Everything worth a look after the close, in one list: act / watch / for tomorrow / info.
     Rule results and facts from your own records, not personal advice."""
-    mode = mode if mode in ("swing", "invest") else "swing"   # buy ideas: Scalping falls back to the Trading rules
+    mode = "invest"   # real stocks follow the Investing rules (owner's choice, 20 Nov 2026), whatever mode the page is in
     lbl = L.LABEL[mode]
     rep = report()
     now = S.now_ist()
@@ -654,7 +654,7 @@ def today_done(body):
     return {"ok": True}
 
 
-def today_lines(mode="swing", limit=8):
+def today_lines(mode="invest", limit=8):
     """Short version for the 15:35 Telegram message."""
     t = today(mode)
     pick = [x for x in t["items"] if x["group"] in ("act", "watch", "tomorrow")][:limit]
@@ -980,7 +980,7 @@ def report(fy=None, d_from=None, d_to=None):
         nxt["cash"] = (snap.get("funds") or {}).get("net")
     nxt["slots"] = max(0, cfg["max_positions"] - n_held)
     nxt["per_stock"] = cfg["max_per_stock"]
-    nxt["plan"] = _plan(snap, cfg, core_syms)   # same limits as the rest of My holdings (your Investing limits); verdicts and buys: Trading rules
+    nxt["plan"] = _plan(snap, cfg, core_syms)   # your Investing limits, Investing verdicts and buys
     funds_hist = [{"date": k, "at": v["at"], **(v.get("funds") or {}), "value": v.get("total_value"), "cost": v.get("total_cost")}
                   for k, v in sorted(snaps.items())]
     fys = sorted({fy_of(t["date"]) for t in trades} | {fy_of(k) for k in snaps} | {fy_of(today)}, reverse=True)
@@ -1014,7 +1014,7 @@ def report(fy=None, d_from=None, d_to=None):
             "clock": S.market_clock()}
 
 
-PLAN_HORIZON = "3–6 months"
+PLAN_HORIZON = "6–12 months"
 
 
 def _plan(snap, cfg, core=()):
@@ -1031,11 +1031,11 @@ def _plan(snap, cfg, core=()):
     if not snap or not snap.get("holdings"):
         return None
     cap, maxn, maxs = cfg["max_per_stock"], cfg["max_positions"], cfg["max_per_sector"]
-    if not any("verdict_t" in r for r in snap["holdings"]):   # snapshot taken before the Trading verdicts existed
+    if not any(r.get("verdict") for r in snap["holdings"]):   # snapshot without rule verdicts
         return {"horizon": PLAN_HORIZON, "as_of": snap.get("at"), "stale": True, "before": {}, "after": {}, "sells": [], "keeps": [],
                 "buys": [], "free_slots": 0, "cash": None,
                 "notes": ["Open My holdings while Zerodha is connected once to take a fresh snapshot, then the plan appears."]}
-    act = {r["symbol"]: dict(r, verdict=r.get("verdict_t"), why=r.get("why_t")) for r in snap["holdings"] if (r.get("value") or 0) > 0}
+    act = {r["symbol"]: dict(r) for r in snap["holdings"] if (r.get("value") or 0) > 0}   # Investing verdicts (owner's choice, 20 Nov 2026)
     core_held = sorted(s for s in act if s in core)
     core_value = sum(act.pop(s)["value"] for s in core_held)
     before = {"holdings": len(act), "value": sum(r["value"] for r in act.values()), "max": maxn,
@@ -1084,7 +1084,7 @@ def _plan(snap, cfg, core=()):
         sell_all(weakest(list(act.values()))[0], "over your %d-stock limit" % maxn)
 
     # swap: a holding whose Trading trend has turned weak makes room for a Best-odds buy signal
-    fit = snap.get("fit_t") or {}
+    fit = snap.get("fit") or {}   # Investing Best-odds buys
     regime = fit.get("regime")
     cash = (snap.get("funds") or {}).get("net")
     cands = [b for b in (fit.get("buys") or []) if regime and b.get("price") and b["symbol"] not in act]
@@ -1137,7 +1137,7 @@ def _plan(snap, cfg, core=()):
                                       for r in act.values()],
             "buys": buys, "free_slots": free, "after": {"holdings": len(act) + len(buys), "max": maxn},
             "waiting": waiting, "cash": cash, "cash_after": cash_after, "per_stock": cap, "notes": notes + [
-                "Built from the Trading rules (holds up to 2–3 months), backtested Nov 2017–Nov 2026 (~11.5%/yr, 39% of trades won, losing years too). "
+                "Built from the Investing rules (holds 6–12 months), backtested Dec 2017–Nov 2026 (~10.7%/yr, 38% of trades won, worst fall −34%, losing years too). "
                 "Not a promise of profit and not personal advice."]}
 
 

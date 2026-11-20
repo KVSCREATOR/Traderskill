@@ -248,3 +248,15 @@ stays in the total that sector shares are measured against. Today tab still not 
 
 Ideas not done: alerts on daily close for held positions; real results-date calendar
 (currently estimated from the last reported quarter).
+
+## Owner decisions 20 Nov 2026 (plan for best profit in 20-30 min a day)
+- The rules manage the owner's REAL stocks (~Rs 12.3 lakh in Zerodha), not a Rs 2 lakh test amount.
+- Limits (state.json settings.modes, swing AND invest): capital 12,30,000; risk per trade 15,000 (1.25%, as tested);
+  max per stock 1,50,000; 10 stocks; 2 per sector; total open risk 1,50,000; pause after 10% (swing) / 15% (invest) fall.
+- Real holdings are judged by the INVESTING rules everywhere: kite.holdings rmode is always 'invest' (page mode ignored),
+  the What next plan (ledger._plan) uses snapshot 'verdict' + 'fit' (Investing) with horizon 6-12 months, Today list and
+  the 15:35 Telegram today_lines use 'invest', the 12:00 plan message says Investing rules. verdict_t/fit_t still computed.
+- Scalping: keep the mode and the ORB menu entry as is (owner said keep). ORB shows only in Scalping mode by design.
+- Questions still to ask the owner one by one: core (Nifty) target %, Telegram messages to keep, which pages to hide,
+  then build: stop levels + Kite GTT instructions for every holding, real XIRR vs Nifty, weekly-check backtest,
+  March tax-harvest reminder, core list should count only Nifty 50 / Sensex index funds (not midcap / consumption).

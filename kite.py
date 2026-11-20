@@ -340,7 +340,7 @@ def holdings(mode="invest"):
         rows = rows.get("data") or rows.get("holdings") or []
     if not isinstance(rows, list):
         return {"connected": True, "error": (r.get("error") or r.get("text") or "Unexpected answer")[:300]}
-    rmode = mode if mode in ("swing", "invest") else "invest"   # Scalping is same-day: judge holdings by Investing rules
+    rmode = "invest"   # your real stocks are always judged by the Investing rules (owner's choice, 20 Nov 2026)
     cfg = L.settings_for(rmode, st)
     try:   # index funds you count as core (NIFTYBEES etc.) are outside the stock limits
         import ledger

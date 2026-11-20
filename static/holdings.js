@@ -2,7 +2,7 @@
 /* ---------------------------------------------------------------- My holdings: PIN gate + yearly Zerodha record */
 const HTABS = [['today', 'Today'], ['live', 'Live holdings'], ['record', 'Year record'], ['tax', 'Tax'], ['sectors', 'Sectors'], ['next', 'What next'], ['core', 'Core + satellite'], ['funds', 'Funds'], ['import', 'Import & add']];
 
-/* One plan for the whole account, Trading rules, 3-6 months: what to sell and what to buy, sector by sector.
+/* One plan for the whole account, Investing rules, 6-12 months: what to sell and what to buy, sector by sector.
    Built in ledger._plan from the last snapshot. Mechanical rule results, not advice. */
 function planBlock(p) {
   if (!p) return '';
@@ -15,7 +15,7 @@ function planBlock(p) {
       : '<p class="note">No buy signal fits right now.</p>');
   const keeps = p.keeps.length ? `<ul class="nlist">${p.keeps.map(k => `<li><a href="#/predictor/${encodeURIComponent(k.symbol)}"><b>${esc(k.symbol)}</b></a> · ${esc(k.sector)} · ${esc(k.verdict || '')}${k.pnl_pct != null ? ` · <span class="${cls(k.pnl_pct)}">${sgn(k.pnl_pct)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="note">None.</p>';
   return `<div class="card plan-card">
-    <h2>Your ${esc(p.horizon)} plan · Trading rules</h2>
+    <h2>Your ${esc(p.horizon)} plan · Investing rules</h2>
     <p class="note" style="margin-top:0">As of ${esc(p.as_of || '')} · stocks ${p.before.holdings} now${p.before.core && p.before.core.length ? ` (+ ${p.before.core.length} index fund${p.before.core.length > 1 ? 's' : ''}, outside the stock limits)` : ''} → ${p.after.max - p.free_slots} after the sells → ${p.after.holdings} with the buys (limit ${p.after.max}) · cash ${p.cash != null ? inr(p.cash, 0) : 'unknown'}${p.cash_after != null ? ` → ${inr(p.cash_after, 0)} after the sells` : ''}${p.per_stock ? ` · your limit ${inr(p.per_stock, 0)} per stock (Limits › Investing)` : ''}</p>
     <div class="grid2">
       <div><h2 class="plan-sell-h">Sell</h2>${sells}</div>

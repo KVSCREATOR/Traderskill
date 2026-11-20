@@ -320,7 +320,7 @@ def eod():
             msg += ["  %s · %s (top ranked overall)" % (r["symbol"], r["setup"]) for r in top if r not in mine]
     try:   # the same list as My holdings -> Today (exits, limits, rebalance, long-term dates, results, GTT ideas)
         msg.append("")
-        msg += LG.today_lines("swing")
+        msg += LG.today_lines("invest")
     except Exception:  # noqa: BLE001
         pass
     msg.append(NOTE)
@@ -395,8 +395,8 @@ def roombuys():
 
 
 def whatnext():
-    """12:00 daily: the What next sell / buy plan (Trading rules, your limits), as on My holdings."""
-    msg = ["🧭 What next · 3–6 month plan (Trading rules) · %s" % S.now_ist().strftime("%a %d %b")]
+    """12:00 daily: the What next sell / buy plan (Investing rules, your limits), as on My holdings."""
+    msg = ["🧭 What next · 6–12 month plan (Investing rules) · %s" % S.now_ist().strftime("%a %d %b")]
     p = ((LG.report() or {}).get("next") or {}).get("plan")
     if not p or p.get("stale"):
         msg.append((p or {}).get("notes", ["No holdings snapshot yet: open My holdings while Zerodha is connected."])[0])
