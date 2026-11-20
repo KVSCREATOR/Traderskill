@@ -63,7 +63,7 @@ function route() {
   const [, name = 'predictor', arg] = location.hash.split('/');
   const fn = VIEWS[name] || predictor;
   const on = name === 'congress' ? 'deals' : VIEWS[name] ? name : 'predictor';
-  document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.view === on));
+  document.querySelectorAll('#nav a, .clock a[data-view]').forEach(a => a.classList.toggle('on', a.dataset.view === on));
   holdBar(name); refreshHeld(name);
   fn(arg ? decodeURIComponent(arg) : null);
 }

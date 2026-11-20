@@ -67,6 +67,19 @@ input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 2px 
 .btn.sm { padding: 4px 9px; font-size: 12px; }
 .btn.danger { color: var(--fail); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
+/* header shortcut buttons: My scanner (gold), Holdings (green) */
+.hbtn { --c: var(--accent); --c-soft: var(--accent-soft); display: inline-flex; align-items: center; gap: 7px; font: 600 13px var(--sans); text-decoration: none; color: var(--text); background: var(--c-soft); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); border-radius: 999px; padding: 6px 14px 6px 6px; white-space: nowrap; box-shadow: 0 1px 2px rgba(30,36,51,.06); transition: transform .15s ease, box-shadow .15s ease, background .15s ease, color .15s ease; }
+.hbtn .hi { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--c); color: #fff; font-size: 12px; line-height: 1; box-shadow: 0 2px 6px color-mix(in srgb, var(--c) 45%, transparent); }
+.hbtn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px color-mix(in srgb, var(--c) 28%, transparent); border-color: var(--c); }
+.hbtn:active { transform: translateY(0); }
+.hbtn:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+.hbtn.on { background: var(--c); border-color: var(--c); color: #fff; }
+.hbtn.on .hi { background: #fff; color: var(--c); box-shadow: none; }
+.hbtn.scan { --c: var(--warn); --c-soft: var(--warn-soft); }
+.hbtn.hold { --c: var(--pass); --c-soft: var(--pass-soft); }
+:root[data-theme="dark"] .hbtn.on { color: #0b0f15; }
+:root[data-theme="dark"] .hbtn .hi { color: #0b0f15; }
+@media (prefers-reduced-motion: reduce) { .hbtn { transition: none; } .hbtn:hover { transform: none; } }
 
 .pill { display: inline-flex; align-items: center; gap: 6px; font: 600 11.5px var(--sans); border-radius: 99px; padding: 3px 10px; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
 .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
