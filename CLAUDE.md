@@ -298,4 +298,3 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
   listed as 'maybe'. Tax tab card + Today item in Feb (watch) / Mar (act) when >= Rs 5,000 can be booked. Sell, buy back
   NEXT trading day (same day = intraday). Note: records start 28 Apr 2026, so dated lots turn long-term from Apr 2027.
 - All items from the 20 Nov plan are built. Ideas left: alerts on daily close for held positions; real results calendar.
-  March tax-harvest reminder.
