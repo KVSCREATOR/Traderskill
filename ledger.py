@@ -236,7 +236,7 @@ def snapshot(reason="page"):
             "total_value": h.get("total_value"), "total_cost": h.get("total_cost"),
             "holdings": [{k: r.get(k) for k in ("symbol", "exchange", "qty", "avg", "ltp", "value", "cost", "pnl", "pnl_pct",
                                                  "day_pct", "day_pnl", "sector", "trend", "verdict", "why", "rule_stop", "flags",
-                                                 "verdict_t", "why_t")}
+                                                 "verdict_t", "why_t", "trail_stop", "floor200")}
                          for r in h["rows"]],
             "fit": {"buys": (h.get("fit") or {}).get("buys") or [], "regime": (h.get("fit") or {}).get("regime")},
             "fit_t": {"buys": (h.get("fit_t") or {}).get("buys") or [], "regime": (h.get("fit_t") or {}).get("regime")}}
@@ -547,6 +547,14 @@ def today(mode=None):
         add("weak:" + x["symbol"], "watch", "%s: weak trend (%s)." % (x["symbol"], x.get("why") or "below its averages"), "#/predictor/" + x["symbol"])
     for t in nx["limits"]:
         add("limit:" + t[:40], "watch", "Your limit: " + t + ".")
+    try:   # Kite stop-loss GTTs to set or raise
+        stp = stops()
+        todo = [x for x in stp["rows"] if x["status"] in ("new", "raise", "qty")]
+        if todo:
+            add("stops:%s:%d" % (day, len(todo)), "act", "Kite stop-loss GTTs: %d to set or change (%s)." % (
+                len(todo), ", ".join(x["symbol"] for x in todo[:6]) + (" …" if len(todo) > 6 else "")), "#/holdings/stops", "act")
+    except Exception:  # noqa: BLE001
+        pass
     # rebalance
     c = rep["core"]
     if c["total"] and abs(c["move"]) >= max(2000, c["total"] * 0.02):
@@ -652,6 +660,116 @@ def today_done(body):
             td.pop(k, None)
         _save(d)
     return {"ok": True}
+
+
+# ----------------------------------------------------------------- Stops: one Kite stop-loss GTT per real holding
+STOP_STEP = 0.02    # ask you to raise a Kite GTT only when the rule stop is 2% or more above the one you set
+LIMIT_GAP = 0.02    # the GTT's sell limit sits 2% under the trigger, so a small gap down still fills
+TICK = 0.05         # a multiple of every NSE tick size, so Kite accepts the price
+STOP_ORDER = {"hit": 0, "new": 1, "raise": 2, "qty": 3, "ok": 4, "none": 5}
+
+
+def _tick_down(x):
+    return round(math.floor(x / TICK + 1e-9) * TICK, 2)
+
+
+def stops():
+    """The Investing rules' trailing stop for every real holding, as a Kite GTT to set once and raise now and then.
+
+    Trigger = highest close of the last 60 sessions minus 5 x ATR (what the backtest sells on when the day's
+    low touches it), rounded down to 0.05 and never lowered (the backtest ratchets it up only). The 200-day rule
+    (close more than 3% under the 200-day average) is judged on the close, so it stays in the evening list,
+    not in a GTT. Index funds in your core list get no stop. Status: hit (price at or under the stop: the exit
+    rule has fired), new (no GTT recorded yet), raise (stop is 2%+ above the GTT you set), qty (your quantity
+    changed), ok. Not personal advice: you place any GTT yourself in Kite."""
+    with _lock:
+        d = _load()
+        snaps = d["snapshots"]
+        if not snaps:
+            return {"rows": [], "as_of": None, "counts": {}, "todo": 0}
+        day = sorted(snaps)[-1]
+        snap = snaps[day]
+        core = set(_core_cfg(d)["symbols"])
+        book = d.setdefault("stops", {})
+        rows, held = [], set()
+        for r in snap.get("holdings") or []:
+            sym, qty, ltp = r.get("symbol"), r.get("qty") or 0, r.get("ltp")
+            if not sym or qty <= 0 or sym in core:
+                continue
+            held.add(sym)
+            rule = r.get("trail_stop") if "trail_stop" in r else r.get("rule_stop")   # older snapshots: rule stop
+            b = book.setdefault(sym, {})
+            today_trig = _tick_down(rule) if rule else None
+            if today_trig:
+                b["high"] = max(b.get("high") or 0, today_trig)
+            trig, kite = b.get("high"), b.get("kite")
+            if not trig:
+                status = "none"
+            elif ltp and ltp <= trig:
+                status = "hit"
+            elif not kite:
+                status = "new"
+            elif trig >= kite * (1 + STOP_STEP):
+                status = "raise"
+            elif b.get("kite_qty") != qty:
+                status = "qty"
+            else:
+                status = "ok"
+            rows.append({"symbol": sym, "qty": qty, "ltp": ltp, "trigger": trig, "limit": _tick_down(trig * (1 - LIMIT_GAP)) if trig else None,
+                         "today": today_trig, "away_pct": (ltp / trig - 1) * 100 if ltp and trig else None,
+                         "kite": kite, "kite_qty": b.get("kite_qty"), "kite_at": b.get("kite_at"), "status": status,
+                         "floor200": r.get("floor200"), "verdict": r.get("verdict"), "value": r.get("value")})
+        for sym in [s for s in book if s not in held]:   # sold: forget its stop
+            book.pop(sym)
+        _save(d)
+    rows.sort(key=lambda x: (STOP_ORDER[x["status"]], -(x["value"] or 0)))
+    counts = {k: sum(1 for x in rows if x["status"] == k) for k in STOP_ORDER}
+    return {"rows": rows, "as_of": snap.get("at"), "counts": counts, "todo": counts["new"] + counts["raise"] + counts["qty"],
+            "step_pct": STOP_STEP * 100, "limit_gap_pct": LIMIT_GAP * 100}
+
+
+def stops_done(body):
+    """You set (or raised) these GTTs in Kite: remember the trigger and quantity, so only real changes come back."""
+    syms = body.get("symbols")
+    with _lock:
+        d = _load()
+        snaps = d["snapshots"]
+        snap = snaps[sorted(snaps)[-1]] if snaps else {}
+        qty = {r.get("symbol"): r.get("qty") for r in snap.get("holdings") or []}
+        book = d.setdefault("stops", {})
+        day = S.now_ist().date().isoformat()
+        n = 0
+        for sym in (syms if isinstance(syms, list) else list(book)):
+            b = book.get(sym)
+            if not b or not b.get("high"):
+                continue
+            if body.get("undo"):
+                b.pop("kite", None), b.pop("kite_qty", None), b.pop("kite_at", None)
+            else:
+                b["kite"], b["kite_qty"], b["kite_at"] = b["high"], qty.get(sym), day
+            n += 1
+        _save(d)
+    return {"ok": True, "message": ("Marked %d as not set in Kite." if body.get("undo") else "Saved: %d GTT stop%s set in Kite.") % (
+        n, "" if n == 1 or body.get("undo") else "s")}
+
+
+def stop_lines(limit=10):
+    """Short version for the 15:35 Telegram message: only the GTTs to set or change."""
+    s = stops()
+    todo = [x for x in s["rows"] if x["status"] in ("new", "raise", "qty")]
+    if not todo:
+        return ["🛡 Kite stop GTTs: nothing to change."] if s["rows"] else []
+    word = {"new": "set", "raise": "raise to", "qty": "change qty"}
+    out = ["🛡 Kite stop GTTs to set or change (%d):" % len(todo)]
+    out += ["  %s: %s sell %g · trigger %s · limit %s%s" % (x["symbol"], word[x["status"]], x["qty"], _rs2(x["trigger"]), _rs2(x["limit"]),
+            " (was %s)" % _rs2(x["kite"]) if x["status"] == "raise" else "") for x in todo[:limit]]
+    if len(todo) > limit:
+        out.append("  …and %d more: portal → My holdings → Stops." % (len(todo) - limit))
+    return out
+
+
+def _rs2(v):
+    return "₹" + format(v, ",.2f")
 
 
 def today_lines(mode="invest", limit=8):

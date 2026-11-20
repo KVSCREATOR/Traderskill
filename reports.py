@@ -323,6 +323,13 @@ def eod():
         msg += LG.today_lines("invest")
     except Exception:  # noqa: BLE001
         pass
+    try:   # the exact Kite stop GTTs to set or raise
+        sl = LG.stop_lines()
+        if sl:
+            msg.append("")
+            msg += sl
+    except Exception:  # noqa: BLE001
+        pass
     msg.append(NOTE)
     return "\n".join(msg)
 

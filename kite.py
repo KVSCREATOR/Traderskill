@@ -297,7 +297,8 @@ def _verdict(ind, mkt, mode="invest"):
     floor200 = s200 * 0.97 if s200 and mode == "invest" else None   # the 200-day exit is an Investing rule only
     stop = max(x for x in (trail, floor200) if x is not None) if (trail or floor200) else None
     s200_old = ind["sma200"][i - 20] if i >= 20 else None
-    out = {"rule_stop": stop, "to_stop": (c / stop - 1) * 100 if stop else None}
+    out = {"rule_stop": stop, "to_stop": (c / stop - 1) * 100 if stop else None,
+           "trail_stop": trail, "floor200": floor200}   # trail: intraday stop (a Kite GTT); floor200: checked on the close only
     if floor200 and c < floor200:
         return dict(out, verdict="exit", why="Closed more than 3% below the 200-day average")
     if trail and c < trail:

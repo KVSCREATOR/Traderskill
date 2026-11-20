@@ -267,6 +267,12 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
 - Menu simplified (owner chose): main = Predictor, Scanner, ORB/Strength, Time machine, Forward test, Limits; folded
   <details id=navMore> 'More' = Entry, Exit, Budget, Risk, News, Earnings, Big deals, Alerts, Paper broker, History (opens
   itself when one of its pages is shown; red dot when alerts ring). No hash -> #/holdings (Today tab) is the start page.
+- BUILT 20 Nov 2026: My holdings > 'Stops · Kite GTT' tab (#/holdings/stops; ledger.stops / stops_done / stop_lines,
+  GET /api/ledger/stops, POST /api/ledger/stops/done). Trigger = Investing trailing stop (kite._verdict trail_stop, saved in
+  snapshots; older snapshots fall back to rule_stop), rounded down to 0.05, ratcheted up only (ledger.json 'stops'
+  {sym: high, kite, kite_qty, kite_at}); limit 2% under trigger; ask to raise only when 2%+ above the GTT set.
+  Status hit/new/raise/qty/ok; core index funds skipped; sold stocks forgotten. Today 'act' item + 15:35 Telegram lines.
+  The 200-day close rule is NOT a GTT (close-based) - it stays an exit verdict in Today. Not yet viewed in a browser (PIN).
 - Next to build (ask owner first):
-  then build: stop levels + Kite GTT instructions for every holding, real XIRR vs Nifty, weekly-check backtest,
+  then build: plan fills the Nifty core from sells, real XIRR vs Nifty, weekly-check backtest,
   March tax-harvest reminder.

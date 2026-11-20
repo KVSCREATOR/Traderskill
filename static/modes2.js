@@ -363,7 +363,8 @@ function fitBlock(f) {
       : '<p class="note">No Investing buy signals right now in sectors you have room for.</p>'}
     <p class="note">These are the scanner's “Best odds” Investing signals (confirmed, top-half strength vs the Nifty, market filter on), leaving out stocks you hold and sectors you are already over the limit in. Click one for its full plan, stop and size. Rule results, not personal advice: about 38% of these signals made money in the backtest.</p></div>`;
 }
-async function holdingsPage() {
+async function holdingsPage(tab) {
+  if (typeof tab === 'string' && HTABS.some(([k]) => k === tab)) S.hTab = tab;   // #/holdings/stops etc. opens that tab
   const intro = 'Your real Zerodha holdings, read-only through Zerodha\'s free Kite MCP server. You sign in on Zerodha\'s own page; this portal never sees your password and cannot place orders.';
   const my = S.nav;
   if (!S.pinTok) return pinGate(holdingsPage);   // asked every time the page opens

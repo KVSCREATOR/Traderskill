@@ -1,6 +1,6 @@
 'use strict';
 /* ---------------------------------------------------------------- My holdings: PIN gate + yearly Zerodha record */
-const HTABS = [['today', 'Today'], ['live', 'Live holdings'], ['record', 'Year record'], ['tax', 'Tax'], ['sectors', 'Sectors'], ['next', 'What next'], ['core', 'Core + satellite'], ['funds', 'Funds'], ['import', 'Import & add']];
+const HTABS = [['today', 'Today'], ['stops', 'Stops · Kite GTT'], ['live', 'Live holdings'], ['record', 'Year record'], ['tax', 'Tax'], ['sectors', 'Sectors'], ['next', 'What next'], ['core', 'Core + satellite'], ['funds', 'Funds'], ['import', 'Import & add']];
 
 /* One plan for the whole account, Investing rules, 6-12 months: what to sell and what to buy, sector by sector.
    Built in ledger._plan from the last snapshot. Mechanical rule results, not advice. */
@@ -127,9 +127,60 @@ async function todayPage() {
   });
 }
 
+/* ---- Stops: one Kite stop-loss GTT per real holding (Investing rules' trailing stop) */
+async function stopsPage() {
+  const my = S.nav;
+  view.innerHTML = head('My holdings', 'Working out your stop levels…') + hTabs('stops') + loading(3);
+  let s; try { s = await api('/api/ledger/stops'); }
+  catch (e) { if (pinNeeded(e)) { S.pinTok = null; return pinGate(holdingsPage); } view.innerHTML = head('My holdings', 'Stops could not load') + hTabs('stops') + failBox(e); return; }
+  if (my !== S.nav) return;
+  const ST = { hit: ['Exit fired', 'fail'], new: ['Set GTT', 'warn'], raise: ['Raise GTT', 'warn'], qty: ['Change qty', 'warn'], ok: ['Set ✓', 'pass'], none: ['No stop yet', ''] };
+  const c = s.counts || {};
+  const row = r => `<tr class="st-${r.status}">
+      <td><a href="#/predictor/${encodeURIComponent(r.symbol)}"><b>${esc(r.symbol)}</b></a></td>
+      <td><span class="pill ${ST[r.status][1]}">${ST[r.status][0]}</span></td>
+      <td class="num">${r.qty}</td>
+      <td class="num">${inr(r.ltp)}</td>
+      <td class="num"><b>${inr(r.trigger)}</b>${r.today != null && r.today < r.trigger ? `<small class="muted" style="display:block">rule today ${inr(r.today)} · kept higher</small>` : ''}</td>
+      <td class="num">${inr(r.limit)}</td>
+      <td class="num">${r.away_pct == null ? '–' : r.away_pct > 0 ? `${r.away_pct.toFixed(1)}% above` : `<span class="chg down">${Math.abs(r.away_pct).toFixed(1)}% below</span>`}</td>
+      <td class="num">${r.kite != null ? `${inr(r.kite)}<small class="muted" style="display:block">${r.kite_qty ?? '–'} sh · ${esc(r.kite_at || '')}</small>` : '<span class="muted">not set</span>'}</td>
+      <td>${['new', 'raise', 'qty'].includes(r.status) ? `<button class="btn sm primary" data-sdone="${esc(r.symbol)}">Done in Kite</button>`
+        : r.kite != null ? `<button class="btn sm ghost" data-sundo="${esc(r.symbol)}" title="Mark as not set in Kite">Undo</button>` : ''}</td></tr>`;
+  const todo = s.rows.filter(r => ['new', 'raise', 'qty'].includes(r.status));
+  view.innerHTML = head('My holdings', `Stop-loss GTTs for Kite · Investing rules${s.as_of ? ' · prices as of ' + esc(s.as_of) : ''}`,
+    `${todo.length ? `<button class="btn primary" id="sAll">Mark all ${todo.length} as done</button> ` : ''}<button class="btn" id="sRefresh">Refresh</button>`) + hTabs('stops') +
+    `<div class="stack">${scHead('Kite stop GTTs to set or change', `${s.todo} <span class="muted" style="font-size:16px">of ${s.rows.length} stocks</span>`, null,
+      s.todo ? 'Set these in Kite, then press Done so they stop showing' : s.rows.length ? 'Every stop is set: nothing to do' : 'No holdings snapshot yet: open Live holdings once with Zerodha connected')}
+    ${scTiles([['Exit fired', c.hit || 0, c.hit ? 'down' : ''], ['To set', c.new || 0, ''], ['To raise', c.raise || 0, ''], ['Qty changed', c.qty || 0, ''], ['Set and OK', c.ok || 0, c.ok ? 'up' : '']])}
+    <div class="card"><h2>Your stops</h2>
+      <div class="tablewrap"><table><thead><tr><th>Stock</th><th>Status</th><th class="num">Qty</th><th class="num">Last price</th><th class="num">Trigger</th><th class="num">Sell limit</th><th class="num">Room to stop</th><th class="num">In Kite</th><th></th></tr></thead>
+      <tbody>${s.rows.map(row).join('') || '<tr><td colspan="9" class="empty">No holdings to protect yet.</td></tr>'}</tbody></table></div></div>
+    <div class="grid2">
+      <div class="card"><h2>How to set one in Kite (1 minute each)</h2><ol class="steps">
+        <li>Kite → <b>Holdings</b> → tap the stock → <b>Create GTT</b>.</li>
+        <li>Choose <b>Single</b> and <b>Sell</b>.</li>
+        <li>Enter the <b>Trigger</b>, the <b>Sell limit</b> as the price, and the <b>Qty</b> from the table.</li>
+        <li><b>Create GTT</b>, then press <b>Done in Kite</b> here.</li>
+        <li>To raise one: Kite → <b>Orders → GTT</b> → the stock → <b>Modify</b> → new trigger and limit.</li></ol></div>
+      <div class="card"><h2>How these levels work</h2><ul class="steps">
+        <li><b>Trigger</b> = highest close of the last 60 days minus 5 × ATR, the Investing rules' trailing stop. The backtest sells when the day's low touches it, which is exactly what a GTT does.</li>
+        <li>It only ever moves up. You're asked to raise a GTT only when the stop is ${s.step_pct}% or more above the one you set, so most days there's nothing to do.</li>
+        <li><b>Sell limit</b> is ${s.limit_gap_pct}% under the trigger, so a small gap down still fills. If the price gaps further, the GTT may not fill; the evening list then shows the exit.</li>
+        <li>The other exit rule (a close more than 3% under the 200-day average) depends on the closing price, so it isn't a GTT. It shows in Today when it fires.</li>
+        <li>Index funds in your core list get no stop. Kite needs the trigger at least 0.25% away from the price, and a GTT lasts one year.</li>
+        <li>Rule results, not personal advice. This portal can't place orders; you set each GTT yourself in Kite.</li></ul></div></div></div>`;
+  const send = async (body, msg) => { try { const r = await api('/api/ledger/stops/done', body); toast(r.message || msg); stopsPage(); } catch (e) { toast(e.message, 'bad'); } };
+  $('#sRefresh').onclick = () => stopsPage();
+  const all = $('#sAll'); if (all) all.onclick = () => send({ symbols: todo.map(r => r.symbol) });
+  view.querySelectorAll('[data-sdone]').forEach(b => b.onclick = () => send({ symbols: [b.dataset.sdone] }));
+  view.querySelectorAll('[data-sundo]').forEach(b => b.onclick = () => send({ symbols: [b.dataset.sundo], undo: true }));
+}
+
 /* ---- yearly record tabs */
 async function ledgerPage(tab, fresh) {
   if (tab === 'today') return todayPage();
+  if (tab === 'stops') return stopsPage();
   const my = S.nav;
   if (!S.ledger || fresh || (S.ledgerFy && S.ledger.fy !== S.ledgerFy)) {
     view.innerHTML = head('My holdings', 'Loading your Zerodha record…') + hTabs(tab) + loading(3);
