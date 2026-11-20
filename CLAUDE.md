@@ -261,6 +261,8 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
   the What next plan (ledger._plan) uses snapshot 'verdict' + 'fit' (Investing) with horizon 6-12 months, Today list and
   the 15:35 Telegram today_lines use 'invest', the 12:00 plan message says Investing rules. verdict_t/fit_t still computed.
 - Scalping: keep the mode and the ORB menu entry as is (owner said keep). ORB shows only in Scalping mode by design.
-- Questions still to ask the owner one by one: Telegram messages to keep, which pages to hide,
+- Telegram cut (owner chose 'evening list + alerts'): state telegram.on ON = eod (15:35), alert, gtt, zerodha, paper,
+  stopalert, login, weekly; everything else OFF (switches on Limits -> Telegram; nothing deleted).
+- Questions still to ask the owner one by one: pace of moving the account to the plan, which pages to hide,
   then build: stop levels + Kite GTT instructions for every holding, real XIRR vs Nifty, weekly-check backtest,
   March tax-harvest reminder.
