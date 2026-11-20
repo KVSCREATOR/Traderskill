@@ -292,6 +292,10 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
   Trading daily 7.1% (3.9/10.5) -23.6%; weekly 9.4% (6.2/12.7) -18.6%.
   => weekly does NOT cost profit (Trading better in both halves; Investing gain is all in the first half = likely luck,
   second half -0.6%/yr). Owner's routine can be weekly + daily GTT stops. Rules NOT changed.
-- Next to build (ask owner first):
-  then build:
+- BUILT 20 Nov 2026: tax-harvest. ledger._harvest(tax, holdings, today) -> report tax['harvest'] (current FY): room =
+  Rs 1.25 lakh - long-term gains booked after set-off; long lots (or turning long by 31 Mar) with gains, biggest gain per
+  share first, partial lots; saved = used x LTCG rate x 1.04; charges both sides + DP. Undated lots (before the tradebook)
+  listed as 'maybe'. Tax tab card + Today item in Feb (watch) / Mar (act) when >= Rs 5,000 can be booked. Sell, buy back
+  NEXT trading day (same day = intraday). Note: records start 28 Apr 2026, so dated lots turn long-term from Apr 2027.
+- All items from the 20 Nov plan are built. Ideas left: alerts on daily close for held positions; real results calendar.
   March tax-harvest reminder.

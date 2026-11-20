@@ -547,6 +547,12 @@ def today(mode=None):
         add("weak:" + x["symbol"], "watch", "%s: weak trend (%s)." % (x["symbol"], x.get("why") or "below its averages"), "#/predictor/" + x["symbol"])
     for t in nx["limits"]:
         add("limit:" + t[:40], "watch", "Your limit: " + t + ".")
+    hv = (rep.get("tax") or {}).get("harvest")   # Feb-Mar: book long-term gains tax-free before 31 March
+    if hv and now.month in (2, 3) and hv["used"] >= 5000:
+        add("harvest:" + hv["fy_end"], "act" if now.month == 3 else "watch",
+            "Tax-free gains: book about %s of long-term gains before %s (sell, buy back next trading day): saves about %s tax. %s." % (
+                _rs(hv["used"]), hv["fy_end"], _rs(hv["saved"]), ", ".join("%s %g" % (p["symbol"], p["qty"]) for p in hv["picks"][:5])),
+            "#/holdings/tax", "act" if now.month == 3 else "watch")
     try:   # Kite stop-loss GTTs to set or raise
         stp = stops()
         todo = [x for x in stp["rows"] if x["status"] in ("new", "raise", "qty")]
@@ -992,6 +998,46 @@ def _tax(fy, realised, extra=None):
             "carry_short_loss": min(st_net, 0), "carry_long_loss": min(lt_net, 0)}
 
 
+def _harvest(tax, holdings, today):
+    """Long-term gains you can still book tax-free this financial year (the Rs 1.25 lakh exemption).
+
+    Sell a long-term lot with a gain and buy it back on the NEXT trading day (same-day buy and sell
+    counts as intraday): the gain uses up the exemption instead of being taxed later, and the new
+    buy price is higher. Lots with the biggest gain per share go first, so you sell as few shares as
+    possible. Lots that turn long-term before 31 March count too (sell on or after that date). Shares
+    with no buy date in your records (bought before the tradebook) are listed separately."""
+    st_r, lt_r, exempt = _rates(fy_of(today))
+    room = max(0.0, exempt - max(tax["long_after_setoff"], 0))
+    fy_end = date(today.year if today.month <= 3 else today.year + 1, 3, 31)
+    cands, maybe = [], []
+    for h in holdings:
+        if not h.get("counted"):
+            continue
+        for l in h["lots"]:
+            if not l.get("gain") or l["gain"] <= 0 or l["qty"] <= 0:
+                continue
+            per = l["gain"] / l["qty"]
+            if l["long"] is None:
+                maybe.append({"symbol": h["symbol"], "qty": l["qty"], "gain": l["gain"], "avg": l["price"]})
+            elif l["long"] or date.fromisoformat(l["long_from"]) <= fy_end:
+                cands.append((per, h["symbol"], l))
+    cands.sort(key=lambda x: -x[0])
+    left, picks = room, []
+    for per, sym, l in cands:
+        q = min(l["qty"], math.floor(left / per)) if per else 0
+        if q < 1:
+            continue
+        price = (l["price"] or 0) + per
+        picks.append({"symbol": sym, "qty": q, "gain": q * per, "price": price, "bought": l["date"],
+                      "sell_from": None if l["long"] else l["long_from"], "lot_qty": l["qty"]})
+        left -= q * per
+    used = room - left
+    charges = sum(p["qty"] * p["price"] for p in picks) * DELIVERY_SIDE * 2 + DP_FEE * len(picks)
+    return {"fy_end": fy_end.isoformat(), "exempt": exempt, "booked": max(tax["long_after_setoff"], 0), "room": room,
+            "picks": picks, "used": used, "saved": used * lt_r * (1 + CESS), "charges": charges, "lt_rate": lt_r,
+            "maybe": sorted(maybe, key=lambda m: -m["gain"])[:10], "maybe_gain": sum(m["gain"] for m in maybe)}
+
+
 def report(fy=None, d_from=None, d_to=None):
     with _lock:
         d = _load()
@@ -1135,6 +1181,10 @@ def report(fy=None, d_from=None, d_to=None):
                 if l["gain"] is not None and l["long"] is not None:
                     extra.append({"date": today.isoformat(), "kind": "long" if l["long"] else "short", "pnl": l["gain"]})
         tax["if_sold_today"] = _tax(fy, realised, extra)["total_tax"] - tax["total_tax"]
+        try:
+            tax["harvest"] = _harvest(tax, holdings, today)
+        except Exception:  # noqa: BLE001
+            tax["harvest"] = None
     # ---- sectors
     tv = sum(h["value"] or 0 for h in holdings if h["counted"]) or 1
     secs = {}

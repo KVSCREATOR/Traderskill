@@ -301,7 +301,17 @@ async function ledgerPage(tab, fresh) {
     d.holdings.filter(h => h.counted).forEach(h => h.lots.forEach(l => lots.push(`<tr><td><b>${esc(h.symbol)}</b></td><td class="mono">${esc(l.date || 'unknown')}</td><td class="num">${fmtQ(l.qty)}</td><td class="num">${l.price != null ? inr(l.price) : '–'}</td>
       <td class="num">${l.days_held != null ? l.days_held : '–'}</td><td>${l.long === true ? '<span class="pill pass">Long-term</span>' : l.long === false ? '<span class="pill warn">Short-term</span>' : '<span class="pill">Date unknown</span>'}</td>
       <td class="mono">${l.long === false ? esc(l.long_from) + ` <small class="muted">(${l.days_to_long} days)</small>` : '–'}</td><td class="num ${cls(l.gain)}">${l.gain != null ? money(l.gain) : '–'}</td></tr>`)));
-    body = `<div class="grid2"><div class="card"><h2>Capital-gains tax estimate · FY ${esc(d.fy)}</h2><div class="tablewrap"><table><tbody>
+    const hv = tx.harvest;
+    const harvest = !hv ? '' : `<div class="card"><h2>Tax-free gains you can still book · before ${fdate(hv.fy_end)}</h2>
+      <p class="note" style="margin-top:0">Each year the first ${inr(hv.exempt, 0)} of long-term gains is tax-free. Booked so far: ${inr(hv.booked, 0)} · room left: <b>${inr(hv.room, 0)}</b>.</p>
+      ${hv.picks.length ? `<div class="tablewrap"><table><thead><tr><th>Stock</th><th class="num">Sell, then buy back</th><th class="num">Price now</th><th class="num">Gain booked</th><th>Bought</th><th>When</th></tr></thead><tbody>
+        ${hv.picks.map(p => `<tr><td><b>${esc(p.symbol)}</b></td><td class="num">${fmtQ(p.qty)}${p.qty < p.lot_qty ? ` <small class="muted">of ${fmtQ(p.lot_qty)}</small>` : ''}</td><td class="num">${inr(p.price)}</td><td class="num up">${inr(p.gain, 0)}</td><td class="mono">${esc(p.bought || '')}</td><td>${p.sell_from ? 'from ' + fdate(p.sell_from) : 'any time'}</td></tr>`).join('')}
+        </tbody></table></div>
+        <p class="note">Booking ${inr(hv.used, 0)} now saves about <b>${inr(hv.saved, 0)}</b> of tax later (${(hv.lt_rate * 100).toFixed(1)}% + cess), for about ${inr(hv.charges, 0)} of charges. Sell, then buy the same shares back on the <b>next</b> trading day (a same-day sell and buy counts as intraday, not long-term). Do it by about 27 March so it settles in this financial year.</p>`
+        : `<p class="note">${hv.room < 1000 ? 'The exemption is already used this year.' : 'No holding in your records has a long-term gain to book yet.'}</p>`}
+      ${hv.maybe.length ? `<p class="note">Not dated in your records (bought before your imported tradebook), gain ${inr(hv.maybe_gain, 0)}: ${hv.maybe.map(m => esc(m.symbol)).join(', ')}. If Kite Console shows they were bought over 12 months ago, these gains count too. Import older tradebooks to include them here.</p>` : ''}
+      <p class="note">Tax estimate from your records, not tax advice.</p></div>`;
+    body = harvest + `<div class="grid2"><div class="card"><h2>Capital-gains tax estimate · FY ${esc(d.fy)}</h2><div class="tablewrap"><table><tbody>
       ${row('Short-term gains (held 12 months or less)', money(tx.short_gain), cls(tx.short_gain))}${row('Long-term gains (held over 12 months)', money(tx.long_gain), cls(tx.long_gain))}
       ${row('Short-term after set-off', money(tx.short_after_setoff))}${row('Long-term after set-off', money(tx.long_after_setoff))}
       ${row('Long-term exemption', inr(tx.long_exempt, 0))}${row('Long-term taxable', inr(tx.long_taxable, 0))}
