@@ -264,6 +264,9 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
 - Telegram cut (owner chose 'evening list + alerts'): state telegram.on ON = eod (15:35), alert, gtt, zerodha, paper,
   stopalert, login, weekly; everything else OFF (switches on Limits -> Telegram; nothing deleted).
 - Pace: owner chose 'show everything now' - the What next plan lists every sell/buy at once (no weekly limit).
-- Questions still to ask the owner one by one: which pages to hide / start page,
+- Menu simplified (owner chose): main = Predictor, Scanner, ORB/Strength, Time machine, Forward test, Limits; folded
+  <details id=navMore> 'More' = Entry, Exit, Budget, Risk, News, Earnings, Big deals, Alerts, Paper broker, History (opens
+  itself when one of its pages is shown; red dot when alerts ring). No hash -> #/holdings (Today tab) is the start page.
+- Next to build (ask owner first):
   then build: stop levels + Kite GTT instructions for every holding, real XIRR vs Nifty, weekly-check backtest,
   March tax-harvest reminder.
