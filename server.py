@@ -1553,6 +1553,10 @@ def api(method, path, q, body):
         return telegram.test()
     if path == "/api/bot" and method == "GET":
         return bot.status()
+    if path == "/api/chatbot/token" and method == "POST":
+        return bot.set_token(body or {})
+    if path == "/api/chatbot/people" and method == "POST":
+        return bot.set_people(body or {})
     if path == "/api/bot/settings" and method == "POST":
         return bot.set_settings(body or {})
     if path == "/api/ai/save" and method == "POST":

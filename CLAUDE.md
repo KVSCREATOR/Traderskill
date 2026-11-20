@@ -310,6 +310,13 @@ Ideas not done: alerts on daily close for held positions; real results-date cale
 - 20 Nov 2026: custom notifications now 32 blocks (+ h_from_peak, h_weight, h_deal, from_dayhigh, gap_open, nifty_move,
   nifty_level, vix; market blocks use scope 'none' and R._quotes()). Scope 'pick:SYM,SYM' = some of my holdings, ticked
   in the form (listing() returns 'held' from the last snapshot).
+- 20 Nov 2026 (latest): TWO BOTS. Alert bot (telegram.py, TELEGRAM token / data/telegram_token.txt) only sends alerts and
+  reads only its own 'Allow again' taps (telegram.tap_watcher, allowed_updates callback_query). Chat bot (bot.py) has its
+  OWN token data/chatbot_token.txt (set_token: portal password, refuses the alert token, test message to owner) and state
+  'chatbot' {on, lang, rules, offset, since, bot, people, seen}. people: default = alert chat_id as owner (full, can't be
+  removed); add others by chat ID (portal password) as full or view; view-only can see but VIEW_BLOCK_CMD/BTN refused.
+  Strangers are ignored, remembered in chatbot.seen, and /myid tells them their chat ID. Switching the chat bot on
+  removes the old menu/commands from the alert bot once. API: /api/chatbot/token, /api/chatbot/people. 26 tests pass.
 - 20 Nov 2026 (later): bot v2. Switching on stores telegram.bot_since + jumps bot_offset past waiting messages (getUpdates
   offset=-1) so old messages are never answered. Permanent bottom menu (ReplyKeyboard, BOTTOM) + inline buttons that EDIT the
   same message (editMessageText). Sections: Holdings & tax (holdings, stock, stops, plan, vsnifty, tax, core, sectors,

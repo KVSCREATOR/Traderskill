@@ -833,10 +833,26 @@ async function tgCard(box) {
 async function botCard(host) {
   let b; try { b = await api('/api/bot'); } catch (e) { host.innerHTML = '<h2>Chat with the bot</h2>' + failBox(e); return; }
   const a = b.ai, P = a.providers;
-  host.innerHTML = `<div class="row" style="justify-content:space-between;margin:20px 0 8px"><h2 style="margin:0">Chat with the bot</h2>
-      <label class="row" style="gap:8px;margin:0"><span class="note" style="margin:0">Answer my messages</span><span class="switch"><input type="checkbox" id="botOn" ${b.on ? 'checked' : ''}><span></span></span></label></div>
-    <p class="note" style="margin-top:0">Ask in Telegram, e.g. <b>/today</b>, <b>/stock HAL</b>, “how are my holdings?”, “aaj kya karna hai”. Answers come from this portal with exact numbers, only to ${esc(b.chat || 'your chat')}; everyone else is ignored. Buttons can mark stops done, tick Today items and switch notifications. It never buys or sells.
-      ${b.on ? `<br>Status: ${b.last_in ? 'last message ' + esc(b.last_in) : 'waiting for your first message'}${b.ignored ? ` · ${b.ignored} message(s) from other chats ignored` : ''}${b.last_error ? ` · <span class="down">last problem: ${esc(b.last_error)}</span>` : ''}` : ''}</p>
+  const ppl = b.people || [];
+  host.innerHTML = `<div class="row" style="justify-content:space-between;margin:20px 0 8px"><h2 style="margin:0">Chat bot <span class="note" style="font-weight:400">· a second bot, separate from the alert bot${b.bot ? ` · @${esc(b.bot)}` : ''}</span></h2>
+      ${b.token_set ? `<label class="row" style="gap:8px;margin:0"><span class="note" style="margin:0">Answer messages</span><span class="switch"><input type="checkbox" id="botOn" ${b.on ? 'checked' : ''}><span></span></span></label>` : ''}</div>
+    <p class="note" style="margin-top:0">${b.alert_bot ? `Alerts keep coming from @${esc(b.alert_bot)}. ` : ''}The chat bot gives the menu, answers questions and controls the portal (never real orders), only for the people below. Runs inside this portal: no NAS change, almost no CPU, a few MB of memory.</p>
+    <div class="row" style="gap:8px;margin-bottom:10px">${b.token_set ? `<span class="pill pass">Chat bot set · token …${esc(b.token_tail || '')}</span>` : '<span class="pill warn">No chat bot yet</span>'}
+      <button class="btn sm ${b.token_set ? '' : 'primary'}" id="cbSet">${b.token_set ? 'Change chat bot…' : 'Set up chat bot…'}</button></div>
+    ${b.on ? `<p class="note">Status: ${b.last_in ? 'last message ' + esc(b.last_in) : 'waiting for a message'}${b.ignored ? ` · ${b.ignored} message(s) from other chats ignored` : ''}${b.last_error ? ` · <span class="down">last problem: ${esc(b.last_error)}</span>` : ''}</p>` : ''}
+    <div class="card" style="margin:0 0 12px;background:var(--surface-2)"><h3 style="margin:0 0 6px">People who can use the chat bot</h3>
+      <div class="tablewrap"><table class="tgtable"><thead><tr><th>Name</th><th>Chat ID</th><th>Access</th><th></th></tr></thead><tbody>
+      ${ppl.map(x => `<tr><td>${esc(x.name)}${x.owner ? ' <span class="pill pass">you</span>' : ''}</td><td class="mono">${x.id}</td>
+        <td>${x.owner ? 'Full control' : `<select data-prole="${x.id}"><option value="full" ${x.role === 'full' ? 'selected' : ''}>Full control</option><option value="view" ${x.role === 'view' ? 'selected' : ''}>View only</option></select>`}</td>
+        <td>${x.owner ? '' : `<button class="btn sm danger" data-pdel="${x.id}">Remove</button>`}</td></tr>`).join('')}
+      </tbody></table></div>
+      <form class="cnform" autocomplete="off" onsubmit="return false" style="margin-top:10px"><div class="cngrid">
+        <label>Add a person: chat ID<input id="pId" inputmode="numeric" placeholder="ask them to send /myid to the chat bot" list="pSeen"><datalist id="pSeen">${(b.seen || []).map(x => `<option value="${x.id}">${esc(x.name)} · “${esc(x.text || '')}” · ${esc(x.at)}</option>`).join('')}</datalist></label>
+        <label>Name<input id="pName" maxlength="40" placeholder="e.g. Brother"></label>
+        <label>Access<select id="pRole"><option value="view">View only</option><option value="full">Full control</option></select></label>
+        <label>Portal password<input id="pPw" type="password" autocomplete="current-password"></label></div>
+        ${(b.seen || []).length ? `<p class="note" style="margin:0">People who messaged the bot recently: ${(b.seen || []).map(x => `<a href="#" data-pseen="${x.id}" data-pname="${esc(x.name)}">${esc(x.name)} (${x.id})</a>`).join(' · ')}</p>` : ''}
+        <div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="pAdd">Add person</button></div></form></div>
     <div class="row" style="gap:10px;align-items:center;margin-bottom:10px"><span class="note" style="margin:0">Answer language</span>
       <select id="botLang" class="sel"><option value="hi" ${b.lang === 'hi' ? 'selected' : ''}>Hindi (AI translates the answer)</option><option value="en" ${b.lang === 'en' ? 'selected' : ''}>English</option></select>
       <span class="note" style="margin:0">In the chat: /lang hi or /lang en</span></div>
@@ -860,7 +876,13 @@ async function botCard(host) {
   const vis = () => { $h('#aiBaseL').hidden = $h('#aiProv').value !== 'compatible'; $h('#aiModel').placeholder = P[$h('#aiProv').value].model_hint; };
   vis(); $h('#aiProv').onchange = vis;
   host.querySelectorAll('[data-base]').forEach(x => x.onclick = e => { e.preventDefault(); $h('#aiBase').value = x.dataset.base; });
-  $h('#botOn').onchange = async e => { try { const r = await api('/api/bot/settings', { on: e.target.checked }); toast(r.message); botCard(host); } catch (er) { toast(er.message, 'bad'); } };
+  $h('#cbSet').onclick = () => cbBotForm(b, () => botCard(host));
+  host.querySelectorAll('[data-pseen]').forEach(x => x.onclick = e => { e.preventDefault(); $h('#pId').value = x.dataset.pseen; $h('#pName').value = x.dataset.pname; });
+  const pact = async body => { try { const r = await api('/api/chatbot/people', body); toast(r.message); botCard(host); } catch (er) { toast(er.message, 'bad'); } };
+  $h('#pAdd').onclick = () => pact({ action: 'add', id: $h('#pId').value, name: $h('#pName').value, role: $h('#pRole').value, password: $h('#pPw').value });
+  host.querySelectorAll('[data-prole]').forEach(x => x.onchange = () => pact({ action: 'role', id: x.dataset.prole, role: x.value }));
+  host.querySelectorAll('[data-pdel]').forEach(x => x.onclick = async () => { if (await askConfirm('Remove this person?', 'They can no longer use the chat bot.', 'Remove')) pact({ action: 'remove', id: x.dataset.pdel }); });
+  const bo = $h('#botOn'); if (bo) bo.onchange = async e => { try { const r = await api('/api/bot/settings', { on: e.target.checked }); toast(r.message); botCard(host); } catch (er) { toast(er.message, 'bad'); } };
   $h('#botLang').onchange = async e => { try { const r = await api('/api/bot/settings', { lang: e.target.value }); toast(r.message); botCard(host); } catch (er) { toast(er.message, 'bad'); } };
   $h('#aiModelsBtn').onclick = async () => { out('Asking the provider for its models…');
     try { const r = await api('/api/ai/models', form()); $h('#aiModels').innerHTML = r.models.map(m => `<option value="${esc(m)}">`).join(''); out(`${r.models.length} models found: click the Model box to pick one.`); } catch (e) { out(e.message, true); } };
@@ -871,6 +893,26 @@ async function botCard(host) {
     if (!$h('#aiPw').value) { out('Enter the portal password first.', true); return; }
     if (!await askConfirm('Remove the AI key?', 'The bot will understand messages by keywords only, and Hindi answers will stay English until you add a key again.', 'Remove')) return;
     try { const r = await api('/api/ai/forget', { password: $h('#aiPw').value }); toast(r.message); botCard(host); } catch (e) { out(e.message, true); } };
+}
+
+/* Set up the second (chat) bot: token only; checked with Telegram and a test message to you before saving. */
+function cbBotForm(b, done) {
+  let dlg = $('#cbDlg');
+  if (!dlg) { dlg = document.createElement('dialog'); dlg.id = 'cbDlg'; document.body.appendChild(dlg); }
+  dlg.innerHTML = `<form method="dialog" class="cnform" autocomplete="off">
+    <h3>${b.token_set ? 'Change chat bot' : 'Set up the chat bot'}</h3>
+    <ol class="steps note"><li>In Telegram open <b>@BotFather</b>, send <code>/newbot</code>, give it a name (e.g. “Tradeskill Chat”) and copy the token. Use a <b>different</b> bot from your alert bot.</li>
+      <li>Open the new bot and press <b>Start</b>.</li><li>Paste the token, enter your portal password, then <b>Check and save</b>. You are added automatically.</li></ol>
+    <label>Chat bot token<input id="cbTok" type="password" placeholder="123456789:AAH…" spellcheck="false" autocomplete="off"></label>
+    <label>Portal password<input id="cbPw" type="password" autocomplete="current-password"></label>
+    <div id="cbOut" class="note"></div>
+    <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" value="cancel">Cancel</button><button class="btn primary" type="button" id="cbGo">Check and save</button></div></form>`;
+  const $f = s => dlg.querySelector(s);
+  $f('#cbGo').onclick = async () => { $f('#cbOut').textContent = 'Checking with Telegram…';
+    try { const r = await api('/api/chatbot/token', { token: $f('#cbTok').value, password: $f('#cbPw').value }); dlg.close(); toast(r.message); done(); }
+    catch (e) { $f('#cbOut').innerHTML = `<span class="down">${esc(e.message)} Nothing was changed.</span>`; } };
+  dlg.addEventListener('close', () => dlg.querySelectorAll('input').forEach(i => { i.value = ''; }), { once: true });
+  dlg.showModal();
 }
 
 /* Change the Telegram bot: new token + chat ID, checked with Telegram (test message) before switching. Portal password required. */

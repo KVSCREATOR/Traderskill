@@ -556,3 +556,39 @@ def watcher():
 
 def start():
     threading.Thread(target=watcher, name="tradeskill-watcher", daemon=True).start()
+    threading.Thread(target=tap_watcher, name="alert-taps", daemon=True).start()
+
+
+# ----------------------------------------------------------------- the alert bot reads ONLY its own "Allow again" taps
+def tap_watcher():
+    """Button taps on alert messages (🔔 Allow again). Text messages to the alert bot are skipped: chat lives in the chat bot."""
+    off = None
+    while True:
+        c = _cfg(S.load_state())
+        if not token() or not c.get("chat_id"):
+            time.sleep(15)
+            continue
+        try:
+            if off is None:   # start after anything already waiting
+                last = _call("getUpdates", {"offset": -1, "timeout": 0}) or []
+                off = last[-1]["update_id"] + 1 if last else 0
+            upd = _call("getUpdates", {"offset": off, "timeout": 25, "allowed_updates": json.dumps(["callback_query"])}, timeout=40) or []
+        except Exception:  # noqa: BLE001
+            time.sleep(20)
+            continue
+        for u in upd:
+            off = u["update_id"] + 1
+            cq = u.get("callback_query") or {}
+            msg = cq.get("message") or {}
+            data = cq.get("data") or ""
+            if (msg.get("chat") or {}).get("id") != c.get("chat_id") or not data.startswith("uq:"):
+                continue
+            keys = (c.get("quiet_groups") or {}).get(data[3:]) or []
+            n = unquiet(keys)
+            try:
+                _call("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "Allowed again: %d" % n})
+                _call("editMessageText", {"chat_id": msg["chat"]["id"], "message_id": msg["message_id"],
+                                          "text": (msg.get("text") or "").replace("🔕 Won't repeat until you tap Allow again.", "")
+                                          + "🔔 Allowed again: it will message you the next time this happens."})
+            except Exception:  # noqa: BLE001
+                pass

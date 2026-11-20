@@ -16,6 +16,7 @@
 Owner's choices (20 Nov 2026): no PIN; Hindi by default; any AI provider; alerts once then quiet until tapped.
 """
 import json
+import os
 import re
 import secrets
 import threading
@@ -65,81 +66,222 @@ _off = {"n": None}
 _seen = {"today": []}
 _pending = {}                 # confirm tokens -> (text, function, made)
 _sem = threading.BoundedSemaphore(2)
+_lock_send = threading.Lock()
+_ctx = threading.local()
+_ctx.role = "full"
+
+
+def _remember(chat, text):
+    """Chats that wrote to the bot but are not allowed (last 20), to add them from the Limits page."""
+    if not chat.get("id"):
+        return
+    name = (chat.get("title") or ("%s %s" % (chat.get("first_name", ""), chat.get("last_name", ""))).strip() or chat.get("username") or str(chat["id"]))
+    with S._state_lock:
+        st = S.load_state()
+        cb = st.setdefault("chatbot", {})
+        seen = [x for x in cb.get("seen") or [] if x["id"] != chat["id"]]
+        seen.append({"id": chat["id"], "name": name, "text": text, "at": S.now_ist().strftime("%d %b %H:%M")})
+        cb["seen"] = seen[-20:]
+        S.save_state(st)
 _status = {"started": None, "last_in": None, "last_error": None, "ignored": 0, "skipped_old": 0}
 
 
-# ----------------------------------------------------------------- settings
+# ----------------------------------------------------------------- settings (the chat bot is a SEPARATE bot from the alert bot)
+_lock = threading.Lock()
+
+
+def _token_file():
+    return os.path.join(S.DATA, "chatbot_token.txt")
+
+
+def token():
+    try:
+        with open(_token_file(), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def _call(method, params=None, timeout=20):
+    """Telegram API with the CHAT bot's own token (alerts use the other bot)."""
+    tok = token()
+    if not tok:
+        raise S.ApiError(409, "No chat bot set yet (Limits -> Telegram -> Chat bot).")
+    return T._call(method, params, timeout, tok=tok)
+
+
 def _tg():
     return S.load_state().get("telegram") or {}
 
 
+def _cb():
+    return S.load_state().get("chatbot") or {}
+
+
+def people():
+    """Who may use the chat bot. Default: you (the alert bot's chat), with full control."""
+    ppl = _cb().get("people") or []
+    if not ppl and _tg().get("chat_id"):
+        ppl = [{"id": _tg()["chat_id"], "name": _tg().get("name") or "Me", "role": "full", "owner": True}]
+    return ppl
+
+
+def _person(chat):
+    return next((x for x in people() if x["id"] == chat), None)
+
+
 def enabled():
-    tg = _tg()
-    return bool(tg.get("bot_on") and tg.get("chat_id") and T.token())
+    return bool(_cb().get("on") and token() and people())
 
 
 def lang():
-    return _tg().get("bot_lang") or "hi"
+    return _cb().get("lang") or "hi"
 
 
 def rules():
-    return _tg().get("bot_rules") or "invest"
+    return _cb().get("rules") or "invest"
 
 
 def status():
-    tg = _tg()
-    return {"on": bool(tg.get("bot_on")), "lang": tg.get("bot_lang") or "hi", "chat": tg.get("name"), "connected": bool(tg.get("chat_id")),
+    cb = _cb()
+    return {"on": bool(cb.get("on")), "lang": cb.get("lang") or "hi", "token_set": bool(token()), "token_tail": token()[-4:] if token() else None,
+            "bot": cb.get("bot"), "people": people(), "seen": (cb.get("seen") or [])[-10:][::-1],
             "running": bool(_status["started"]), "last_in": _status["last_in"], "last_error": _status["last_error"],
-            "ignored": _status["ignored"], "skipped_old": _status["skipped_old"], "muted": len(tg.get("quiet") or {}),
-            "ai": AI.status(), "commands": COMMANDS}
+            "ignored": _status["ignored"], "skipped_old": _status["skipped_old"], "muted": len(_tg().get("quiet") or {}),
+            "ai": AI.status(), "commands": COMMANDS, "alert_bot": _tg().get("bot")}
 
 
 def _set(**kw):
     with S._state_lock:
         st = S.load_state()
-        tg = st.setdefault("telegram", {})
-        tg.update(kw)
+        cb = st.setdefault("chatbot", {})
+        cb.update(kw)
         S.save_state(st)
 
 
 def set_settings(body):
-    turning_on = bool(body.get("on")) and not _tg().get("bot_on")
+    turning_on = bool(body.get("on")) and not _cb().get("on")
+    if turning_on and not token():
+        raise S.ApiError(409, "Set up the chat bot first (its token), then switch it on.")
     upd = {}
     if "on" in body:
-        upd["bot_on"] = bool(body["on"])
+        upd["on"] = bool(body["on"])
     if body.get("lang") in ("en", "hi"):
-        upd["bot_lang"] = body["lang"]
+        upd["lang"] = body["lang"]
     if turning_on:
-        upd["bot_since"] = int(time.time())   # older messages waiting in Telegram are skipped
-        upd["bot_offset"] = _latest_offset()
-        _off["n"] = upd["bot_offset"]
+        upd["since"] = int(time.time())   # older messages waiting in Telegram are skipped
+        upd["offset"] = _latest_offset()
+        _off["n"] = upd["offset"]
     _set(**upd)
     if turning_on:
         try:
-            T._call("setMyCommands", {"commands": json.dumps([{"command": c, "description": d} for c, d in COMMANDS])})
+            _call("setMyCommands", {"commands": json.dumps([{"command": c, "description": d} for c, d in COMMANDS])})
         except Exception:  # noqa: BLE001
             pass
-        try:
-            chat = _tg().get("chat_id")
-            if chat:
-                _send(chat, "🤖 Tradeskill bot is on. Use the menu below, or type a question (e.g. \"HAL\", \"aaj kya karna hai\").",
-                      _bottom())
-        except Exception:  # noqa: BLE001
-            pass
+        _retire_alert_bot_menu()
+        for x in people():
+            try:
+                _send(x["id"], "🤖 Tradeskill chat bot is on. Use the menu below, or type a question (e.g. \"HAL\", \"aaj kya karna hai\")."
+                      + ("" if x.get("role") == "full" else "\nYou have view-only access."), _bottom())
+            except Exception:  # noqa: BLE001
+                pass
     out = status()
-    out["message"] = ("The bot now answers your messages; the menu was sent to Telegram." if out["on"] else
-                      "The bot no longer answers messages (alerts still come).") if "on" in body else \
+    out["message"] = ("The chat bot now answers; the menu was sent to it." if out["on"] else
+                      "The chat bot no longer answers messages (alerts still come from the alert bot).") if "on" in body else \
         "Answer language: %s." % ("Hindi" if out["lang"] == "hi" else "English")
     return out
+
+
+def _retire_alert_bot_menu():
+    """The alert bot used to carry the menu: remove its command list and bottom keyboard (once)."""
+    if _cb().get("alert_menu_removed"):
+        return
+    try:
+        T._call("deleteMyCommands", {})
+        if _tg().get("chat_id"):
+            T._call("sendMessage", {"chat_id": _tg()["chat_id"], "text": "ℹ️ This bot now only sends alerts. Chat and control moved to @%s." % (_cb().get("bot") or "your chat bot"),
+                                    "reply_markup": json.dumps({"remove_keyboard": True})})
+        _set(alert_menu_removed=True)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _latest_offset():
     """The offset just after the newest waiting message, so nothing old gets answered."""
     try:
-        upd = T._call("getUpdates", {"offset": -1, "timeout": 0}) or []
+        upd = _call("getUpdates", {"offset": -1, "timeout": 0}) or []
         return upd[-1]["update_id"] + 1 if upd else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def set_token(body):
+    """Check a NEW bot for chat (Telegram getMe + a test message to you), then save its token. Portal password needed."""
+    T._check_pw(body.get("password"))
+    t = T._tok_in(body)
+    if t == T.token():
+        raise S.ApiError(400, "That is your alert bot. Create a second bot in @BotFather for chat, so alerts and chat stay apart.")
+    me = T._call("getMe", tok=t)
+    owner = people()[0]["id"] if people() else _tg().get("chat_id")
+    if not owner:
+        raise S.ApiError(409, "Connect the alert bot first (it knows your chat ID).")
+    try:
+        T._call("sendMessage", {"chat_id": owner, "text": "✅ This is your Tradeskill chat bot (@%s). Switch it on under Limits → Telegram → Chat bot." % me.get("username")}, tok=t)
+    except S.ApiError as e:
+        raise S.ApiError(409, "Open @%s in Telegram and press Start first, then try again. (%s)" % (me.get("username"), str(e)[:80]))
+    os.makedirs(S.DATA, exist_ok=True)
+    tmp = _token_file() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(t)
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    os.replace(tmp, _token_file())
+    _set(bot=me.get("username"), offset=None, since=int(time.time()))
+    _off["n"] = None
+    out = status()
+    out["message"] = "Chat bot set: @%s. A test message was sent to you there. Now switch it on." % me.get("username")
+    return out
+
+
+def set_people(body):
+    """Add / remove a person or change their access (full control or view only). Adding needs the portal password."""
+    act = body.get("action")
+    with _lock:
+        ppl = people()
+        try:
+            cid = int(str(body.get("id") or "").strip())
+        except ValueError:
+            raise S.ApiError(400, "Chat ID must be a number (pick from 'People who messaged the bot', or ask them to send /myid).")
+        cur = next((x for x in ppl if x["id"] == cid), None)
+        if act == "add":
+            T._check_pw(body.get("password"))
+            if cur:
+                raise S.ApiError(400, "Already allowed.")
+            seen = next((x for x in _cb().get("seen") or [] if x["id"] == cid), {})
+            ppl.append({"id": cid, "name": str(body.get("name") or seen.get("name") or cid)[:40], "role": "view" if body.get("role") == "view" else "full"})
+            msg = "Added %s (%s)." % (ppl[-1]["name"], "view only" if ppl[-1]["role"] == "view" else "full control")
+        elif act == "role":
+            if not cur:
+                raise S.ApiError(404, "Not in the list.")
+            if cur.get("owner"):
+                raise S.ApiError(400, "You (the owner) always have full control.")
+            cur["role"] = "view" if body.get("role") == "view" else "full"
+            msg = "%s now has %s." % (cur["name"], "view-only access" if cur["role"] == "view" else "full control")
+        elif act == "remove":
+            if not cur:
+                raise S.ApiError(404, "Not in the list.")
+            if cur.get("owner"):
+                raise S.ApiError(400, "You (the owner) can't be removed.")
+            ppl.remove(cur)
+            msg = "Removed %s." % cur["name"]
+        else:
+            raise S.ApiError(400, "Unknown action.")
+        _set(people=ppl)
+    out = status()
+    out["message"] = msg
+    return out
 
 
 # ----------------------------------------------------------------- reading messages
@@ -155,11 +297,11 @@ def _poll():
             continue
         try:
             if _off["n"] is None:
-                _off["n"] = _tg().get("bot_offset")
+                _off["n"] = _cb().get("offset")
             params = {"timeout": 25, "allowed_updates": json.dumps(["message", "callback_query"])}
             if _off["n"]:
                 params["offset"] = _off["n"]
-            upd = T._call("getUpdates", params, timeout=40) or []
+            upd = _call("getUpdates", params, timeout=40) or []
         except Exception as e:  # noqa: BLE001  (Telegram down, another reader, token changed)
             _status["last_error"] = "%s · %s" % (time.strftime("%H:%M"), str(e)[:150])
             time.sleep(30 if "onflict" in str(e) else 15)
@@ -168,7 +310,7 @@ def _poll():
             _off["n"] = u["update_id"] + 1
             threading.Thread(target=_handle_safe, args=(u,), daemon=True).start()
         if upd:
-            _set(bot_offset=_off["n"])
+            _set(offset=_off["n"])
 
 
 def _handle_safe(u):
@@ -179,28 +321,35 @@ def _handle_safe(u):
             _status["last_error"] = "%s · %s" % (time.strftime("%H:%M"), str(e)[:150])
             try:
                 chat = ((u.get("message") or (u.get("callback_query") or {}).get("message") or {}).get("chat") or {}).get("id")
-                if chat == _tg().get("chat_id"):
+                if _person(chat):
                     _send(chat, "Sorry, that failed: %s" % str(e)[:200])
             except Exception:  # noqa: BLE001
                 pass
 
 
 def handle(u):
-    tg = _tg()
-    my_chat = tg.get("chat_id")
+    cb = _cb()
     cq = u.get("callback_query")
     msg = u.get("message") or (cq or {}).get("message") or {}
     chat = (msg.get("chat") or {}).get("id")
-    if not my_chat or chat != my_chat:   # only your chat; everyone else is ignored
+    who = _person(chat)
+    if not who:   # not in your people list: ignored, but remembered so you can add them on the Limits page
         _status["ignored"] += 1
+        _remember(msg.get("chat") or {}, (msg.get("text") or "")[:60])
+        if (msg.get("text") or "").strip().lower() in ("/myid", "/start", "myid"):
+            try:
+                _send(chat, "This is a private bot. Your chat ID is %s: send it to the owner if you should have access." % chat)
+            except Exception:  # noqa: BLE001
+                pass
         return
-    if not cq and (msg.get("date") or 0) < (tg.get("bot_since") or 0) - 5:   # written before the bot was switched on
+    _ctx.role = who.get("role") or "full"
+    if not cq and (msg.get("date") or 0) < (cb.get("since") or 0) - 5:   # written before the bot was switched on
         _status["skipped_old"] += 1
         return
     _status["last_in"] = S.now_ist().strftime("%d %b %H:%M")
     if cq:
         try:
-            T._call("answerCallbackQuery", {"callback_query_id": cq["id"]})
+            _call("answerCallbackQuery", {"callback_query_id": cq["id"]})
         except Exception:  # noqa: BLE001
             pass
         return _button(chat, msg.get("message_id"), cq.get("data") or "")
@@ -360,7 +509,18 @@ MENU = _btn([("📋 Today", "cmd:today"), ("💼 Holdings", "cmd:holdings"), ("�
             [("☰ More", "cmd:more")])
 
 
+VIEW_BLOCK_CMD = {"addalert", "listedit", "paperbuy", "setlimit", "setcore", "restart", "login"}
+VIEW_BLOCK_BTN = {"lr", "la", "t", "sd", "cn", "cd", "pd", "tg", "uq", "uk", "ct", "pc", "gc", "pb", "cf", "ru", "lg"}
+VIEW_ONLY = "👁 You have view-only access: ask the owner to change this."
+
+
+def _view_only():
+    return getattr(_ctx, "role", "full") == "view"
+
+
 def run(cmd, arg=""):
+    if _view_only() and cmd in VIEW_BLOCK_CMD:
+        return VIEW_ONLY, MENU
     fn = {"help": a_help, "menu": a_help, "more": a_more, "holdmenu": a_holdmenu, "today": a_today, "holdings": a_holdings, "stock": a_stock,
           "stops": a_stops, "plan": a_plan, "nifty": a_nifty, "vsnifty": a_vsnifty, "news": a_news, "tax": a_tax,
           "core": a_core, "sectors": a_sectors, "results": a_results, "longterm": a_longterm, "limits": a_limits,
@@ -890,7 +1050,7 @@ def a_lang(arg=""):
     if a not in ("hi", "en"):
         return "Answer language now: %s. Send /lang hi or /lang en." % ("Hindi" if lang() == "hi" else "English"), \
             _btn([("🇮🇳 Hindi", "lg:hi"), ("🇬🇧 English", "lg:en")])
-    _set(bot_lang=a)
+    _set(lang=a)
     note = "" if a == "en" or AI.configured() else " (Hindi needs an AI service set on the portal; until then answers stay English.)"
     return "Answer language: %s.%s" % ("Hindi" if a == "hi" else "English", note), MENU
 
@@ -912,6 +1072,8 @@ def _restart():
 def _button(chat, mid, data):
     head, _, rest = data.partition(":")
     note = ""
+    if _view_only() and (head in VIEW_BLOCK_BTN or data in ("cmd:restart", "cmd:login")):
+        return _reply(chat, mid, VIEW_ONLY, _btn([("☰ Menu", "cmd:more")]), "button", data)
     if head == "cmd":
         answer, kb = a_holdmenu() if rest == "holdmenu" else run(rest)
     elif head == "st":
@@ -989,7 +1151,7 @@ def _button(chat, mid, data):
     elif head == "lg":
         answer, kb = a_lang(rest)
     elif head == "ru":
-        _set(bot_rules=rest if rest in ("invest", "swing") else "invest")
+        _set(rules=rest if rest in ("invest", "swing") else "invest")
         answer, kb = a_settings()
         note = "✓ Stock answers now use the %s rules." % ("Trading" if rest == "swing" else "Investing")
     elif head == "pl":
@@ -1043,8 +1205,8 @@ def _reply(chat, mid, text, kb, how, question):
             params = {"chat_id": chat, "message_id": mid, "text": full[:4000], "disable_web_page_preview": "true"}
             if kb:
                 params["reply_markup"] = json.dumps(kb)
-            with T._send_lock:
-                T._call("editMessageText", params)
+            with _lock_send:
+                _call("editMessageText", params)
         except Exception as e:  # noqa: BLE001
             if "not modified" not in str(e):
                 _send(chat, full, kb)
@@ -1060,5 +1222,5 @@ def _send(chat, text, kb=None):
     params = {"chat_id": chat, "text": text[:4000], "disable_web_page_preview": "true"}
     if kb:
         params["reply_markup"] = json.dumps(kb)
-    with T._send_lock:
-        T._call("sendMessage", params)
+    with _lock_send:
+        _call("sendMessage", params)
