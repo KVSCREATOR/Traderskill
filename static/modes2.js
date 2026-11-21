@@ -526,10 +526,13 @@ function heldSyms() { return S.held && S.held.connected ? S.held.symbols : []; }
 const PICK_VIEWS = { predictor: 'predictor', entry: 'entry', exit: 'exit', odds: 'odds', budget: 'budget', risk: 'risk', news: 'news', earnings: 'earnings' };
 function holdBar(name) {
   const bar = $('#holdbar'); if (!bar) return;
-  const syms = heldSyms();
+  let syms = heldSyms();
   if (!syms.length || !PICK_VIEWS[name]) { bar.hidden = true; return; }
   bar.hidden = false;
   const by = Object.fromEntries(((S.held && S.held.items) || []).map(h => [h.symbol, h]));
+  // Biggest profit first, biggest loss last; stocks with no profit figure go at the end
+  const pp = x => { const p = by[x] && by[x].pnl_pct; return p == null ? -Infinity : p; };
+  syms = [...syms].sort((a, b) => pp(b) - pp(a) || a.localeCompare(b));
   // 7 shades by profit %: dark red <= -10, red -10..-5, light red -5..-1, white -1..+1, light green +1..+5, green +5..+10, dark green >= +10
   const shade = p => p == null ? 'pl0' : p <= -10 ? 'plm3' : p <= -5 ? 'plm2' : p <= -1 ? 'plm1' : p < 1 ? 'pl0' : p < 5 ? 'plp1' : p < 10 ? 'plp2' : 'plp3';
   bar.innerHTML = `<span class="muted">◉ My holdings</span>${syms.map(x => { const p = by[x] && by[x].pnl_pct;
