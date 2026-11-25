@@ -1050,6 +1050,7 @@ def scan_row(mode, sym, mkt, extra=False):
                "change_pct": (c / ind["c"][i - 1] - 1) * 100 if i else None,
                "rs3": (r3 - b3) * 100 if r3 is not None and b3 is not None else None,
                "rs6": (r6 - b6) * 100 if r6 is not None and b6 is not None else None,
+               "mom12": ind["c"][i - 21] / ind["c"][i - 252] - 1 if i >= 252 and ind["c"][i - 252] else None,
                "from_high": (c / hi - 1) * 100, "up_mid": bool(s50 and s200 and c > s50 > s200),
                "up_long": bool(s200 and c > s200 and (ind["sma200"][i - 20] or 0) < s200),
                "setup": stt["setup"][1] if stt["setup"] else None, "setup_detail": stt["setup"][2] if stt["setup"] else "",
@@ -1073,7 +1074,7 @@ def scan_row(mode, sym, mkt, extra=False):
         return {"symbol": sym, "name": S.NAMES.get(sym, sym), "error": str(e)[:120]}
 
 
-def rank_row(mode, r, vals):
+def rank_row(mode, r, vals, vals12=None):
     """Strength percentile vs the 250 (vals = their sorted 3m / 6m values) and the 0-100 rank."""
     key = "rs3" if mode == "swing" else "rs6"
     if r[key] is None or not vals:
@@ -1081,6 +1082,10 @@ def rank_row(mode, r, vals):
     else:
         pctl = bisect.bisect_left(vals, r[key]) / max(1, len(vals) - 1)
     pctl = min(1.0, pctl)
+    if mode == "invest" and vals12 and r.get("mom12") is not None:
+        # backtest 2020-2026 (monthly, 250 stocks): averaging 6-month strength with 12-month momentum
+        # (skipping the latest month) picked better top-20s than 6-month strength alone, in both halves
+        pctl = (pctl + min(1.0, bisect.bisect_left(vals12, r["mom12"]) / max(1, len(vals12) - 1))) / 2
     r["rs_pct"] = round(pctl * 100)
     live = r["status"] in ("confirmed", "recent", "provisional")
     if mode == "swing":
@@ -1102,8 +1107,9 @@ def scan_long(mode, refresh=False):
         ok = [r for r in rows if "error" not in r]
         key = "rs3" if mode == "swing" else "rs6"
         vals = sorted(r[key] for r in ok if r[key] is not None)
+        vals12 = sorted(r["mom12"] for r in ok if r.get("mom12") is not None)
         for r in ok:
-            rank_row(mode, r, vals)
+            rank_row(mode, r, vals, vals12)
         ok.sort(key=lambda r: (-r["rank"], r["symbol"]))
         data = {"mode": mode, "rows": ok, "failed": [r for r in rows if "error" in r], "clock": S.market_clock(),
                 "scanned_at": S.now_ist().strftime("%H:%M:%S"), "universe": "Nifty LargeMidcap 250",

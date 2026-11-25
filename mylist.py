@@ -147,6 +147,7 @@ def _rows_long(mode, syms, held):
     full = L.scan_long(mode)   # cached 10 min: needed for the strength percentile vs the 250
     key = "rs3" if mode == "swing" else "rs6"
     vals = sorted(r[key] for r in full["rows"] if r.get(key) is not None)
+    vals12 = sorted(r["mom12"] for r in full["rows"] if r.get("mom12") is not None)
     with ThreadPoolExecutor(10) as ex:
         rows = list(ex.map(lambda s: L.scan_row(mode, s, mkt, extra=True), syms))
         dues = dict(zip(syms, ex.map(_results_due, syms)))
@@ -161,7 +162,7 @@ def _rows_long(mode, syms, held):
             failed.append(r)
             continue
         ind = r.pop("_ind")
-        L.rank_row(mode, r, vals)
+        L.rank_row(mode, r, vals, vals12)
         sym, price = r["symbol"], r["price"]
         r["results"] = dues.get(sym)
         r["in_250"] = sym in S.NAMES
